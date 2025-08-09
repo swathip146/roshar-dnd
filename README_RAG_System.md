@@ -1,6 +1,6 @@
 # D&D RAG System Documentation
 
-This system provides a complete Retrieval-Augmented Generation (RAG) solution for D&D documents using Qdrant vector database and OpenAI GPT.
+This system provides a complete Retrieval-Augmented Generation (RAG) solution for D&D documents using Qdrant vector database and Claude Sonnet 4.
 
 ## System Components
 
@@ -24,8 +24,8 @@ RAG agent that answers questions using the stored documents.
 
 **Features:**
 - Semantic document retrieval from Qdrant
-- OpenAI GPT-3.5-turbo for answer generation
-- Fallback retrieval-only mode (no API key needed)
+- Claude Sonnet 4 for intelligent answer generation
+- Fallback retrieval-only mode (no Claude needed)
 - Interactive chat interface
 - Source document citations
 
@@ -46,7 +46,7 @@ python example_rag_usage.py
 
 ### 1. Prerequisites
 ```bash
-pip install haystack-ai qdrant-client sentence-transformers openai
+pip install haystack-ai qdrant-client sentence-transformers hwtgenielib
 ```
 
 ### 2. Start Qdrant
@@ -54,12 +54,11 @@ pip install haystack-ai qdrant-client sentence-transformers openai
 docker run -p 6333:6333 qdrant/qdrant
 ```
 
-### 3. Set OpenAI API Key (Optional)
-```bash
-export OPENAI_API_KEY="your-api-key-here"
-```
+### 3. Setup Claude Access
+The system uses Claude Sonnet 4 through Apple's GenAI framework via `hwtgenielib`.
+Make sure you have proper access configured for Claude models.
 
-Without OpenAI API key, the system works in retrieval-only mode.
+Without Claude access, the system works in retrieval-only mode.
 
 ### 4. Process Documents
 ```bash
@@ -141,7 +140,7 @@ for source in result["source_documents"]:
    ├── Query embedding
    ├── Semantic search
    ├── Retrieve relevant chunks
-   └── Generate answer with GPT
+   └── Generate answer with Claude Sonnet 4
    ↓
 5. User Answer + Sources
 ```
@@ -180,11 +179,11 @@ agent = RAGAgent(
    ```
    **Solution:** Run `batch_pdf_processor.py` first to create and populate the collection
 
-3. **No OpenAI Responses**
+3. **No Claude Responses**
    ```
    Only document retrieval will be available
    ```
-   **Solution:** Set `OPENAI_API_KEY` environment variable or use retrieval-only mode
+   **Solution:** Ensure `hwtgenielib` is installed and Claude access is configured, or use retrieval-only mode
 
 4. **Embedding Model Loading**
    ```

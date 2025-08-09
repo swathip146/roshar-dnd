@@ -1,27 +1,64 @@
 """
 RAG (Retrieval-Augmented Generation) Agent
-Answers user queries using documents stored in Qdrant vector database
+Answers user queries using documents stored in Qdrant vector database with Claude
 """
 import os
 from typing import List, Dict, Any, Optional
+
+# Set tokenizers parallelism to avoid fork warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from haystack import Document, Pipeline
-from haystack.components.retrievers import QdrantEmbeddingRetriever
+from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from haystack.components.embedders import SentenceTransformersTextEmbedder
-from haystack.components.generators import OpenAIGenerator
-from haystack.components.builders import PromptBuilder
+from haystack.components.builders import PromptBuilder, AnswerBuilder
+from haystack.components.rankers import SentenceTransformersSimilarityRanker
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
+
+# Configuration constants
+DEFAULT_TOP_K = 20  # Number of documents to retrieve by default
+DEFAULT_RANKER_TOP_K = 5  # Number of documents to keep after ranking
+DEFAULT_EMBEDDING_DIM = 384  # sentence-transformers/all-MiniLM-L6-v2 dimension
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# Claude-specific imports based on Genie.py
+try:
+    from hwtgenielib import component
+    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+    from hwtgenielib.components.builders import ChatPromptBuilder
+    from hwtgenielib.dataclasses import ChatMessage
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
+    # Fallback decorator
+    def component(cls):
+        return cls
 from qdrant_client import QdrantClient
 import warnings
 warnings.filterwarnings("ignore")
 
 
-class RAGAgent:
-    """RAG Agent for answering queries using Qdrant vector database"""
+# Helper component to convert string prompts to chat messages
+@component
+class StringToChatMessages:
+    """Converts a string prompt into a list of ChatMessage objects."""
     
-    def __init__(self, collection_name: str = "dnd_documents", 
-                 host: str = "localhost", 
+    @component.output_types(messages=list[ChatMessage])
+    def run(self, prompt: str):
+        """Run the component."""
+        if CLAUDE_AVAILABLE:
+            return {"messages": [ChatMessage.from_user(prompt)]}
+        else:
+            return {"messages": [{"role": "user", "content": prompt}]}
+
+
+class RAGAgent:
+    """RAG Agent for answering queries using Qdrant vector database with Claude"""
+    
+    def __init__(self, collection_name: str = "dnd_documents",
+                 host: str = "localhost",
                  port: int = 6333,
-                 top_k: int = 5):
+                 top_k: int = DEFAULT_TOP_K,
+                 verbose: bool = False):
         """
         Initialize RAG Agent
         
@@ -30,13 +67,16 @@ class RAGAgent:
             host: Qdrant host
             port: Qdrant port
             top_k: Number of documents to retrieve
+            verbose: Enable verbose output
         """
         self.collection_name = collection_name
         self.host = host
         self.port = port
         self.top_k = top_k
+        self.verbose = verbose
         self.document_store = None
         self.pipeline = None
+        self.has_llm = CLAUDE_AVAILABLE
         
         # Initialize components
         self._setup_document_store()
@@ -58,39 +98,58 @@ class RAGAgent:
                 host=self.host,
                 port=self.port,
                 index=self.collection_name,
-                embedding_dim=384  # sentence-transformers/all-MiniLM-L6-v2 dimension
+                embedding_dim=DEFAULT_EMBEDDING_DIM
             )
             
-            print(f"✓ Connected to Qdrant collection: {self.collection_name}")
+            if self.verbose:
+                print(f"✓ Connected to Qdrant collection: {self.collection_name}")
             
         except Exception as e:
-            print(f"✗ Failed to connect to Qdrant: {e}")
-            print("Make sure Qdrant is running: docker run -p 6333:6333 qdrant/qdrant")
+            if self.verbose:
+                print(f"✗ Failed to connect to Qdrant: {e}")
+                print("Make sure Qdrant is running: docker run -p 6333:6333 qdrant/qdrant")
             raise
-    
-    def _setup_pipeline(self):
-        """Setup RAG pipeline with retriever and generator"""
-        # Check for OpenAI API key
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            print("⚠️  OpenAI API key not found. Set OPENAI_API_KEY environment variable for LLM responses.")
-            print("Only document retrieval will be available.")
-            self._setup_retrieval_only_pipeline()
-            return
-        
-        # RAG prompt template
-        rag_prompt = """
-You are a helpful D&D (Dungeons & Dragons) assistant. Answer the user's question based on the provided context documents.
 
-Context Documents:
-{% for doc in documents %}
----
-Source: {{ doc.meta.source_file }} (Tags: {{ doc.meta.document_tag }})
-Content: {{ doc.content }}
----
+    def _create_embedder(self) -> SentenceTransformersTextEmbedder:
+        """Create and configure text embedder"""
+        embedder = SentenceTransformersTextEmbedder(
+            model=EMBEDDING_MODEL
+        )
+        embedder.warm_up()
+        return embedder
+
+    def _create_retriever(self) -> QdrantEmbeddingRetriever:
+        """Create document retriever"""
+        return QdrantEmbeddingRetriever(
+            document_store=self.document_store,
+            top_k=self.top_k
+        )
+
+    def _create_ranker(self) -> SentenceTransformersSimilarityRanker:
+        """Create document ranker for improving retrieval quality"""
+        ranker = SentenceTransformersSimilarityRanker(
+            model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            top_k=DEFAULT_RANKER_TOP_K
+        )
+        ranker.warm_up()
+        return ranker
+
+    def _create_prompt_builder(self) -> PromptBuilder:
+        """Create prompt builder with RAG template"""
+        rag_prompt = """You are a helpful D&D (Dungeons & Dragons) assistant. Answer the user's question based on the provided context documents.
+
+Your audience is an expert, so be highly specific, direct, and concise. If there are ambiguous terms or acronyms, first define them.
+When the retrieved information is directly irrelevant, do not guess. You should output "<REJECT> No relevant information" and summarize the retrieved documents to explain the irrelevance.
+
+Retrieved information (with relevance scores):
+{% for document in documents %}
+  Source: {{ document.meta.source_file }} (Tags: {{ document.meta.document_tag }})
+  Content: {{ document.content }}
+  Score: {{ document.score }}
+  ---
 {% endfor %}
 
-Question: {{ question }}
+User Query: {{ query }}
 
 Instructions:
 - Answer based primarily on the provided context
@@ -99,65 +158,61 @@ Instructions:
 - Be specific and detailed in your responses
 - If asked about rules, provide exact text when available
 
-Answer:
-"""
+Your Answer:"""
+        return PromptBuilder(template=rag_prompt)
+
+    def _create_llm_components(self) -> tuple:
+        """Create LLM-related components"""
+        if not CLAUDE_AVAILABLE:
+            return None, None, None
         
-        # Initialize components
-        text_embedder = SentenceTransformersTextEmbedder(
-            model="sentence-transformers/all-MiniLM-L6-v2"
+        string_to_chat = StringToChatMessages()
+        answer_builder = AnswerBuilder()
+        chat_generator = AppleGenAIChatGenerator(
+            model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
         )
-        
-        retriever = QdrantEmbeddingRetriever(
-            document_store=self.document_store,
-            top_k=self.top_k
-        )
-        
-        prompt_builder = PromptBuilder(template=rag_prompt)
-        
-        generator = OpenAIGenerator(
-            model="gpt-3.5-turbo",
-            api_key=openai_api_key
-        )
-        
-        # Warm up embedder
-        text_embedder.warm_up()
+        return string_to_chat, answer_builder, chat_generator
+    
+    def _setup_pipeline(self):
+        """Setup RAG pipeline with retriever, ranker, and optional Claude generator"""
+        # Create core components
+        text_embedder = self._create_embedder()
+        retriever = self._create_retriever()
+        ranker = self._create_ranker()
         
         # Create pipeline
         self.pipeline = Pipeline()
         self.pipeline.add_component("text_embedder", text_embedder)
         self.pipeline.add_component("retriever", retriever)
-        self.pipeline.add_component("prompt_builder", prompt_builder)
-        self.pipeline.add_component("generator", generator)
+        self.pipeline.add_component("ranker", ranker)
         
-        # Connect components
+        # Connect retrieval and ranking
         self.pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-        self.pipeline.connect("retriever.documents", "prompt_builder.documents")
-        self.pipeline.connect("prompt_builder.prompt", "generator.prompt")
+        self.pipeline.connect("retriever.documents", "ranker.documents")
         
-        print("✓ RAG pipeline initialized with OpenAI GPT-3.5-turbo")
-    
-    def _setup_retrieval_only_pipeline(self):
-        """Setup pipeline for document retrieval only"""
-        text_embedder = SentenceTransformersTextEmbedder(
-            model="sentence-transformers/all-MiniLM-L6-v2"
-        )
-        
-        retriever = QdrantEmbeddingRetriever(
-            document_store=self.document_store,
-            top_k=self.top_k
-        )
-        
-        # Warm up embedder
-        text_embedder.warm_up()
-        
-        # Create simple retrieval pipeline
-        self.pipeline = Pipeline()
-        self.pipeline.add_component("text_embedder", text_embedder)
-        self.pipeline.add_component("retriever", retriever)
-        
-        self.pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-        
-        print("✓ Retrieval-only pipeline initialized (no LLM)")
+        # Add LLM components if available
+        if self.has_llm:
+            prompt_builder = self._create_prompt_builder()
+            string_to_chat, answer_builder, chat_generator = self._create_llm_components()
+            
+            self.pipeline.add_component("prompt_builder", prompt_builder)
+            self.pipeline.add_component("string_to_chat", string_to_chat)
+            self.pipeline.add_component("answer_builder", answer_builder)
+            self.pipeline.add_component("chat_generator", chat_generator)
+            
+            # Connect LLM pipeline with ranker
+            self.pipeline.connect("ranker.documents", "prompt_builder.documents")
+            self.pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
+            self.pipeline.connect("string_to_chat.messages", "chat_generator.messages")
+            self.pipeline.connect("ranker.documents", "answer_builder.documents")
+            self.pipeline.connect("chat_generator.replies", "answer_builder.replies")
+            
+            if self.verbose:
+                print("✓ RAG pipeline initialized with Claude Sonnet 4 and document ranker")
+        else:
+            if self.verbose:
+                print("⚠️  Claude components not available. Only document retrieval and ranking will be available.")
+                print("✓ Retrieval + ranking pipeline initialized (no LLM)")
     
     def query(self, question: str) -> Dict[str, Any]:
         """
@@ -167,40 +222,45 @@ Answer:
             question: User's question
             
         Returns:
-            Dictionary with answer and retrieved documents
+            Dictionary with answer and sources
         """
         if not self.pipeline:
             return {"error": "Pipeline not initialized"}
         
         try:
-            # Run pipeline
-            if "generator" in self.pipeline.graph.nodes:
-                # Full RAG pipeline
+            if self.has_llm:
+                # Full RAG pipeline with Claude and ranker
                 result = self.pipeline.run({
                     "text_embedder": {"text": question},
-                    "prompt_builder": {"question": question}
+                    "ranker": {"query": question},
+                    "prompt_builder": {"query": question},
+                    "answer_builder": {"query": question}
                 })
                 
+                # Extract response and documents
+                if "answer_builder" in result and "answers" in result["answer_builder"]:
+                    answer_obj = result["answer_builder"]["answers"][0]
+                    answer = answer_obj.data
+                    documents = answer_obj.documents if hasattr(answer_obj, 'documents') else []
+                else:
+                    answer = "No response generated"
+                    documents = []
+                
                 return {
-                    "question": question,
-                    "answer": result["generator"]["replies"][0],
-                    "retrieved_documents": result["retriever"]["documents"],
-                    "source_documents": self._format_sources(result["retriever"]["documents"])
+                    "answer": answer,
+                    "sources": self._format_sources(documents)
                 }
             else:
-                # Retrieval only
+                # Retrieval with ranking only
                 result = self.pipeline.run({
-                    "text_embedder": {"text": question}
+                    "text_embedder": {"text": question},
+                    "ranker": {"query": question}
                 })
-                
-                documents = result["retriever"]["documents"]
+                documents = result.get("ranker", {}).get("documents", [])
                 
                 return {
-                    "question": question,
-                    "answer": "Document retrieval completed. OpenAI API key required for generated answers.",
-                    "retrieved_documents": documents,
-                    "source_documents": self._format_sources(documents),
-                    "manual_answer": self._create_manual_response(documents, question)
+                    "answer": self._create_manual_response(documents, question),
+                    "sources": self._format_sources(documents)
                 }
                 
         except Exception as e:
@@ -212,11 +272,10 @@ Answer:
         for i, doc in enumerate(documents, 1):
             sources.append({
                 "rank": i,
-                "source_file": doc.meta.get("source_file", "Unknown"),
-                "document_tag": doc.meta.get("document_tag", "Unknown"),
-                "folder_tags": doc.meta.get("folder_tags", []),
-                "content_preview": doc.content[:200] + "..." if len(doc.content) > 200 else doc.content,
-                "relevance_score": getattr(doc, 'score', 'N/A')
+                "source": doc.meta.get("source_file", "Unknown"),
+                "tags": doc.meta.get("document_tag", "Unknown"),
+                "preview": doc.content[:150] + "..." if len(doc.content) > 150 else doc.content,
+                "score": getattr(doc, 'score', 'N/A')
             })
         return sources
     
@@ -225,17 +284,41 @@ Answer:
         if not documents:
             return f"No relevant documents found for: '{question}'"
         
-        response = f"Found {len(documents)} relevant documents for: '{question}'\n\n"
+        response = f"Found {len(documents)} relevant documents:\n\n"
         
         for i, doc in enumerate(documents, 1):
-            response += f"Document {i}:\n"
-            response += f"Source: {doc.meta.get('source_file', 'Unknown')}\n"
-            response += f"Tags: {doc.meta.get('document_tag', 'Unknown')}\n"
-            response += f"Content: {doc.content[:300]}{'...' if len(doc.content) > 300 else ''}\n"
-            response += "-" * 50 + "\n\n"
+            response += f"{i}. {doc.meta.get('source_file', 'Unknown')}\n"
+            response += f"   {doc.content[:200]}{'...' if len(doc.content) > 200 else ''}\n\n"
         
         return response
     
+    def save_pipeline_diagram(self, filename: str = "rag_pipeline.png") -> bool:
+        """
+        Save pipeline visualization as PNG file
+        
+        Args:
+            filename: Output filename for the PNG
+            
+        Returns:
+            Boolean indicating success
+        """
+        if not self.pipeline:
+            if self.verbose:
+                print("❌ No pipeline to visualize")
+            return False
+        
+        try:
+            # Try to draw the pipeline
+            self.pipeline.draw(path=filename)
+            if self.verbose:
+                print(f"✓ Pipeline diagram saved as: {filename}")
+            return True
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Failed to save pipeline diagram: {e}")
+                print("💡 Install graphviz: pip install pygraphviz")
+            return False
+
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the current collection"""
         try:
@@ -252,29 +335,86 @@ Answer:
             return {"error": f"Failed to get collection info: {e}"}
 
 
-def interactive_chat():
-    """Interactive chat interface for the RAG agent"""
+def _print_welcome():
+    """Print welcome message"""
     print("=== D&D RAG Agent ===")
     print("Ask questions about your D&D documents!")
-    print("Type 'quit', 'exit', or 'q' to stop")
-    print("Type 'info' to see collection information")
-    print("Type 'help' for commands")
+    print("\nCommands: 'info', 'help', 'quit'")
+
+def _get_collection_name() -> str:
+    """Get collection name from user"""
+    collection_name = input("\nEnter Qdrant collection name (default: dnd_documents): ").strip()
+    return collection_name if collection_name else "dnd_documents"
+
+def _initialize_agent(collection_name: str) -> RAGAgent:
+    """Initialize RAG agent with verbose output"""
+    print("Initializing agent...")
+    agent = RAGAgent(collection_name=collection_name, verbose=True)
+    
+    # Show collection info
+    info = agent.get_collection_info()
+    if "error" not in info:
+        print(f"✓ Collection: {info['collection_name']} ({info['total_documents']} documents)")
+    
+    mode = "Claude Sonnet 4" if CLAUDE_AVAILABLE else "Retrieval-only"
+    print(f"✓ Mode: {mode}")
     print()
     
-    # Get collection name
-    collection_name = input("Enter Qdrant collection name (default: dnd_documents): ").strip()
-    if not collection_name:
-        collection_name = "dnd_documents"
+    return agent
+
+def _handle_info_command(agent: RAGAgent):
+    """Handle info command"""
+    info = agent.get_collection_info()
+    if "error" in info:
+        print(f"Error: {info['error']}")
+    else:
+        print(f"Collection: {info['collection_name']}")
+        print(f"Documents: {info['total_documents']}")
+        print(f"Vector size: {info['vector_size']}")
+        print(f"Distance: {info['distance_metric']}")
+        print(f"LLM: {'Claude Sonnet 4' if CLAUDE_AVAILABLE else 'None'}")
+
+def _handle_help_command():
+    """Handle help command"""
+    print("Commands:")
+    print("  info     - Show collection information")
+    print("  diagram  - Save pipeline diagram as PNG")
+    print("  help     - Show this help")
+    print("  quit     - Exit the program")
+    print("\nExample questions:")
+    print("  - What are the different character classes?")
+    print("  - How does combat work in D&D?")
+    print("  - What equipment does a fighter start with?")
+
+def _display_result(result: Dict[str, Any]):
+    """Display query result"""
+    if "error" in result:
+        print(f"❌ Error: {result['error']}")
+        return
+    
+    print(f"\n{'🤖 ANSWER:' if CLAUDE_AVAILABLE else '📋 INFORMATION:'}")
+    print("=" * 50)
+    print(result["answer"])
+    
+    sources = result["sources"]
+    if sources:
+        # Ask user if they want to see sources
+        show_sources = input(f"\nShow {len(sources)} source documents? (y/N): ").strip().lower()
+        if show_sources in ['y', 'yes']:
+            print(f"\n📚 SOURCES ({len(sources)}):")
+            print("=" * 50)
+            for source in sources:
+                print(f"{source['rank']}. {source['source']}")
+                print(f"   {source['preview']}")
+    print()
+
+def interactive_chat():
+    """Interactive chat interface for the RAG agent"""
+    _print_welcome()
+    collection_name = _get_collection_name()
     
     try:
-        # Initialize RAG agent
-        agent = RAGAgent(collection_name=collection_name)
-        
-        # Show collection info
-        info = agent.get_collection_info()
-        if "error" not in info:
-            print(f"Collection: {info['collection_name']} ({info['total_documents']} documents)")
-        print()
+        agent = _initialize_agent(collection_name)
         
         while True:
             question = input("Question: ").strip()
@@ -284,23 +424,21 @@ def interactive_chat():
                 break
             
             if question.lower() == 'info':
-                info = agent.get_collection_info()
-                if "error" in info:
-                    print(f"Error: {info['error']}")
+                _handle_info_command(agent)
+                print()
+                continue
+            
+            if question.lower() == 'diagram':
+                success = agent.save_pipeline_diagram()
+                if success:
+                    print("✓ Pipeline diagram saved as rag_pipeline.png")
                 else:
-                    print(f"Collection: {info['collection_name']}")
-                    print(f"Documents: {info['total_documents']}")
-                    print(f"Vector size: {info['vector_size']}")
-                    print(f"Distance: {info['distance_metric']}")
+                    print("❌ Failed to save pipeline diagram")
                 print()
                 continue
             
             if question.lower() == 'help':
-                print("Commands:")
-                print("  info  - Show collection information")
-                print("  help  - Show this help")
-                print("  quit  - Exit the program")
-                print("  q     - Exit the program")
+                _handle_help_command()
                 print()
                 continue
             
@@ -308,40 +446,11 @@ def interactive_chat():
                 print("Please enter a question.")
                 continue
             
-            print("\nSearching...")
             result = agent.query(question)
-            
-            if "error" in result:
-                print(f"Error: {result['error']}")
-                print()
-                continue
-            
-            print("\n" + "="*60)
-            print("ANSWER:")
-            print("="*60)
-            
-            if "manual_answer" in result:
-                print(result["manual_answer"])
-            else:
-                print(result["answer"])
-            
-            print("\n" + "="*60)
-            print("SOURCES:")
-            print("="*60)
-            
-            sources = result["source_documents"]
-            if sources:
-                for source in sources:
-                    print(f"{source['rank']}. {source['source_file']} (Tags: {source['document_tag']})")
-                    print(f"   Preview: {source['content_preview']}")
-                    print()
-            else:
-                print("No sources found.")
-            
-            print("-" * 60 + "\n")
+            _display_result(result)
     
     except Exception as e:
-        print(f"Failed to initialize RAG agent: {e}")
+        print(f"❌ Failed to initialize RAG agent: {e}")
 
 
 def main():

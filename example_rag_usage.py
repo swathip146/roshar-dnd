@@ -1,5 +1,5 @@
 """
-Example usage of the RAG Agent for D&D document queries
+Example usage of the RAG Agent for D&D document queries with Claude
 """
 import os
 from rag_agent import RAGAgent
