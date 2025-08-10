@@ -1,0 +1,220 @@
+=== CAMPAIGN METADATA ===
+DOCUMENT_TYPE: D&D_Campaign
+TITLE: Shards of Honor: The Veden Crisis
+THEME: Epic Fantasy Adventure
+SETTING: The world of Roshar, focusing on the kingdom of Vedens and neighboring Alethi territories
+LEVEL_RANGE: 1-10
+GENERATED_ON: 2025-08-09T19:52:53.216350
+SOURCE: Campaign_Generator
+
+=== CAMPAIGN OVERVIEW ===
+CHUNK_TYPE: Overview
+CAMPAIGN: Shards of Honor: The Veden Crisis
+Players take on the roles of newly awakened Knights Radiant who must prevent the conquest of Vedens by Voidbringers and corrupted forces. As they speak their oaths and bond with spren, they uncover a conspiracy that threatens to bring about a new Desolation across Roshar.
+
+=== CAMPAIGN BACKGROUND ===
+CHUNK_TYPE: Background
+CAMPAIGN: Shards of Honor: The Veden Crisis
+The Everstorm has awakened ancient Voidbringers who now march on Vedens with their corrupted singer allies. Two of the surviving Heralds have emerged from hiding to guide new Knights Radiant, as the spren have begun bonding with humans once again in desperate response to the growing threat. The players must quickly master their oaths and abilities to prevent Vedens from falling and triggering a new Desolation that could consume all of Roshar.
+
+=== MAIN PLOT ===
+CHUNK_TYPE: Plot
+CAMPAIGN: Shards of Honor: The Veden Crisis
+Session 1 begins with the characters experiencing their first spren bond during a Voidbringer attack on a border town, speaking their First Oath to gain Radiant powers. Guided by the Herald Kalak, they learn of the threat and must gather three ancient artifacts to stop the enemy's ritual. Sessions 2-4 involve traveling to three key locations to retrieve these treasures while speaking higher oaths and growing in power. Session 5 culminates in a massive battlefield where allied forces of humans, honorspren, and reformed singers fight alongside the players against Voidbringers, corrupted singers, and Odium's forces to prevent the completion of a ritual that would shatter the barrier between Roshar and the realm of Odium.
+
+=== NPC: Kalak the Herald ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Shards of Honor: The Veden Crisis
+NPC_NAME: Kalak the Herald
+NPC_ROLE: Herald Mentor
+DESCRIPTION: One of the ten Heralds, appearing as a weathered man bearing the weight of millennia. He carries an ancient Honorblade and speaks with the authority of one who has faced countless Desolations.
+MOTIVATION: Seeks to train new Knights Radiant quickly enough to face the returning Voidbringers, haunted by his abandonment of the Oathpact
+
+=== NPC: Nale the Herald ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Shards of Honor: The Veden Crisis
+NPC_NAME: Nale the Herald
+NPC_ROLE: Conflicted Herald
+DESCRIPTION: The Herald of Justice who has been hunting Knights Radiant, believing their return will trigger another Desolation. Now questions his methods as Voidbringers march regardless.
+MOTIVATION: Torn between his belief that Radiants cause Desolations and the reality that they may be necessary to stop this one
+
+=== NPC: Vyre the Corrupted ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Shards of Honor: The Veden Crisis
+NPC_NAME: Vyre the Corrupted
+NPC_ROLE: Fallen Knight Radiant
+DESCRIPTION: A former Radiant who killed his spren and now serves Odium, wielding corrupted Shards. He leads the Voidbringer forces with tactical precision.
+MOTIVATION: Believes that serving Odium will bring an end to the cycle of Desolations, even if it means the destruction of current civilization
+
+=== NPC: The Sibling ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Shards of Honor: The Veden Crisis
+NPC_NAME: The Sibling
+NPC_ROLE: Ancient Spren
+DESCRIPTION: A powerful spren who once bonded with the city of Urithiru itself. Now weakened and in hiding, speaking only to those who prove worthy.
+MOTIVATION: Desperately seeks Knights Radiant pure enough to help restore the ancient safeguards against Voidbringers
+
+=== LOCATION: The Shattered Plains ===
+CHUNK_TYPE: Location
+CAMPAIGN: Shards of Honor: The Veden Crisis
+LOCATION_NAME: The Shattered Plains
+LOCATION_TYPE: Ancient Battleground
+DESCRIPTION: A vast expanse of broken plateaus where honorspren gather in great numbers. The echoes of ancient oaths spoken here make it easier for new Radiants to progress. Voidspren also lurk in the depths.
+SIGNIFICANCE: First location where players must retrieve the Oathstone, a gemstone that amplifies Radiant abilities, while facing corrupted singers and learning to work with their spren
+FLOORPLAN:
+```
+#########################
+#...~...#...............#
+#..~~~..+...@...........#
+#.~~~~~.#......^........#
+#..~~~..#.....^^^.......#
+#...~...#....^^^^^......#
+#########+##^^^^@#####+##
+#X......#.....^^^.......#
+#XX.....#....^^^^^......#
+#XXX....+...^^^^^^^.....#
+#XXXX...#..^^^^^^^^^....#
+#XXXXX..#.^^^^^@^^^^^...#
+#XXXXXX.+^^^^^^^^^^^....#
+#XXXXXXX#...........T...#
+#########################
+```
+
+**LEGEND:**
+- # = Rocky cliff walls/impassable terrain
+- . = Walkable broken ground
+- + = Passages between plateaus
+- ~ = Honor pool (spren gathering)
+- ^ = Elevation changes/rocky slopes
+- @ = Ancient oath stones (Radiant progression)
+- T = Abandoned war table
+- X = Void chasms/voidspren hazards
+
+=== LOCATION: Lasting Integrity ===
+CHUNK_TYPE: Location
+CAMPAIGN: Shards of Honor: The Veden Crisis
+LOCATION_NAME: Lasting Integrity
+LOCATION_TYPE: Spren Fortress in Shadesmar
+DESCRIPTION: The honorspren stronghold in the Cognitive Realm where spren debate whether to bond with humans again. Reality shifts based on emotion and thought here.
+SIGNIFICANCE: Players must convince the honorspren to provide aid and retrieve the Radiant Codex while navigating spren politics and proving their worthiness
+FLOORPLAN:
+```
+#########################
+#.......+ Assembly +....#
+#...T...# Chamber #.T..#
+#.......#....@....#....#
+#####+###.........#####+#
+#Debate.+....~....+.Med.#
+#Chamber#....~....#Room.#
+#...T...#....~....#..@..#
+#####+###....~....#####+#
+#.......#....~....#.....#
+#..@....+....~....+..T..#
+#.......#....~....#.....#
+#####+##################
+#^.^.^.^.^.^.^.^.^.^.^.^#
+#########################
+```
+
+LEGEND:
+- # = Walls
+- . = Floor/walkable space  
+- + = Doors
+- ~ = Cognitive water (emotion flows)
+- ^ = Reality shift zones/elevation
+- @ = Debate podiums/bond artifacts
+- T = Spren council tables
+
+=== LOCATION: Urithiru ===
+CHUNK_TYPE: Location
+CAMPAIGN: Shards of Honor: The Veden Crisis
+LOCATION_NAME: Urithiru
+LOCATION_TYPE: Ancient Tower City
+DESCRIPTION: The legendary tower city of the Knights Radiant, now mostly dark and empty. Hidden chambers contain ancient fabrials and the sleeping Sibling spren.
+SIGNIFICANCE: Final preparation location where players must awaken the tower's defenses and gain the ultimate weapon before the climactic battle
+FLOORPLAN:
+```
+#########################
+#.......+.......+.......#
+#.T.....#.......#.....T.#
+#.......#...@...#.......#
+#.......+.......+.......#
+#.......#.......#.......#
+#..^....#.......#....^..#
+#.......#.......#.......#
+#.......+...@...+.......#
+#.......#.......#.......#
+#.T.....#.......#.....T.#
+#.......#.......#.......#
+#.......+.......+.......#
+#..~~~..#.......#..~~~..#
+#########################
+```
+
+**LEGEND:**
+- # = Walls (ancient stone)
+- . = Floor/walkable space
+- + = Doors (sealed chambers)
+- ~ = Water (crystal pools)
+- ^ = Stairs (to other levels)
+- @ = Important features (fabrials/Sibling chambers)
+- T = Tables/ancient furniture
+
+=== ENCOUNTER: The First Oath Awakening ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Shards of Honor: The Veden Crisis
+ENCOUNTER_TITLE: The First Oath Awakening
+ENCOUNTER_TYPE: Combat/Mystical
+DESCRIPTION: Players defend civilians from Voidbringers while their spren first manifest, requiring them to speak 'Life before death, strength before weakness, journey before destination' to unlock their powers.
+CHALLENGE: Medium - tutorial combat with oath-speaking mechanics
+
+=== ENCOUNTER: Trial of the Honorspren ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Shards of Honor: The Veden Crisis
+ENCOUNTER_TITLE: Trial of the Honorspren
+ENCOUNTER_TYPE: Social/Mental
+DESCRIPTION: In Shadesmar, players must convince ancient honorspren to trust humans again by proving their dedication to their oaths through tests of character.
+CHALLENGE: Hard - requires deep roleplay and understanding of Radiant ideals
+
+=== ENCOUNTER: The Battle of the Singing Peaks ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Shards of Honor: The Veden Crisis
+ENCOUNTER_TITLE: The Battle of the Singing Peaks
+ENCOUNTER_TYPE: Mass Combat
+DESCRIPTION: Epic final battle where players lead allied armies of Alethi, Veden forces, honorspren, and reformed singers against waves of Voidbringers, corrupted singers, and Odium's champions across a massive battlefield.
+CHALLENGE: Very Hard - large-scale battle with multiple objectives and ally management
+
+=== ENCOUNTER: Confronting the Sibling ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Shards of Honor: The Veden Crisis
+ENCOUNTER_TITLE: Confronting the Sibling
+ENCOUNTER_TYPE: Mystical/Social
+DESCRIPTION: Players must prove their worth to the tower spren while navigating the dangers of a partially awakened Urithiru and its ancient defenses.
+CHALLENGE: Medium - puzzle-solving combined with moral choices
+
+=== CAMPAIGN HOOKS ===
+CHUNK_TYPE: Hooks
+CAMPAIGN: Shards of Honor: The Veden Crisis
+HOOK_1: Each character begins having dreams where a spren calls to them, leading them to the same border town just as Voidbringers attack
+HOOK_2: The characters are drawn together when they all instinctively rush to defend innocents, causing their spren to manifest simultaneously
+HOOK_3: Kalak appears to each character in visions, calling them to gather at a specific location where their destiny as Knights Radiant will be revealed
+
+=== CAMPAIGN REWARDS ===
+CHUNK_TYPE: Rewards
+CAMPAIGN: Shards of Honor: The Veden Crisis
+REWARD_1: Progressive oath abilities that unlock as players speak their First, Second, and Third Oaths throughout the campaign
+REWARD_2: Shardblades and Shardplate recovered from ancient caches in each location
+REWARD_3: Stormlight-infused gems and fabrials that enhance spren abilities and provide utility powers
+REWARD_4: The eternal gratitude of multiple nations and spren, plus the knowledge that they have prevented a new Desolation
+
+=== DM NOTES ===
+CHUNK_TYPE: DM_Notes
+CAMPAIGN: Shards of Honor: The Veden Crisis
+This compressed 5-session campaign focuses on rapid character growth through oath progression. Each location provides a treasure that directly enables the next phase of advancement - the Oathstone enables Second Oaths, the Codex enables Third Oaths, and the Perpendicularity Key provides the power needed for the final battle. Work with players to select their Radiant Orders early and prepare their oath progressions. The spren should be active NPCs with distinct personalities. Use the Dueling fighting style for Shardblade combat. The final battle should feel epic with multiple waves of enemies and allied NPCs fighting alongside the players. Consider using mass combat rules to handle the large-scale nature of the final encounter while keeping player agency central.
+
+=== GENERATION HISTORY ===
+CHUNK_TYPE: Generation_History
+CAMPAIGN: Shards of Honor: The Veden Crisis
+PROMPT_1: a dnd campgain set in the world of roshar where the players play as knight radiants that need to prevent a take over of a nation by evil forces
+PROMPT_2: to include concepts of spren, oaths. Include 2 heralds as NPCs. Reduce the duration to 5 sessions. Reduce the locations to 3. Include evil voidbringers. Add an exiting treasure at each location that will be useful in subsequent story. Make the final battle to have a large battlefield with many npcs fighting several evil forces along side the players.
+

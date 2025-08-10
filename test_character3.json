@@ -1,0 +1,44 @@
+{
+  "name": "tester",
+  "race": "Half-Orc",
+  "character_class": "Ranger",
+  "level": 1,
+  "background": "Sailor",
+  "stats": {
+    "strength": 11,
+    "dexterity": 5,
+    "constitution": 14,
+    "intelligence": 15,
+    "wisdom": 14,
+    "charisma": 7
+  },
+  "hit_points": 12,
+  "armor_class": 7,
+  "proficiency_bonus": 2,
+  "skills": [],
+  "equipment": [
+    "Ranger Starting Equipment:**",
+    "Scale Mail",
+    "Shield",
+    "Shortsword",
+    "Shortsword",
+    "Handaxe",
+    "Handaxe",
+    "Dungeoneer's Pack"
+  ],
+  "spells": [],
+  "features": [
+    "Based on the provided D&D 5e rules, here are the specific class features for a level 1 Ranger:",
+    "**Spellcasting:** You can cast Ranger spells using Wisdom as your spellcasting ability. You know 2 level 1 Ranger spells (Cure Wounds and Ensnaring Strike are recommended) and have 2 first-level spell slots. You can use a Druidic Focus as your spellcasting focus and can change one prepared spell after each Long Rest.",
+    "**Favored Enemy:** You always have the Hunter's Mark spell prepared and can cast it twice without expending a spell slot. You regain all expended uses when you finish a Long Rest. This spell doesn't count against your number of prepared spells.",
+    "**Weapon Mastery:** You can use the mastery properties of two kinds of weapons with which you have proficiency (such as Longbows and Shortswords). You can change which weapon types you've chosen whenever you finish a Long Rest.",
+    "Darkvision: See in dim light within 60 feet",
+    "Relentless Endurance: Drop to 1 hit point instead of 0 once per long rest",
+    "Savage Attacks: Roll one additional weapon damage die on critical hits"
+  ],
+  "personality_traits": "A Half-Orc Ranger who follows their chosen path and pursues their goals. Source: Unknown\nto the GM.        If your chosen background has a Variant Perk, you choose one or the other to take, which can\u2019t be changed later.Other CharacteristicsA background may contain another ...",
+  "ideals": "Justice and personal growth",
+  "bonds": "Connected to their sailor background and half-orc heritage",
+  "flaws": "Sometimes too focused on their goals to consider consequences",
+  "backstory": ""
+}

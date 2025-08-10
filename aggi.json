@@ -1,0 +1,44 @@
+{
+  "name": "Aggi",
+  "race": "Alethi",
+  "character_class": "Radiant",
+  "level": 1,
+  "background": "Folk Hero",
+  "stats": {
+    "strength": 8,
+    "dexterity": 11,
+    "constitution": 11,
+    "intelligence": 8,
+    "wisdom": 6,
+    "charisma": 13
+  },
+  "hit_points": 8,
+  "armor_class": 10,
+  "proficiency_bonus": 2,
+  "skills": [],
+  "equipment": [
+    "Without the complete rules text for:",
+    "Radiant class starting equipment",
+    "Folk Hero background starting equipment"
+  ],
+  "spells": [],
+  "features": [
+    "I notice that the provided text contains information about a homebrew \"Lightweaver\" class with Radiant features, but it appears to be incomplete and jumbled with other D&D creature stat blocks. From what I can extract about Radiant/Lightweaver features, here are the level 1 class features I can identify:",
+    "**Level 1 Radiant (Lightweaver) Class Features:**",
+    "**Spellcasting (Invested Arts): You have learned to harness surges of magical energy called Invested Arts. You use Charisma as your spellcasting ability and can cast spells from the Lightweaver spell list using Investiture points as a resource.**",
+    "**Investiture Points: You gain a pool of magical energy points used to fuel your Invested Arts and other class features. The number of points and recovery method scales with your level.**",
+    "**Surgebinding Cantrips: You know a number of cantrips (0-level Invested Arts) that you can cast at will without expending Investiture points.**",
+    "**Spren Bond: You form a magical bond with a Cryptic spren, which serves as your familiar and magical focus. The spren has its own stat block and can assist you in various ways.**",
+    "From the provided rules, here are the specific traits for Alethi Identity:",
+    "**Alethi Identity Traits:**",
+    "**Ability Score Increase:** You can choose to add a +1 to any three ability scores or add one +1 and one +2 to two ability scores of your choice (this applies to all Identities except singers).",
+    "**Creature Type:** Humanoid",
+    "**Size:** The text indicates that people on Roshar are taller than Earth equivalents, but the specific size category for Alethi is cut off in the provided text.",
+    "**Age:** The specific age range for Alethi is not provided in the excerpted text."
+  ],
+  "personality_traits": "A Alethi Radiant who stands up for the common people and has a strong sense of justice and pursues their goals. Source: Unknown\n And the people themselves are of varying size, shapes, and colors, dressed in too many different styles and types of dress tocount. There are the powerful Alethi, the lithe Veden, the...",
+  "ideals": "Justice and personal growth",
+  "bonds": "Connected to their folk hero background and alethi heritage",
+  "flaws": "Sometimes too focused on their goals to consider consequences",
+  "backstory": ""
+}

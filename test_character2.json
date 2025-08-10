@@ -1,0 +1,42 @@
+{
+  "name": "asfd",
+  "race": "Gnome",
+  "character_class": "Monk",
+  "level": 1,
+  "background": "Folk Hero",
+  "stats": {
+    "strength": 11,
+    "dexterity": 8,
+    "constitution": 16,
+    "intelligence": 9,
+    "wisdom": 11,
+    "charisma": 14
+  },
+  "hit_points": 11,
+  "armor_class": 9,
+  "proficiency_bonus": 2,
+  "skills": [],
+  "equipment": [
+    "Weapons:**",
+    "Shortsword or any simple melee weapon",
+    "Dungeoneer's pack or explorer's pack",
+    "0 darts",
+    "Armor & Protection:**",
+    "Tools & Kits:**",
+    "One type of artisan's tools (from Folk Hero background)",
+    "Vehicles (land) proficiency tools"
+  ],
+  "spells": [],
+  "features": [
+    "Based on the provided D&D 5e rules, here are the specific class features for a level 1 Monk:",
+    "**Martial Arts:** Your practice of martial arts gives you mastery of combat styles using Unarmed Strikes and Monk weapons (Simple Melee weapons and Martial Melee weapons with the Light property). While unarmored and wielding only Monk weapons, you gain three benefits: you can make an Unarmed Strike as a Bonus Action, you can roll 1d6 in place of normal damage for Unarmed Strikes or Monk weapons, and you can use Dexterity instead of Strength for attack and damage rolls with these weapons (including for Grapple/Shove save DCs).",
+    "**Unarmored Defense:** While not wearing armor or wielding a Shield, your base Armor Class equals 10 + your Dexterity modifier + your Wisdom modifier, allowing you to rely on your martial training and awareness rather than heavy protection.",
+    "Darkvision: See in dim light within 60 feet",
+    "Gnome Cunning: Advantage on Intelligence, Wisdom, and Charisma saving throws against magic"
+  ],
+  "personality_traits": "A Gnome Monk who stands up for the common people and has a strong sense of justice and seeks inner peace and physical perfection. Source: Unknown\nto the GM.        If your chosen background has a Variant Perk, you choose one or the other to take, which can\u2019t be changed later.Other CharacteristicsA background may contain another ...",
+  "ideals": "Justice and seeks inner peace and physical perfection",
+  "bonds": "Connected to their folk hero background and gnome heritage",
+  "flaws": "Sometimes too focused on their seeks inner peace and physical perfection to consider consequences",
+  "backstory": ""
+}

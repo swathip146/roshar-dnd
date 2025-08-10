@@ -1,0 +1,65 @@
+CHARACTER: tester
+
+BASIC INFORMATION:
+Name: tester
+Race: Half-Orc
+Class: Ranger
+Level: 1
+Background: Sailor
+Rulebook: D&D 5e SRD
+
+ABILITY SCORES:
+Strength: 11 (modifier: +0)
+Dexterity: 5 (modifier: -3)
+Constitution: 14 (modifier: +2)
+Intelligence: 15 (modifier: +2)
+Wisdom: 14 (modifier: +2)
+Charisma: 7 (modifier: -2)
+
+COMBAT STATISTICS:
+Hit Points: 12
+Armor Class: 7
+Proficiency Bonus: +2
+
+FEATURES AND TRAITS:
+- Based on the provided D&D 5e rules, here are the specific class features for a level 1 Ranger:
+- **Spellcasting:** You can cast Ranger spells using Wisdom as your spellcasting ability. You know 2 level 1 Ranger spells (Cure Wounds and Ensnaring Strike are recommended) and have 2 first-level spell slots. You can use a Druidic Focus as your spellcasting focus and can change one prepared spell after each Long Rest.
+- **Favored Enemy:** You always have the Hunter's Mark spell prepared and can cast it twice without expending a spell slot. You regain all expended uses when you finish a Long Rest. This spell doesn't count against your number of prepared spells.
+- **Weapon Mastery:** You can use the mastery properties of two kinds of weapons with which you have proficiency (such as Longbows and Shortswords). You can change which weapon types you've chosen whenever you finish a Long Rest.
+- Darkvision: See in dim light within 60 feet
+- Relentless Endurance: Drop to 1 hit point instead of 0 once per long rest
+- Savage Attacks: Roll one additional weapon damage die on critical hits
+
+EQUIPMENT:
+- Ranger Starting Equipment:**
+- Scale Mail
+- Shield
+- Shortsword
+- Shortsword
+- Handaxe
+- Handaxe
+- Dungeoneer's Pack
+
+SKILLS:
+No specific skills listed
+
+SPELLS:
+No spells known
+
+PERSONALITY:
+Personality Traits: A Half-Orc Ranger who follows their chosen path and pursues their goals. Source: Unknown
+to the GM.        If your chosen background has a Variant Perk, you choose one or the other to take, which can’t be changed later.Other CharacteristicsA background may contain another ...
+Ideals: Justice and personal growth
+Bonds: Connected to their sailor background and half-orc heritage
+Flaws: Sometimes too focused on their goals to consider consequences
+
+BACKSTORY:
+Backstory to be developed
+
+CHARACTER BUILD SUMMARY:
+This is a level 1 Half-Orc Ranger with Sailor background.
+Key ability scores: STR 11, DEX 5, CON 14, INT 15, WIS 14, CHA 7.
+Combat stats: 12 HP, AC 7, +2 proficiency bonus.
+
+TAGS FOR INDEXING:
+Character, Half-Orc, Ranger, Sailor, Level1, D&D 5e SRD
