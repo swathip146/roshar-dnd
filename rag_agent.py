@@ -1,12 +1,16 @@
 """
 RAG (Retrieval-Augmented Generation) Agent
 Answers user queries using documents stored in Qdrant vector database with Claude
+Integrates with the agent framework for coordinated AI assistance
 """
 import os
+import time
 from typing import List, Dict, Any, Optional
 
 # Set tokenizers parallelism to avoid fork warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# Suppress transformers progress bars
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
 from haystack import Document, Pipeline
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
@@ -14,6 +18,19 @@ from haystack.components.embedders import SentenceTransformersTextEmbedder
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.rankers import SentenceTransformersSimilarityRanker
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
+
+# Import agent framework
+try:
+    from agent_framework import BaseAgent, MessageType, AgentMessage
+    AGENT_FRAMEWORK_AVAILABLE = True
+except ImportError:
+    AGENT_FRAMEWORK_AVAILABLE = False
+    # Create dummy base class for backward compatibility
+    class BaseAgent:
+        def __init__(self, agent_id, agent_type):
+            pass
+        def process_tick(self):
+            pass
 
 # Configuration constants
 DEFAULT_TOP_K = 20  # Number of documents to retrieve by default

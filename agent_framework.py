@@ -1,0 +1,360 @@
+"""
+Agent Framework for DM Assistant
+Provides communication and coordination between different AI agents
+"""
+from typing import Dict, Any, List, Optional, Callable, Union
+from dataclasses import dataclass, asdict
+from enum import Enum
+import json
+import threading
+import queue
+import time
+import uuid
+from abc import ABC, abstractmethod
+
+
+class MessageType(Enum):
+    """Types of messages that can be sent between agents"""
+    REQUEST = "request"
+    RESPONSE = "response"
+    EVENT = "event"
+    BROADCAST = "broadcast"
+    ERROR = "error"
+
+
+@dataclass
+class AgentMessage:
+    """Message passed between agents"""
+    id: str
+    sender_id: str
+    receiver_id: str
+    message_type: MessageType
+    action: str
+    data: Dict[str, Any]
+    timestamp: float
+    response_to: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert message to dictionary"""
+        return {
+            "id": self.id,
+            "sender_id": self.sender_id,
+            "receiver_id": self.receiver_id,
+            "message_type": self.message_type.value,
+            "action": self.action,
+            "data": self.data,
+            "timestamp": self.timestamp,
+            "response_to": self.response_to
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AgentMessage':
+        """Create message from dictionary"""
+        return cls(
+            id=data["id"],
+            sender_id=data["sender_id"],
+            receiver_id=data["receiver_id"],
+            message_type=MessageType(data["message_type"]),
+            action=data["action"],
+            data=data["data"],
+            timestamp=data["timestamp"],
+            response_to=data.get("response_to")
+        )
+
+
+class BaseAgent(ABC):
+    """Base class for all agents in the framework"""
+    
+    def __init__(self, agent_id: str, agent_type: str):
+        self.agent_id = agent_id
+        self.agent_type = agent_type
+        self.message_bus: Optional['MessageBus'] = None
+        self.running = False
+        self.message_handlers: Dict[str, Callable] = {}
+        self._setup_handlers()
+    
+    @abstractmethod
+    def _setup_handlers(self):
+        """Setup message handlers for this agent"""
+        pass
+    
+    def register_handler(self, action: str, handler: Callable):
+        """Register a message handler for a specific action"""
+        self.message_handlers[action] = handler
+    
+    def send_message(self, receiver_id: str, action: str, data: Dict[str, Any], 
+                    message_type: MessageType = MessageType.REQUEST) -> str:
+        """Send a message to another agent"""
+        if not self.message_bus:
+            raise RuntimeError("Agent not connected to message bus")
+        
+        message = AgentMessage(
+            id=str(uuid.uuid4()),
+            sender_id=self.agent_id,
+            receiver_id=receiver_id,
+            message_type=message_type,
+            action=action,
+            data=data,
+            timestamp=time.time()
+        )
+        
+        self.message_bus.send_message(message)
+        return message.id
+    
+    def send_response(self, original_message: AgentMessage, data: Dict[str, Any]):
+        """Send a response to a received message"""
+        response = AgentMessage(
+            id=str(uuid.uuid4()),
+            sender_id=self.agent_id,
+            receiver_id=original_message.sender_id,
+            message_type=MessageType.RESPONSE,
+            action=f"{original_message.action}_response",
+            data=data,
+            timestamp=time.time(),
+            response_to=original_message.id
+        )
+        
+        if self.message_bus:
+            self.message_bus.send_message(response)
+    
+    def broadcast_event(self, action: str, data: Dict[str, Any]):
+        """Broadcast an event to all agents"""
+        if not self.message_bus:
+            return
+        
+        message = AgentMessage(
+            id=str(uuid.uuid4()),
+            sender_id=self.agent_id,
+            receiver_id="broadcast",
+            message_type=MessageType.BROADCAST,
+            action=action,
+            data=data,
+            timestamp=time.time()
+        )
+        
+        self.message_bus.send_message(message)
+    
+    def handle_message(self, message: AgentMessage) -> Optional[Dict[str, Any]]:
+        """Handle an incoming message"""
+        handler = self.message_handlers.get(message.action)
+        if handler:
+            try:
+                result = handler(message)
+                if message.message_type == MessageType.REQUEST and result:
+                    self.send_response(message, result)
+                return result
+            except Exception as e:
+                error_data = {"error": str(e), "action": message.action}
+                self.send_response(message, error_data)
+                return None
+        else:
+            # Unknown action
+            if message.message_type == MessageType.REQUEST:
+                error_data = {"error": f"Unknown action: {message.action}"}
+                self.send_response(message, error_data)
+    
+    def start(self):
+        """Start the agent"""
+        self.running = True
+    
+    def stop(self):
+        """Stop the agent"""
+        self.running = False
+    
+    @abstractmethod
+    def process_tick(self):
+        """Process one tick/cycle of the agent's main loop"""
+        pass
+
+
+class MessageBus:
+    """Central message bus for agent communication"""
+    
+    def __init__(self):
+        self.agents: Dict[str, BaseAgent] = {}
+        self.message_queue = queue.Queue()
+        self.running = False
+        self.processor_thread: Optional[threading.Thread] = None
+        self.lock = threading.RLock()
+        self.message_history: List[AgentMessage] = []
+        self.max_history = 1000
+    
+    def register_agent(self, agent: BaseAgent):
+        """Register an agent with the message bus"""
+        with self.lock:
+            self.agents[agent.agent_id] = agent
+            agent.message_bus = self
+    
+    def unregister_agent(self, agent_id: str):
+        """Unregister an agent from the message bus"""
+        with self.lock:
+            if agent_id in self.agents:
+                del self.agents[agent_id]
+    
+    def send_message(self, message: AgentMessage):
+        """Send a message through the bus"""
+        self.message_queue.put(message)
+    
+    def start(self):
+        """Start the message bus processor"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.processor_thread = threading.Thread(target=self._process_messages, daemon=True)
+        self.processor_thread.start()
+    
+    def stop(self):
+        """Stop the message bus processor"""
+        self.running = False
+        if self.processor_thread:
+            self.processor_thread.join(timeout=1.0)
+    
+    def _process_messages(self):
+        """Process messages in the queue"""
+        while self.running:
+            try:
+                message = self.message_queue.get(timeout=0.1)
+                self._deliver_message(message)
+                self._store_message(message)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error processing message: {e}")
+    
+    def _deliver_message(self, message: AgentMessage):
+        """Deliver a message to its target agent(s)"""
+        with self.lock:
+            if message.receiver_id == "broadcast":
+                # Broadcast to all agents except sender
+                for agent_id, agent in self.agents.items():
+                    if agent_id != message.sender_id:
+                        agent.handle_message(message)
+            else:
+                # Send to specific agent
+                target_agent = self.agents.get(message.receiver_id)
+                if target_agent:
+                    target_agent.handle_message(message)
+    
+    def _store_message(self, message: AgentMessage):
+        """Store message in history"""
+        self.message_history.append(message)
+        if len(self.message_history) > self.max_history:
+            self.message_history.pop(0)
+    
+    def get_message_history(self, agent_id: Optional[str] = None, 
+                          limit: int = 100) -> List[Dict[str, Any]]:
+        """Get message history, optionally filtered by agent"""
+        messages = self.message_history[-limit:]
+        if agent_id:
+            messages = [m for m in messages 
+                       if m.sender_id == agent_id or m.receiver_id == agent_id]
+        return [m.to_dict() for m in messages]
+
+
+class AgentOrchestrator:
+    """Orchestrator for managing multiple agents and their interactions"""
+    
+    def __init__(self):
+        self.message_bus = MessageBus()
+        self.agents: Dict[str, BaseAgent] = {}
+        self.tick_interval = 0.1  # seconds
+        self.running = False
+        self.orchestrator_thread: Optional[threading.Thread] = None
+    
+    def register_agent(self, agent: BaseAgent):
+        """Register an agent with the orchestrator"""
+        self.agents[agent.agent_id] = agent
+        self.message_bus.register_agent(agent)
+    
+    def start(self):
+        """Start the orchestrator and all agents"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.message_bus.start()
+        
+        # Start all agents
+        for agent in self.agents.values():
+            agent.start()
+        
+        # Start orchestrator loop
+        self.orchestrator_thread = threading.Thread(target=self._orchestrator_loop, daemon=True)
+        self.orchestrator_thread.start()
+    
+    def stop(self):
+        """Stop the orchestrator and all agents"""
+        self.running = False
+        
+        # Stop all agents
+        for agent in self.agents.values():
+            agent.stop()
+        
+        # Stop message bus
+        self.message_bus.stop()
+        
+        # Wait for orchestrator thread
+        if self.orchestrator_thread:
+            self.orchestrator_thread.join(timeout=1.0)
+    
+    def _orchestrator_loop(self):
+        """Main orchestrator loop"""
+        while self.running:
+            # Give each agent a chance to process
+            for agent in self.agents.values():
+                if agent.running:
+                    try:
+                        agent.process_tick()
+                    except Exception as e:
+                        print(f"Error in agent {agent.agent_id}: {e}")
+            
+            time.sleep(self.tick_interval)
+    
+    def send_message_to_agent(self, receiver_id: str, action: str, data: Dict[str, Any]) -> str:
+        """Send a message to a specific agent from the orchestrator"""
+        message = AgentMessage(
+            id=str(uuid.uuid4()),
+            sender_id="orchestrator",
+            receiver_id=receiver_id,
+            message_type=MessageType.REQUEST,
+            action=action,
+            data=data,
+            timestamp=time.time()
+        )
+        
+        self.message_bus.send_message(message)
+        return message.id
+    
+    def broadcast_event(self, action: str, data: Dict[str, Any]):
+        """Broadcast an event to all agents"""
+        message = AgentMessage(
+            id=str(uuid.uuid4()),
+            sender_id="orchestrator",
+            receiver_id="broadcast",
+            message_type=MessageType.BROADCAST,
+            action=action,
+            data=data,
+            timestamp=time.time()
+        )
+        
+        self.message_bus.send_message(message)
+    
+    def get_agent_status(self) -> Dict[str, Dict[str, Any]]:
+        """Get status of all registered agents"""
+        status = {}
+        for agent_id, agent in self.agents.items():
+            status[agent_id] = {
+                "agent_type": agent.agent_type,
+                "running": agent.running,
+                "handlers": list(agent.message_handlers.keys())
+            }
+        return status
+    
+    def get_message_statistics(self) -> Dict[str, Any]:
+        """Get message bus statistics"""
+        return {
+            "total_messages": len(self.message_bus.message_history),
+            "queue_size": self.message_bus.message_queue.qsize(),
+            "registered_agents": len(self.agents)
+        }

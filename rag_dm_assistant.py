@@ -5,6 +5,8 @@ Integrates Haystack RAG pipeline with campaign management and DM gameplay logic
 import json
 import random
 import os
+import threading
+import time
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -60,6 +62,308 @@ Condensed version:"""
             return text[:max_length] + "..." if len(text) > max_length else text
     except Exception:
         return text[:max_length] + "..." if len(text) > max_length else text
+
+# --------------------------------------------------
+# Persister (file-based JSON for checkpointing)
+# --------------------------------------------------
+class JSONPersister:
+    def __init__(self, path: str = "./game_state_checkpoint.json"):
+        self.path = path
+
+    def save(self, game_state: Dict[str, Any]):
+        try:
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump(game_state, f, indent=2)
+        except Exception:
+            pass
+
+    def load(self) -> Optional[Dict[str, Any]]:
+        if not os.path.exists(self.path):
+            return None
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+# --------------------------------------------------
+# Game Engine
+# --------------------------------------------------
+DEFAULT_TICK_SECONDS = 0.8
+
+class GameEngine:
+    def __init__(self,
+                 initial_state: Optional[Dict[str, Any]] = None,
+                 npc_controller=None,
+                 scenario_generator=None,
+                 persister: Optional[JSONPersister] = None,
+                 tick_seconds: float = DEFAULT_TICK_SECONDS):
+        self.game_state = initial_state or {
+            "players": {},
+            "npcs": {},
+            "world": {"locations": []},
+            "story_arc": "",
+            "scene_history": [],
+            "current_scenario": "",
+            "current_options": "",
+            "session": {"location": "unknown", "time": "", "events": []},
+            "action_queue": []
+        }
+        self.npc_controller = npc_controller
+        self.scenario_generator = scenario_generator
+        self.persister = persister
+        self.tick_seconds = tick_seconds
+        self.running = False
+        self.lock = threading.RLock()
+
+    def enqueue_action(self, action: Dict[str, Any]):
+        with self.lock:
+            self.game_state["action_queue"].append(action)
+
+    def _process_player_action(self, action: Dict[str, Any]):
+        typ = action.get("type")
+        actor = action.get("actor")
+        args = action.get("args", {})
+        if typ == "move":
+            new_loc = args.get("to")
+            if actor in self.game_state["players"]:
+                self.game_state["players"][actor]["location"] = new_loc
+                self.game_state["session"]["events"].append(f"{actor} moved to {new_loc}")
+        elif typ == "choose_option":
+            choice = args.get("choice")
+            if self.scenario_generator:
+                cont = self.scenario_generator.apply_player_choice(self.game_state, actor, choice)
+                if cont:
+                    self.game_state["scene_history"].append(cont)
+                    self.game_state["current_scenario"] = cont
+        elif typ == "raw_event":
+            ev = args.get("text")
+            if ev:
+                self.game_state["session"]["events"].append(ev)
+        else:
+            self.game_state["session"]["events"].append(f"Unhandled action type: {typ}")
+
+    def _process_npcs(self):
+        if not self.npc_controller:
+            return
+        decisions = []
+        try:
+            decisions = self.npc_controller.decide(self.game_state)
+        except Exception as e:
+            # fail-safe
+            self.game_state["session"]["events"].append(f"NPC controller error: {e}")
+        for d in decisions:
+            # NPC decisions are applied the same way as player actions
+            self._process_player_action(d)
+
+    def _should_generate_scene(self) -> bool:
+        if not self.game_state.get("current_scenario"):
+            return True
+        recent_events = self.game_state["session"].get("events", [])[-4:]
+        # trigger on a player choice or explicit DM request event
+        return any("chose" in e.lower() or "new scene requested" in e.lower() for e in recent_events)
+
+    def tick(self):
+        with self.lock:
+            # process action queue FIFO
+            while self.game_state.get("action_queue"):
+                act = self.game_state["action_queue"].pop(0)
+                try:
+                    self._process_player_action(act)
+                except Exception as e:
+                    self.game_state["session"]["events"].append(f"Error processing action: {e}")
+
+            # NPCs
+            self._process_npcs()
+
+            # Scenario generation
+            if self.scenario_generator and self._should_generate_scene():
+                try:
+                    scene_json, options_text = self.scenario_generator.generate(self.game_state)
+                    self.game_state["scene_history"].append(scene_json)
+                    self.game_state["current_scenario"] = scene_json
+                    self.game_state["current_options"] = options_text
+                    self.game_state["session"]["events"].append("New scene generated")
+                except Exception as e:
+                    self.game_state["session"]["events"].append(f"Scenario generation error: {e}")
+
+            # persist
+            if self.persister:
+                try:
+                    self.persister.save(self.game_state)
+                except Exception:
+                    pass
+
+    def start(self):
+        self.running = True
+        def loop():
+            while self.running:
+                self.tick()
+                time.sleep(self.tick_seconds)
+        t = threading.Thread(target=loop, daemon=True)
+        t.start()
+
+    def stop(self):
+        self.running = False
+
+# --------------------------------------------------
+# NPC Controller
+# --------------------------------------------------
+class NPCController:
+    def __init__(self, rag_agent=None, mode="hybrid"):
+        self.rag_agent = rag_agent
+        self.mode = mode
+
+    def decide(self, game_state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        actions = []
+        for npc_name, npc in game_state.get("npcs", {}).items():
+            # Normalize NPC structure
+            npc_obj = npc if isinstance(npc, dict) else {"name": npc}
+            if npc_obj.get("type") == "simple":
+                a = self._rule_based(npc_obj, game_state)
+                if a:
+                    actions.append(a)
+            else:
+                if self.mode in ("rag", "hybrid") and self.rag_agent:
+                    prompt = self._build_prompt_for_npc(npc_obj, game_state)
+                    try:
+                        plan = self.rag_agent.query(prompt, top_k=1)
+                        # Accept multiple shapes: dict or string
+                        if isinstance(plan, dict):
+                            dest = plan.get("move_to") or plan.get("to")
+                            if dest:
+                                actions.append({"actor": npc_name, "type": "move", "args": {"to": dest}})
+                        elif isinstance(plan, str):
+                            # best-effort parse: look for 'to <location>'
+                            if "to " in plan:
+                                to_idx = plan.index("to ")
+                                dest = plan[to_idx + 3:].split()[0]
+                                actions.append({"actor": npc_name, "type": "move", "args": {"to": dest}})
+                    except Exception:
+                        # degrade to rule-based
+                        a = self._rule_based(npc_obj, game_state)
+                        if a:
+                            actions.append(a)
+        return actions
+
+    def _rule_based(self, npc: Dict[str, Any], game_state: Dict[str, Any]):
+        # Example priorities: flee if HP low, attack or patrol
+        hp = npc.get("hp", 9999)
+        max_hp = npc.get("max_hp", hp)
+        if max_hp and hp < max(1, max_hp * 0.25):
+            return {"actor": npc.get("name"), "type": "move", "args": {"to": npc.get("flee_to", "safe_spot")}}
+        # If player in same location, choose to approach
+        players = game_state.get("players", {})
+        for p, pdata in players.items():
+            if pdata.get("location") == npc.get("location"):
+                return {"actor": npc.get("name"), "type": "raw_event", "args": {"text": f"{npc.get('name')} engages {p}."}}
+        # Else random patrol
+        locs = game_state.get("world", {}).get("locations", []) or []
+        if locs:
+            return {"actor": npc.get("name"), "type": "move", "args": {"to": random.choice(locs)}}
+        return None
+
+    def _build_prompt_for_npc(self, npc, game_state):
+        # Keep prompt concise but informative
+        sb = [f"NPC: {npc.get('name')}", f"Role: {npc.get('role', 'unknown')}", f"HP: {npc.get('hp', '?')}" ]
+        sb.append(f"Location: {npc.get('location', '?')}")
+        sb.append("Recent events: " + ", ".join(game_state.get('session', {}).get('events', [])[-4:]))
+        sb.append("What should this NPC do next? Be concise and return a tiny JSON-like answer with move_to if moving.")
+        return "\n".join(sb)
+
+# --------------------------------------------------
+# Scenario Generator
+# --------------------------------------------------
+class ScenarioGenerator:
+    def __init__(self, rag_agent=None, verbose=False):
+        self.rag_agent = rag_agent
+        self.verbose = verbose
+
+    def _seed_scene(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        seed = {
+            "location": state["session"].get("location") or "unknown",
+            "recent": state["session"].get("events", [])[-4:],
+            "party": list(state.get("players", {}).keys())[:8],
+            "story_arc": state.get("story_arc", "")
+        }
+        return seed
+
+    def _build_prompt(self, seed: Dict[str, Any]) -> str:
+        prompt = (
+            f"You are the Dungeon Master. Create a vivid short scene (2-3 sentences) and offer 3-4 numbered options.\n"
+            f"Location: {seed['location']}\nRecent: {seed['recent']}\nParty: {seed['party']}\nStory arc: {seed['story_arc']}\n"
+            "Return a JSON-like object with fields: scene_text, options_text."
+        )
+        return prompt
+
+    def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
+        seed = self._seed_scene(state)
+        scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
+        options_text = ""
+        if self.rag_agent:
+            try:
+                prompt = self._build_prompt(seed)
+                resp = self.rag_agent.query(prompt, top_k=1)
+                if isinstance(resp, dict):
+                    scene_text = resp.get("scene_text", scene_text)
+                    options_text = resp.get("options_text", "")
+                elif isinstance(resp, str):
+                    # quick heuristic: treat as scene_text
+                    scene_text = resp
+            except Exception:
+                pass
+        if not options_text:
+            # fallback options
+            options = [
+                "1. Investigate the suspicious noise.",
+                "2. Approach openly and ask questions.",
+                "3. Set up an ambush and wait.",
+                "4. Leave and gather more information."
+            ]
+            random.shuffle(options)
+            options_text = "\n".join(options[:4])
+
+        scene_json = {
+            "scene_text": scene_text,
+            "seed": seed,
+            "options": [line.strip() for line in options_text.splitlines() if line.strip()]
+        }
+        return json.dumps(scene_json, indent=2), options_text
+
+    def apply_player_choice(self, state: Dict[str, Any], player: str, choice_value: int) -> str:
+        try:
+            current_options = state.get("current_options", "")
+            lines = [l for l in current_options.splitlines() if l.strip()]
+            target = None
+            # try numeric match
+            for l in lines:
+                if l.strip().startswith(f"{choice_value}."):
+                    target = l
+                    break
+            if not target and lines:
+                # fallback: pick by index
+                idx = max(0, min(len(lines) - 1, choice_value - 1))
+                target = lines[idx]
+            if not target:
+                return f"No such option: {choice_value}"
+            cont = f"{player} chose: {target}"
+            # ask rag agent for consequence
+            if self.rag_agent:
+                prompt = (
+                    f"CONTEXT: {state.get('story_arc')}\nCHOICE: {target}\n"
+                    "Describe the immediate consequence in 2-3 sentences and return a short 'continuation' field."
+                )
+                try:
+                    resp = self.rag_agent.query(prompt, top_k=1)
+                    if isinstance(resp, dict):
+                        return resp.get("continuation", cont)
+                    elif isinstance(resp, str):
+                        return resp
+                except Exception:
+                    pass
+            return cont
+        except Exception as e:
+            return f"Error applying choice: {e}"
 
 # Campaign Data Classes
 @dataclass
@@ -149,8 +453,7 @@ class PlayerLoader:
             
             content = file_path.read_text(encoding='utf-8')
             return PlayerLoader._parse_player_text(content)
-        except Exception as e:
-            print(f"Error loading player from {file_path}: {e}")
+        except Exception:
             return None
     
     @staticmethod
@@ -305,8 +608,7 @@ class CampaignLoader:
                     return CampaignLoader._parse_json_campaign(content)
             
             return None
-        except Exception as e:
-            print(f"Error loading campaign from {file_path}: {e}")
+        except Exception:
             return None
     
     @staticmethod
@@ -495,21 +797,30 @@ class CampaignLoader:
         return campaign
 
 class RAGDMAssistant:
-    """RAG-powered Dungeon Master Assistant using existing RAG Agent."""
+    """RAG-powered Dungeon Master Assistant using existing RAG Agent with Game Engine integration."""
     
     def __init__(self, collection_name: str = "dnd_documents",
                  campaigns_dir: str = "docs/current_campaign",
                  players_dir: str = "docs/players",
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 enable_engine: bool = True,
+                 tick_seconds: float = DEFAULT_TICK_SECONDS):
         """Initialize the DM Assistant."""
         self.collection_name = collection_name
         self.campaigns_dir = Path(campaigns_dir)
         self.players_dir = Path(players_dir)
         self.verbose = verbose
         self.has_llm = CLAUDE_AVAILABLE
+        self.enable_engine = enable_engine
         
         # Core components
         self.rag_agent: Optional[RAGAgent] = None
+        
+        # Game engine components
+        self.persister: Optional[JSONPersister] = None
+        self.npc_controller: Optional[NPCController] = None
+        self.scenario_generator: Optional[ScenarioGenerator] = None
+        self.game_engine: Optional[GameEngine] = None
         
         # Campaign management
         self.available_campaigns: List[Campaign] = []
@@ -519,7 +830,7 @@ class RAGDMAssistant:
         self.available_players: List[Player] = []
         self.active_players: List[Player] = []
         
-        # Game state
+        # Game state (will be managed by GameEngine if enabled)
         self.game_state = {
             "players": {},
             "npcs": {},
@@ -533,13 +844,18 @@ class RAGDMAssistant:
                 "location": "",
                 "time": "",
                 "events": []
-            }
+            },
+            "action_queue": []
         }
         
         # Initialize components
         self._setup_rag_agent()
         self._load_campaigns()
         self._load_players()
+        
+        # Initialize game engine components if enabled
+        if self.enable_engine:
+            self._setup_game_engine(tick_seconds)
     
     def _setup_rag_agent(self):
         """Setup the RAG agent for context retrieval."""
@@ -548,18 +864,47 @@ class RAGDMAssistant:
                 collection_name=self.collection_name,
                 verbose=self.verbose
             )
+        except Exception as e:
+            raise
+    
+    def _setup_game_engine(self, tick_seconds: float):
+        """Setup the game engine and related components."""
+        try:
+            # Initialize persister
+            self.persister = JSONPersister("./game_state_checkpoint.json")
+            
+            # Try to load existing state
+            saved_state = self.persister.load()
+            if saved_state:
+                self.game_state.update(saved_state)
+            
+            # Initialize NPC controller
+            self.npc_controller = NPCController(rag_agent=self.rag_agent, mode="hybrid")
+            
+            # Initialize scenario generator
+            self.scenario_generator = ScenarioGenerator(rag_agent=self.rag_agent, verbose=self.verbose)
+            
+            # Initialize game engine
+            self.game_engine = GameEngine(
+                initial_state=self.game_state,
+                npc_controller=self.npc_controller,
+                scenario_generator=self.scenario_generator,
+                persister=self.persister,
+                tick_seconds=tick_seconds
+            )
+            
             if self.verbose:
-                print(f"✓ RAG Agent initialized for collection: {self.collection_name}")
+                print("✓ Game Engine initialized with NPC Controller and Scenario Generator")
+                
         except Exception as e:
             if self.verbose:
-                print(f"✗ Failed to initialize RAG Agent: {e}")
-            raise
+                print(f"✗ Failed to initialize Game Engine: {e}")
+            # Continue without engine
+            self.enable_engine = False
     
     def _load_campaigns(self):
         """Load available campaigns from the campaigns directory."""
         if not self.campaigns_dir.exists():
-            if self.verbose:
-                print(f"⚠️  Campaigns directory not found: {self.campaigns_dir}")
             return
         
         for file_path in self.campaigns_dir.glob("*"):
@@ -567,11 +912,6 @@ class RAGDMAssistant:
                 campaign = CampaignLoader.load_from_file(file_path)
                 if campaign:
                     self.available_campaigns.append(campaign)
-                    if self.verbose:
-                        print(f"✓ Loaded campaign: {campaign.title}")
-        
-        if self.verbose:
-            print(f"✓ Loaded {len(self.available_campaigns)} campaigns")
     
     def _load_players(self):
         """Load available players from the players directory."""
@@ -608,9 +948,6 @@ class RAGDMAssistant:
                 "notes": player.game_state["notes"]
             }
         
-        if self.verbose and self.available_players:
-            player_names = [p.name for p in self.available_players]
-            print(f"✓ Added {len(self.available_players)} players to game: {', '.join(player_names)}")
     
     def _should_use_rag(self, query: str, campaign_context: str = "") -> Tuple[bool, str]:
         """
@@ -915,6 +1252,60 @@ Provide the merged context in 2-3 paragraphs:"""
         if not self.selected_campaign:
             return "❌ No campaign selected. Please select a campaign first."
         
+        # Use ScenarioGenerator if available (from GameEngine)
+        if self.enable_engine and self.scenario_generator:
+            return self._generate_scenario_with_engine(user_query)
+        else:
+            return self._generate_scenario_legacy(user_query)
+    
+    def _generate_scenario_with_engine(self, user_query: str) -> str:
+        """Generate scenario using the GameEngine's ScenarioGenerator."""
+        try:
+            # Update game state from engine if running
+            if self.game_engine:
+                self.game_state = self.game_engine.game_state
+            
+            # Use the scenario generator directly
+            scene_json, options_text = self.scenario_generator.generate(self.game_state)
+            
+            # Parse the scene JSON to get text
+            try:
+                scene_data = json.loads(scene_json)
+                scene_text = scene_data.get("scene_text", "A mysterious scene unfolds...")
+            except:
+                scene_text = scene_json
+            
+            # Combine scenario and options
+            full_scenario = f"{scene_text}\n\n🎯 **PLAYER OPTIONS:**\n{options_text}"
+            
+            # Store the scenario and options in game history
+            self.game_state["scene_history"].append(full_scenario)
+            self.game_state["current_scenario"] = full_scenario
+            self.game_state["current_options"] = options_text
+            
+            # Add to engine's action queue to trigger scene generation
+            if self.game_engine:
+                self.game_engine.enqueue_action({
+                    "type": "raw_event",
+                    "actor": "DM",
+                    "args": {"text": "New scene requested"}
+                })
+            
+            # Add player addition message if this is the first scenario
+            player_message = ""
+            if len(self.game_state["scene_history"]) == 1 and self.active_players:
+                player_names = [p.name for p in self.active_players]
+                player_message = f"\n\n👥 **PLAYERS JOINED THE ADVENTURE:**\nThe following heroes have joined this quest: {', '.join(player_names)}. Each brings their unique skills and background to face the challenges ahead."
+            
+            engine_status = "🎮 Active" if self.game_engine and self.game_engine.running else "🎮 Available"
+            
+            return f"🎭 SCENARIO (Engine-Generated):\n{full_scenario}{player_message}\n\n🤖 Game Engine: {engine_status} with NPC & Scenario automation\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+            
+        except Exception:
+            return self._generate_scenario_legacy(user_query)
+    
+    def _generate_scenario_legacy(self, user_query: str) -> str:
+        """Generate scenario using the legacy method (original implementation)."""
         if not self.has_llm:
             return "❌ LLM not available for scenario generation."
         
@@ -943,8 +1334,6 @@ Available Encounters: {', '.join([enc.title for enc in campaign.encounters[:3]])
         # Step 1: Decide if we need RAG context
         should_use_rag, rag_reasoning = self._should_use_rag(user_query, campaign_context)
         
-        if self.verbose:
-            print(f"🤔 RAG Decision: {'YES' if should_use_rag else 'NO'} - {rag_reasoning}")
         
         # Step 2: Get context based on decision
         if should_use_rag:
@@ -1154,6 +1543,86 @@ Make each option specific and actionable."""
         except Exception as e:
             return f"❌ Error processing option selection: {e}"
     
+    # --------------------------------------------------
+    # Game Engine Control Methods
+    # --------------------------------------------------
+    def start_game_engine(self) -> str:
+        """Start the game engine tick loop."""
+        if not self.enable_engine or not self.game_engine:
+            return "❌ Game Engine not available. Initialize with enable_engine=True."
+        
+        if self.game_engine.running:
+            return "⚠️ Game Engine is already running."
+        
+        try:
+            self.game_engine.start()
+            return "✅ Game Engine started! NPCs and scenarios will now update automatically."
+        except Exception as e:
+            return f"❌ Failed to start Game Engine: {e}"
+    
+    def stop_game_engine(self) -> str:
+        """Stop the game engine tick loop."""
+        if not self.enable_engine or not self.game_engine:
+            return "❌ Game Engine not available."
+        
+        if not self.game_engine.running:
+            return "⚠️ Game Engine is already stopped."
+        
+        try:
+            self.game_engine.stop()
+            return "✅ Game Engine stopped."
+        except Exception as e:
+            return f"❌ Failed to stop Game Engine: {e}"
+    
+    def enqueue_player_action(self, player_name: str, action_type: str, args: Dict[str, Any] = None) -> str:
+        """Enqueue a player action for the game engine to process."""
+        if not self.enable_engine or not self.game_engine:
+            return "❌ Game Engine not available."
+        
+        action = {
+            "actor": player_name,
+            "type": action_type,
+            "args": args or {}
+        }
+        
+        try:
+            self.game_engine.enqueue_action(action)
+            return f"✅ Enqueued action: {player_name} -> {action_type}"
+        except Exception as e:
+            return f"❌ Failed to enqueue action: {e}"
+    
+    def get_engine_status(self) -> str:
+        """Get the current status of the game engine."""
+        if not self.enable_engine:
+            return "🎮 Game Engine: Disabled"
+        
+        if not self.game_engine:
+            return "🎮 Game Engine: Not initialized"
+        
+        status = "🎮 Game Engine Status:\n"
+        status += f"  • Running: {'✅ Yes' if self.game_engine.running else '❌ No'}\n"
+        status += f"  • Tick Rate: {self.game_engine.tick_seconds}s\n"
+        status += f"  • Action Queue: {len(self.game_engine.game_state.get('action_queue', []))} items\n"
+        status += f"  • NPC Controller: {'✅ Active' if self.npc_controller else '❌ None'}\n"
+        status += f"  • Scenario Generator: {'✅ Active' if self.scenario_generator else '❌ None'}\n"
+        status += f"  • Persister: {'✅ Active' if self.persister else '❌ None'}\n"
+        
+        return status
+
+    def build_default_state(self) -> Dict[str, Any]:
+        """Build default game state."""
+        return {
+            "players": {"Alice": {"location": "town_square", "hp": 20}, "Bob": {"location": "town_square", "hp": 18}},
+            "npcs": {"watchman": {"name": "watchman", "location": "gate", "type": "simple", "hp": 12, "role": "guard"}},
+            "world": {"locations": ["town_square", "alley", "gate", "tavern"]},
+            "story_arc": "The caravan was robbed and a clue points to the city.",
+            "scene_history": [],
+            "current_scenario": "",
+            "current_options": "",
+            "session": {"location": "town_square", "time": "dawn", "events": ["Party arrived in town."]},
+            "action_queue": []
+        }
+
     def process_dm_input(self, instruction: str) -> str:
         """Process DM instruction and return appropriate response."""
         instruction_lower = instruction.lower().strip()
@@ -1285,8 +1754,6 @@ Available Locations: {', '.join([loc.name for loc in self.selected_campaign.loca
         # Step 1: Decide if we need RAG context
         should_use_rag, rag_reasoning = self._should_use_rag(query, campaign_context)
         
-        if self.verbose:
-            print(f"🤔 RAG Decision: {'YES' if should_use_rag else 'NO'} - {rag_reasoning}")
         
         # Step 2: Process based on decision
         if should_use_rag:
@@ -1337,34 +1804,8 @@ Provide a helpful response focused on the campaign:"""
     
     def run_interactive(self):
         """Run the interactive DM assistant."""
-        print("=== RAG-Powered Dungeon Master Assistant with Intelligent Context Selection ===")
-        print("🧠 NEW: Intelligently decides when to use RAG vs campaign data")
-        print("🔄 Architecture: Campaign Data → Smart Decision → RAG Agent (if needed) → Merged Response")
-        print(f"RAG Context: {'✓ Available' if self.rag_agent else '❌ Unavailable'}")
-        print(f"LLM Generation: {'✓ Claude Sonnet 4' if self.has_llm else '❌ Unavailable'}")
-        print(f"Campaigns Available: {len(self.available_campaigns)}")
-        print(f"Verbose Mode: {'✓ Shows RAG decisions' if self.verbose else '❌ Silent mode'}")
-        print()
-        
-        print("🎯 How it works:")
-        print("  1. DM asks question → 2. Assistant analyzes campaign data")
-        print("  3. Decides if external lore/rules needed → 4. Calls RAG only if necessary")
-        print("  5. Merges contexts intelligently → 6. Provides unified response")
-        print()
-        
-        print("Commands you can try:")
-        print("  📚 'list campaigns' - Show available campaigns")
-        print("  🎯 'select campaign [number]' - Choose a campaign")
-        print("  📖 'campaign info' - Show current campaign details")
-        print("  👥 'list players' - Show all loaded players")
-        print("  👤 'player info [name]' - Show detailed player information")
-        print("  🎭 'introduce scenario' - Create scenario (smart context)")
-        print("  🎯 'select option [number]' - Choose a numbered player option")
-        print("  👥 'add player Alice' - Add a manual player")
-        print("  📊 'show game state' - Display current state")
-        print("  ❓ 'What are saving throws?' - Get D&D help (smart context)")
-        print("  ❓ 'Tell me about Kaladin' - Campaign vs lore decision test")
-        print("  🚪 'quit' to exit")
+        print("=== RAG-Powered Dungeon Master Assistant ===")
+        print("Type 'help' for commands or 'quit' to exit")
         print()
         
         while True:
@@ -1372,21 +1813,83 @@ Provide a helpful response focused on the campaign:"""
                 dm_input = input("\nDM> ").strip()
                 
                 if dm_input.lower() in ["quit", "exit", "q"]:
-                    print("Goodbye, Dungeon Master!")
                     break
                 
+                if dm_input.lower() == "help":
+                    print("Commands: list campaigns, select campaign [n], campaign info, list players, introduce scenario, select option [n], start engine, stop engine, engine status")
+                    continue
+                
                 if not dm_input:
-                    print("Please enter a command or question.")
                     continue
                 
                 response = self.process_dm_input(dm_input)
                 print(response)
                 
             except KeyboardInterrupt:
-                print("\nGoodbye, Dungeon Master!")
                 break
             except Exception as e:
-                print(f"❌ Error: {e}")
+                print(f"Error: {e}")
+
+    def cli_demo_loop(self):
+        """Run a CLI demo loop for engine testing."""
+        if not self.enable_engine or not self.game_engine:
+            print("Game Engine not available.")
+            return
+
+        print("DM Engine Demo Mode - Type 'help' for commands.")
+        try:
+            while True:
+                cmd = input("Engine> ").strip()
+                if not cmd:
+                    continue
+                if cmd == "help":
+                    print("Commands: state, tick, enqueue, choose <player> <n>, show_scene, start, stop, back")
+                    continue
+                if cmd == "state":
+                    serializable_state = self._serialize_game_state(self.game_engine.game_state)
+                    print(json.dumps(serializable_state, indent=2)[:2000])
+                    continue
+                if cmd == "show_scene":
+                    print("Current scenario:\n", self.game_engine.game_state.get("current_scenario"))
+                    print("Options:\n", self.game_engine.game_state.get("current_options"))
+                    continue
+                if cmd.startswith("enqueue "):
+                    payload = cmd[len("enqueue "):]
+                    # Parse: actor:type:arg (e.g., "Alice:move:alley")
+                    parts = payload.split(":")
+                    if len(parts) >= 3:
+                        actor, typ, arg = parts[0], parts[1], parts[2]
+                        self.game_engine.enqueue_action({"actor": actor, "type": typ, "args": {"to": arg}})
+                        print("Enqueued")
+                    else:
+                        print("Bad enqueue format. Use actor:type:arg")
+                    continue
+                if cmd.startswith("choose "):
+                    try:
+                        _, player, n = cmd.split()
+                        n = int(n)
+                        self.game_engine.enqueue_action({"actor": player, "type": "choose_option", "args": {"choice": n}})
+                        print("Choice enqueued")
+                    except Exception as e:
+                        print("Bad choose command", e)
+                    continue
+                if cmd == "start":
+                    result = self.start_game_engine()
+                    print(result)
+                    continue
+                if cmd == "stop":
+                    result = self.stop_game_engine()
+                    print(result)
+                    continue
+                if cmd == "tick":
+                    self.game_engine.tick()
+                    print("Ticked")
+                    continue
+                if cmd in ("back", "exit"):
+                    break
+                print("Unknown command.")
+        except KeyboardInterrupt:
+            pass
 
 def main():
     """Main function to run the DM assistant."""
@@ -1396,7 +1899,6 @@ def main():
         if not collection_name:
             collection_name = "dnd_documents"
         
-        print("Initializing RAG DM Assistant...")
         assistant = RAGDMAssistant(
             collection_name=collection_name,
             verbose=True
@@ -1405,8 +1907,7 @@ def main():
         assistant.run_interactive()
         
     except Exception as e:
-        print(f"❌ Failed to initialize DM Assistant: {e}")
-        print("Make sure Qdrant is running: docker run -p 6333:6333 qdrant/qdrant")
+        print(f"Failed to initialize: {e}")
 
 if __name__ == "__main__":
     main()
