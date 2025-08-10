@@ -1,0 +1,31 @@
+Sample D&D Campaign Notes
+========================
+
+Adventure Hook
+--------------
+The party discovers an ancient map leading to the lost city of Aethermoor, a floating city that disappeared centuries ago. Local legends speak of powerful magical artifacts and untold treasures hidden within its walls.
+
+Characters
+----------
+- **Elara Moonwhisper**: High Elf Wizard specializing in divination magic
+- **Thorin Ironbeard**: Dwarf Cleric of the forge domain
+- **Zara Shadowstep**: Half-elf Rogue with a mysterious past
+
+Plot Points
+-----------
+1. Investigation in the local library reveals historical records
+2. Meeting with the sage Aldric who provides additional clues
+3. Journey through the Whispering Woods
+4. Encounter with sky pirates near the floating city
+5. Exploring the abandoned districts of Aethermoor
+6. Final confrontation with the Guardian of the Vault
+
+Magical Items
+-------------
+- **Staff of Eternal Winds**: Allows limited flight and wind manipulation
+- **Compass of True Direction**: Always points toward the bearer's desired destination
+- **Cloak of Whispered Secrets**: Grants advantage on stealth and perception checks
+
+Notes
+-----
+This campaign is designed for 4-6 players at levels 5-8. The floating city setting allows for unique three-dimensional combat encounters and exploration challenges.
