@@ -247,14 +247,20 @@ class ScenarioGeneratorAgent(BaseAgent):
         return prompt
     
     def _build_creative_prompt(self, seed: Dict[str, Any]) -> str:
-        """Build prompt for creative scenario generation"""
+        """Build prompt for creative scenario generation with skill checks and combat options"""
         return (
             f"Continue this D&D adventure story:\n"
             f"Location: {seed['location']}\n"
             f"Recent events: {', '.join(seed['recent'])}\n"
             f"Party members: {', '.join(seed['party'])}\n"
             f"Story arc: {seed['story_arc']}\n\n"
-            "Generate an engaging scene continuation (2-3 sentences) and provide 3-4 numbered options for the players."
+            "Generate an engaging scene continuation (2-3 sentences) and provide 3-4 numbered options for the players.\n\n"
+            "IMPORTANT: Include these types of options:\n"
+            "- At least 1-2 options that require SKILL CHECKS (Stealth, Perception, Athletics, Persuasion, Investigation, etc.) with clear success/failure consequences\n"
+            "- If appropriate to the scene, include potential COMBAT scenarios with specific enemies/monsters\n"
+            "- Mix of direct action, social interaction, and problem-solving options\n\n"
+            "For skill check options, format like: '1. **Stealth Check (DC 15)** - Sneak past the guards to avoid confrontation'\n"
+            "For combat options, format like: '2. **Combat** - Attack the bandits (2 Bandits, 1 Bandit Captain)'"
         )
     
     def _build_creative_choice_prompt(self, state: Dict[str, Any], choice: str, player: str) -> str:
@@ -263,8 +269,14 @@ class ScenarioGeneratorAgent(BaseAgent):
             f"In this D&D adventure, {player} chose: {choice}\n"
             f"Current story context: {state.get('story_arc', '')}\n"
             f"Game situation: Location: {state.get('session', {}).get('location', 'unknown')}\n\n"
-            "Describe what happens as a result of this choice. Make it engaging and appropriate for D&D. "
-            "Write 2-3 sentences showing the immediate consequence and outcome."
+            "Describe what happens as a result of this choice. Make it engaging and appropriate for D&D."
+            "Write 2-3 sentences showing the immediate consequence and outcome.\n\n"
+            "IMPORTANT: Include these types of options:\n"
+            "- At least 1-2 options that require SKILL CHECKS (Stealth, Perception, Athletics, Persuasion, Investigation, etc.) with clear success/failure consequences\n"
+            "- If appropriate to the scene, include potential COMBAT scenarios with specific enemies/monsters\n"
+            "- Mix of direct action, social interaction, and problem-solving options\n\n"
+            "For skill check options, format like: '1. **Stealth Check (DC 15)** - Sneak past the guards to avoid confrontation'\n"
+            "For combat options, format like: '2. **Combat** - Attack the bandits (2 Bandits, 1 Bandit Captain)'"
         )
     
     def _build_choice_consequence_prompt(self, state: Dict[str, Any], choice: str) -> str:

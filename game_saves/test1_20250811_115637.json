@@ -1,0 +1,185 @@
+{
+  "save_name": "test1",
+  "save_date": "2025-08-11T11:56:37.056275",
+  "version": "1.0",
+  "game_state": {
+    "players": {},
+    "npcs": {},
+    "world": {
+      "locations": []
+    },
+    "story_arc": "",
+    "scene_history": [
+      "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}"
+    ],
+    "current_scenario": "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}",
+    "current_options": "4. Leave and gather more information.\n2. Approach openly and ask questions.\n3. Set up an ambush and wait.\n1. Investigate the suspicious noise.",
+    "session": {
+      "location": "unknown",
+      "time": "",
+      "events": [
+        "New scene generated"
+      ]
+    },
+    "action_queue": [],
+    "last_scenario_query": "introduce the first encounter to the players",
+    "last_scenario_text": "As you crest the weathered ridge overlooking the Shattered Plains, the crimson sun of Roshar beats down mercilessly while distant storm clouds gather on the horizon. Below, you spot something concerning: a Veden supply caravan has ground to a halt near one of the permanent bridges spanning a particularly wide chasm. Through your spyglass, you can see figures moving erratically around the wagons - but these aren't the ordered movements of guards or merchants.\n\nSuddenly, a bone-chilling screech echoes across the plateau as a pack of **chasmfiends** - smaller cousins of the legendary greatshells - have emerged from the depths and are attacking the caravan! The creatures, each the size of a large horse with chitinous armor gleaming purple-black in the sunlight, have already overturned two wagons. You can see survivors desperately trying to fend them off with spears and crossbows, but they're clearly outmatched.\n\n**What do you do?**\n\n1. **Charge in immediately** to help the caravan, rushing down the slope with weapons drawn to engage the chasmfiends in direct combat.\n\n2. **Approach stealthily** along the chasm's edge to get a better assessment of the situation and potentially flank the creatures from an unexpected angle.\n\n3. **Use ranged attacks** from your elevated position on the ridge to thin out the chasmfiend pack before moving closer.\n\n4. **Signal the caravan** and try to coordinate a strategy with the survivors while looking for environmental advantages you could exploit in the fight.",
+    "scenario_count": 6
+  },
+  "campaign_info": {
+    "title": "Shards of Honor: The Veden Crisis",
+    "theme": "Epic Fantasy Adventure",
+    "setting": "The world of Roshar, focusing on the kingdom of Vedens and neighboring Alethi territories",
+    "level_range": "1-10",
+    "overview": "Shards of Honor: The Veden Crisis",
+    "background": "Shards of Honor: The Veden Crisis",
+    "main_plot": "Shards of Honor: The Veden Crisis",
+    "npcs": [
+      {
+        "name": "Kalak the Herald",
+        "role": "Herald Mentor",
+        "description": "One of the ten Heralds, appearing as a weathered man bearing the weight of millennia. He carries an ancient Honorblade and speaks with the authority of one who has faced countless Desolations.",
+        "motivation": "Seeks to train new Knights Radiant quickly enough to face the returning Voidbringers, haunted by his abandonment of the Oathpact",
+        "stats": {}
+      },
+      {
+        "name": "Nale the Herald",
+        "role": "Conflicted Herald",
+        "description": "The Herald of Justice who has been hunting Knights Radiant, believing their return will trigger another Desolation. Now questions his methods as Voidbringers march regardless.",
+        "motivation": "Torn between his belief that Radiants cause Desolations and the reality that they may be necessary to stop this one",
+        "stats": {}
+      },
+      {
+        "name": "Vyre the Corrupted",
+        "role": "Fallen Knight Radiant",
+        "description": "A former Radiant who killed his spren and now serves Odium, wielding corrupted Shards. He leads the Voidbringer forces with tactical precision.",
+        "motivation": "Believes that serving Odium will bring an end to the cycle of Desolations, even if it means the destruction of current civilization",
+        "stats": {}
+      },
+      {
+        "name": "The Sibling",
+        "role": "Ancient Spren",
+        "description": "A powerful spren who once bonded with the city of Urithiru itself. Now weakened and in hiding, speaking only to those who prove worthy.",
+        "motivation": "Desperately seeks Knights Radiant pure enough to help restore the ancient safeguards against Voidbringers",
+        "stats": {}
+      }
+    ],
+    "locations": [
+      {
+        "name": "The Shattered Plains",
+        "location_type": "Ancient Battleground",
+        "description": "A vast expanse of broken plateaus where honorspren gather in great numbers. The echoes of ancient oaths spoken here make it easier for new Radiants to progress. Voidspren also lurk in the depths.",
+        "significance": "First location where players must retrieve the Oathstone, a gemstone that amplifies Radiant abilities, while facing corrupted singers and learning to work with their spren",
+        "floorplan": "```\n#########################\n#...~...#...............#\n#..~~~..+...@...........#\n#.~~~~~.#......^........#\n#..~~~..#.....^^^.......#\n#...~...#....^^^^^......#\n#########+##^^^^@#####+##\n#X......#.....^^^.......#\n#XX.....#....^^^^^......#\n#XXX....+...^^^^^^^.....#\n#XXXX...#..^^^^^^^^^....#\n#XXXXX..#.^^^^^@^^^^^...#\n#XXXXXX.+^^^^^^^^^^^....#\n#XXXXXXX#...........T...#\n#########################\n```"
+      },
+      {
+        "name": "Lasting Integrity",
+        "location_type": "Spren Fortress in Shadesmar",
+        "description": "The honorspren stronghold in the Cognitive Realm where spren debate whether to bond with humans again. Reality shifts based on emotion and thought here.",
+        "significance": "Players must convince the honorspren to provide aid and retrieve the Radiant Codex while navigating spren politics and proving their worthiness",
+        "floorplan": "```\n#########################\n#.......+ Assembly +....#\n#...T...# Chamber #.T..#\n#.......#....@....#....#\n#####+###.........#####+#\n#Debate.+....~....+.Med.#\n#Chamber#....~....#Room.#\n#...T...#....~....#..@..#\n#####+###....~....#####+#\n#.......#....~....#.....#\n#..@....+....~....+..T..#\n#.......#....~....#.....#\n#####+##################\n#^.^.^.^.^.^.^.^.^.^.^.^#\n#########################\n```"
+      },
+      {
+        "name": "Urithiru",
+        "location_type": "Ancient Tower City",
+        "description": "The legendary tower city of the Knights Radiant, now mostly dark and empty. Hidden chambers contain ancient fabrials and the sleeping Sibling spren.",
+        "significance": "Final preparation location where players must awaken the tower's defenses and gain the ultimate weapon before the climactic battle",
+        "floorplan": "```\n#########################\n#.......+.......+.......#\n#.T.....#.......#.....T.#\n#.......#...@...#.......#\n#.......+.......+.......#\n#.......#.......#.......#\n#..^....#.......#....^..#\n#.......#.......#.......#\n#.......+...@...+.......#\n#.......#.......#.......#\n#.T.....#.......#.....T.#\n#.......#.......#.......#\n#.......+.......+.......#\n#..~~~..#.......#..~~~..#\n#########################\n```"
+      }
+    ],
+    "encounters": [
+      {
+        "title": "The First Oath Awakening",
+        "encounter_type": "Combat/Mystical",
+        "description": "Players defend civilians from Voidbringers while their spren first manifest, requiring them to speak 'Life before death, strength before weakness, journey before destination' to unlock their powers.",
+        "challenge": "Medium - tutorial combat with oath-speaking mechanics"
+      },
+      {
+        "title": "Trial of the Honorspren",
+        "encounter_type": "Social/Mental",
+        "description": "In Shadesmar, players must convince ancient honorspren to trust humans again by proving their dedication to their oaths through tests of character.",
+        "challenge": "Hard - requires deep roleplay and understanding of Radiant ideals"
+      },
+      {
+        "title": "The Battle of the Singing Peaks",
+        "encounter_type": "Mass Combat",
+        "description": "Epic final battle where players lead allied armies of Alethi, Veden forces, honorspren, and reformed singers against waves of Voidbringers, corrupted singers, and Odium's champions across a massive battlefield.",
+        "challenge": "Very Hard - large-scale battle with multiple objectives and ally management"
+      },
+      {
+        "title": "Confronting the Sibling",
+        "encounter_type": "Mystical/Social",
+        "description": "Players must prove their worth to the tower spren while navigating the dangers of a partially awakened Urithiru and its ancient defenses.",
+        "challenge": "Medium - puzzle-solving combined with moral choices"
+      }
+    ],
+    "hooks": [
+      "Each character begins having dreams where a spren calls to them, leading them to the same border town just as Voidbringers attack",
+      "The characters are drawn together when they all instinctively rush to defend innocents, causing their spren to manifest simultaneously",
+      "Kalak appears to each character in visions, calling them to gather at a specific location where their destiny as Knights Radiant will be revealed"
+    ],
+    "rewards": [
+      "Progressive oath abilities that unlock as players speak their First, Second, and Third Oaths throughout the campaign",
+      "Shardblades and Shardplate recovered from ancient caches in each location",
+      "Stormlight-infused gems and fabrials that enhance spren abilities and provide utility powers",
+      "The eternal gratitude of multiple nations and spren, plus the knowledge that they have prevented a new Desolation"
+    ],
+    "dm_notes": "Shards of Honor: The Veden Crisis"
+  },
+  "players": [
+    {
+      "name": "kali",
+      "race": "Azish",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "11/11"
+    },
+    {
+      "name": "Aggi",
+      "race": "Alethi",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "8/8"
+    }
+  ],
+  "combat_state": {
+    "state": "active",
+    "round": 1,
+    "combatants": [
+      {
+        "id": "fc68b207-77df-473e-8e3c-ffd6481703b9",
+        "name": "combatant",
+        "hp": "10/10",
+        "ac": 10,
+        "initiative": 20,
+        "conditions": [],
+        "is_alive": true,
+        "is_current": true
+      }
+    ],
+    "current_combatant": {
+      "id": "fc68b207-77df-473e-8e3c-ffd6481703b9",
+      "name": "combatant",
+      "hp": "10/10",
+      "ac": 10,
+      "conditions": [],
+      "is_player": false,
+      "is_unconscious": false,
+      "is_dead": false
+    }
+  },
+  "last_scenario_options": [
+    "1. **Press your advantage** with a desperate all-out attack while Vyre is still off-balance, channeling what little Stormlight remains into your weapon for one decisive strike.",
+    "2. **Attempt to escape** by using your remaining power to enhance your speed and mobility, trying to reach whatever Vyre keeps glancing toward behind you.",
+    "3. **Try to communicate** with your spren for guidance or additional power, risking precious moments but potentially discovering a new technique in this moment of crisis.",
+    "4. **Feint weakness** and draw Vyre closer while secretly preparing to use the cracked stone around you as weapons or obstacles, conserving your remaining Stormlight for a crucial moment."
+  ],
+  "assistant_config": {
+    "collection_name": "dnd_documents",
+    "campaigns_dir": "docs/current_campaign",
+    "players_dir": "docs/players",
+    "enable_game_engine": true,
+    "enable_caching": true,
+    "enable_async": true
+  }
+}

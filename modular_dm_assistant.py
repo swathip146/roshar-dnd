@@ -6,8 +6,10 @@ Enhanced with intelligent caching, async processing, and smart pipeline routing
 import json
 import time
 import asyncio
+import os
 from typing import Dict, List, Any, Optional
 from pathlib import Path
+from datetime import datetime
 
 from agent_framework import AgentOrchestrator, MessageType
 from game_engine import GameEngineAgent, JSONPersister
@@ -445,7 +447,8 @@ class ModularDMAssistant:
                  enable_game_engine: bool = True,
                  tick_seconds: float = 0.8,
                  enable_caching: bool = True,
-                 enable_async: bool = True):
+                 enable_async: bool = True,
+                 game_save_file: Optional[str] = None):
         """Initialize the enhanced modular DM assistant"""
         
         self.collection_name = collection_name
@@ -457,6 +460,14 @@ class ModularDMAssistant:
         self.has_llm = CLAUDE_AVAILABLE
         self.enable_caching = enable_caching
         self.enable_async = enable_async
+        
+        # Game save functionality
+        self.game_saves_dir = "./game_saves"
+        self.current_save_file = game_save_file
+        self.game_save_data = {}
+        
+        # Ensure game saves directory exists
+        os.makedirs(self.game_saves_dir, exist_ok=True)
         
         # Enhanced pipeline management
         self.pipeline_manager = PipelineManager() if enable_caching else None
@@ -498,8 +509,14 @@ class ModularDMAssistant:
         self._initialize_agents()
         self._setup_enhanced_pipelines()
         
+        # Load game save if specified
+        if self.current_save_file:
+            self._load_game_save(self.current_save_file)
+        
         if self.verbose:
             print("🚀 Enhanced Modular DM Assistant initialized with intelligent pipelines")
+            if self.current_save_file:
+                print(f"💾 Loaded game save: {self.current_save_file}")
             self._print_agent_status()
             self._print_pipeline_status()
     
@@ -798,6 +815,76 @@ class ModularDMAssistant:
                 if response and response.get("game_state"):
                     return f"📊 GAME STATE:\n{json.dumps(response['game_state'], indent=2)}"
             return "❌ Game state not available"
+        
+        # Game save/load commands
+        elif "save game" in instruction_lower:
+            self.last_command = ""
+            # Extract save name
+            words = instruction.split()
+            save_name = "Quick Save"
+            
+            # Look for save name after "save game"
+            for i, word in enumerate(words):
+                if word.lower() == "game" and i + 1 < len(words):
+                    save_name = " ".join(words[i + 1:])
+                    break
+            
+            if self._save_game(save_name):
+                return f"💾 Game saved successfully as: {save_name}"
+            else:
+                return "❌ Failed to save game"
+        
+        elif "load game" in instruction_lower or "list saves" in instruction_lower:
+            self.last_command = ""
+            saves = self._list_game_saves()
+            if not saves:
+                return "❌ No game saves found in ./game_saves directory"
+            
+            output = "💾 AVAILABLE GAME SAVES:\n\n"
+            for i, save in enumerate(saves, 1):
+                output += f"  {i}. **{save['save_name']}**\n"
+                output += f"     Campaign: {save['campaign']}\n"
+                output += f"     Last Modified: {save['last_modified']}\n"
+                output += f"     Progress: {save['scenario_count']} scenarios, {save['story_progression']} story events\n"
+                output += f"     Players: {save['players']}\n\n"
+            
+            output += "💡 *Type 'load save [number]' to load a specific save*"
+            return output
+        
+        elif "load save" in instruction_lower:
+            self.last_command = ""
+            # Extract save number
+            words = instruction.split()
+            save_number = None
+            
+            for word in words:
+                if word.isdigit():
+                    save_number = int(word)
+                    break
+            
+            if save_number is None:
+                return "❌ Please specify save number (e.g., 'load save 1')"
+            
+            saves = self._list_game_saves()
+            if save_number < 1 or save_number > len(saves):
+                return f"❌ Invalid save number. Available saves: 1-{len(saves)}"
+            
+            selected_save = saves[save_number - 1]
+            if self._load_game_save(selected_save['filename']):
+                return f"✅ Successfully loaded: {selected_save['save_name']}"
+            else:
+                return f"❌ Failed to load save: {selected_save['save_name']}"
+        
+        elif "update save" in instruction_lower:
+            self.last_command = ""
+            if not self.current_save_file:
+                return "❌ No current save file to update. Use 'save game [name]' to create a new save."
+            
+            save_name = self.game_save_data.get('save_name', 'Updated Save')
+            if self._save_game(save_name, update_existing=True):
+                return f"💾 Successfully updated current save: {save_name}"
+            else:
+                return "❌ Failed to update current save"
         
         # General queries - use RAG
         else:
@@ -1135,23 +1222,54 @@ class ModularDMAssistant:
     
     def _build_enhanced_query(self, user_query: str, optimized_context: dict) -> str:
         """Build enhanced query with optimized context"""
-        enhanced_query = user_query
-        
-        # Add recent events for continuity if available
-        recent_events = optimized_context.get('recent_events', [])
-        if recent_events:
-            progression_summary = "Recent events: "
-            for event in recent_events:
-                # Truncate consequence to 80 chars for faster processing
-                consequence = event.get('consequence', '')[:80]
-                progression_summary += f"{event.get('choice', 'Action')} → {consequence}... "
-            enhanced_query = f"{user_query}\n\nContinue from: {progression_summary}"
+        enhanced_query = self._build_enhanced_scenario_query_with_context(user_query, optimized_context)
         
         # Add turn number as cache buster
         turn_num = optimized_context.get('game_state', {}).get('scenario_count', 0)
         cache_buster = f" (Turn {turn_num})"
         
         return enhanced_query + cache_buster
+    
+    def _build_enhanced_scenario_query_with_context(self, user_query: str, context: dict) -> str:
+        """Build enhanced scenario query with skill checks and combat options"""
+        # Extract context information
+        campaign = context.get('campaign', {}) if isinstance(context, dict) else {}
+        game_state = context.get('game_state', {}) if isinstance(context, dict) else {}
+        recent_events = context.get('recent_events', []) if isinstance(context, dict) else []
+        
+        # Build base query with context
+        enhanced_query = f"Continue this D&D adventure story:\n"
+        
+        if campaign.get('title'):
+            enhanced_query += f"Campaign: {campaign['title']}\n"
+        if campaign.get('setting'):
+            enhanced_query += f"Setting: {campaign['setting']}\n"
+        if game_state.get('current_location'):
+            enhanced_query += f"Location: {game_state['current_location']}\n"
+        
+        # Add recent events for continuity
+        if recent_events:
+            progression_summary = "Recent events: "
+            for event in recent_events:
+                consequence = event.get('consequence', '')[:80]
+                progression_summary += f"{event.get('choice', 'Action')} → {consequence}... "
+            enhanced_query += f"{progression_summary}\n"
+        
+        enhanced_query += f"\nUser Request: {user_query}\n\n"
+        
+        # Add the critical skill check and combat instructions
+        enhanced_query += (
+            "Generate an engaging scene continuation (2-3 sentences) and provide 3-4 numbered options for the players.\n\n"
+            "IMPORTANT: Include these types of options:\n"
+            "- At least 1-2 options that require SKILL CHECKS (Stealth, Perception, Athletics, Persuasion, Investigation, etc.) with clear success/failure consequences\n"
+            "- If appropriate to the scene, include potential COMBAT scenarios with specific enemies/monsters\n"
+            "- Mix of direct action, social interaction, and problem-solving options\n\n"
+            "For skill check options, format like: '1. **Stealth Check (DC 15)** - Sneak past the guards to avoid confrontation'\n"
+            "For combat options, format like: '2. **Combat** - Attack the bandits (2 Bandits, 1 Bandit Captain)'\n\n"
+            "Ensure options are clearly numbered and formatted for easy selection."
+        )
+        
+        return enhanced_query
     
     def _update_game_state_async(self, user_query: str, scenario_text: str, game_state_dict: dict):
         """Update game state asynchronously to not block response"""
@@ -1232,7 +1350,7 @@ class ModularDMAssistant:
             return f"❌ Failed to generate scenario: {error_msg}"
     
     def _select_player_option(self, option_number: int) -> str:
-        """Handle player option selection with enhanced creative consequence pipeline and game state updates"""
+        """Handle player option selection with skill checks, combat detection, and automatic subsequent scene generation"""
         # Check if we have stored options
         if not self.last_scenario_options:
             return "❌ No scenario options available. Please generate a scenario first."
@@ -1251,16 +1369,97 @@ class ModularDMAssistant:
             if state_response and state_response.get("game_state"):
                 game_state.update(state_response["game_state"])
         
+        # DETECT SKILL CHECK OPTIONS
+        skill_check_result = self._handle_skill_check_option(selected_option)
+        
+        # DETECT COMBAT OPTIONS
+        combat_result = self._handle_combat_option(selected_option, game_state)
+        
+        continuation = ""
+        
+        # Handle skill checks if detected
+        if skill_check_result:
+            skill_info = skill_check_result
+            success_text = "SUCCESS!" if skill_info["success"] else "FAILURE!"
+            continuation = f"🎲 **{skill_info['skill'].upper()} CHECK (DC {skill_info['dc']})**\n"
+            continuation += f"**Roll:** {skill_info['roll_description']} = **{skill_info['roll_total']}** - {success_text}\n\n"
+        
+        # Handle combat initialization if detected
+        if combat_result:
+            combat_info = combat_result
+            continuation += f"⚔️ **COMBAT INITIATED!**\n"
+            continuation += f"**Enemies:** {', '.join([enemy['name'] for enemy in combat_info['enemies']])}\n\n"
+            continuation += "Combat has been automatically set up with all players and enemies.\n"
+            continuation += "Use combat commands: 'combat status', 'next turn', 'end combat'\n\n"
+        
         try:
-            # Use enhanced creative consequence pipeline
+            # Use enhanced creative consequence pipeline with skill/combat context
             if self.creative_consequence_pipeline:
-                continuation = self.creative_consequence_pipeline.generate_consequence(
-                    choice=selected_option,
+                enhanced_choice = selected_option
+                if skill_check_result:
+                    enhanced_choice += f" [Skill Check: {skill_check_result['skill']} {skill_check_result['roll_total']} vs DC {skill_check_result['dc']} - {'Success' if skill_check_result['success'] else 'Failure'}]"
+                if combat_result:
+                    enhanced_choice += f" [Combat Started with {len(combat_result['enemies'])} enemies]"
+                
+                story_continuation = self.creative_consequence_pipeline.generate_consequence(
+                    choice=enhanced_choice,
                     game_state=game_state,
                     player="DM"
                 )
                 
+                # Combine skill/combat results with story continuation
+                if continuation:
+                    continuation += f"**Story Continues:**\n{story_continuation}"
+                else:
+                    continuation = story_continuation
+                
                 # UPDATE GAME STATE WITH CHOICE AND CONSEQUENCE
+                updated_game_state = game_state.copy()
+                updated_game_state["last_player_choice"] = selected_option
+                updated_game_state["last_consequence"] = continuation
+                updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
+                
+                # Add skill check and combat results to progression
+                progression_entry = {
+                    "choice": selected_option,
+                    "consequence": continuation,
+                    "timestamp": __import__('time').time()
+                }
+                if skill_check_result:
+                    progression_entry["skill_check"] = skill_check_result
+                if combat_result:
+                    progression_entry["combat_started"] = True
+                    progression_entry["enemies"] = combat_result["enemies"]
+                
+                updated_game_state["story_progression"].append(progression_entry)
+                
+                # Update game engine with new state
+                if self.game_engine_agent:
+                    self._send_message_and_wait("game_engine", "update_game_state", {
+                        "game_state": updated_game_state
+                    })
+                
+                if self.verbose:
+                    print("✅ Used enhanced creative consequence pipeline with skill/combat integration")
+                    print("📝 Updated game state with player choice progression")
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Enhanced pipeline failed, falling back to agent: {e}")
+            
+            # Fallback to original agent-based approach with game state updates
+            game_state["current_options"] = "\n".join(self.last_scenario_options)
+            
+            response = self._send_message_and_wait("scenario_generator", "apply_player_choice", {
+                "game_state": game_state,
+                "player": "DM",
+                "choice": option_number
+            }, timeout=30.0)
+            
+            if response and response.get("success"):
+                continuation = response.get("continuation", "Option processed")
+                
+                # Update game state even in fallback
                 updated_game_state = game_state.copy()
                 updated_game_state["last_player_choice"] = selected_option
                 updated_game_state["last_consequence"] = continuation
@@ -1271,75 +1470,283 @@ class ModularDMAssistant:
                     "timestamp": __import__('time').time()
                 })
                 
-                # Update game engine with new state
                 if self.game_engine_agent:
                     self._send_message_and_wait("game_engine", "update_game_state", {
                         "game_state": updated_game_state
                     })
-                
-                # Clear cached scenario data to force new generation
-                if self.pipeline_manager and self.enable_caching:
-                    # Clear scenario-related cache entries
-                    cache_keys_to_clear = [
-                        "haystack_pipeline_query_scenario",
-                        "campaign_manager_get_campaign_context",
-                        "game_engine_get_game_state"
-                    ]
-                    for key_pattern in cache_keys_to_clear:
-                        try:
-                            # This will be handled by the cache implementation
-                            pass
-                        except:
-                            pass
-                
-                # Clear stored options to prevent re-selection
-                self.last_scenario_options = []
-                
-                if self.verbose:
-                    print("✅ Used enhanced creative consequence pipeline")
-                    print("📝 Updated game state with player choice progression")
-                
-                return f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n📝 *Use 'generate scenario' to continue the adventure.*"
+            else:
+                error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+                return f"❌ Failed to process option: {error_msg}"
+        
+        # Clear cached scenario data to force new generation
+        if self.pipeline_manager and self.enable_caching:
+            # Clear scenario-related cache entries
+            cache_keys_to_clear = [
+                "haystack_pipeline_query_scenario",
+                "campaign_manager_get_campaign_context",
+                "game_engine_get_game_state"
+            ]
+            for key_pattern in cache_keys_to_clear:
+                try:
+                    # This will be handled by the cache implementation
+                    pass
+                except:
+                    pass
+        
+        # Clear stored options to prevent re-selection
+        self.last_scenario_options = []
+        
+        # AUTOMATICALLY GENERATE SUBSEQUENT SCENE
+        if self.verbose:
+            print("🔄 Automatically generating subsequent scene...")
+        
+        # Create a prompt that continues from the consequence
+        continuation_prompt = f"Continue the story after: {continuation}"
+        
+        # Generate the next scenario automatically
+        try:
+            next_scenario = self._generate_scenario_after_choice(continuation_prompt, updated_game_state if 'updated_game_state' in locals() else game_state)
             
+            if next_scenario:
+                # Combine the choice consequence with the new scenario
+                full_response = f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n"
+                full_response += f"📖 **WHAT HAPPENS NEXT:**\n{next_scenario}\n\n"
+                full_response += f"📝 *DM: Type 'select option [number]' to choose the next action and continue the story.*"
+                
+                return full_response
+            else:
+                # Fallback if scenario generation fails
+                return f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n📝 *Use 'generate scenario' to continue the adventure.*"
+        
         except Exception as e:
             if self.verbose:
-                print(f"⚠️ Enhanced pipeline failed, falling back to agent: {e}")
-        
-        # Fallback to original agent-based approach with game state updates
-        game_state["current_options"] = "\n".join(self.last_scenario_options)
-        
-        response = self._send_message_and_wait("scenario_generator", "apply_player_choice", {
-            "game_state": game_state,
-            "player": "DM",
-            "choice": option_number
-        }, timeout=30.0)
-        
-        if response and response.get("success"):
-            continuation = response.get("continuation", "Option processed")
+                print(f"⚠️ Automatic scenario generation failed: {e}")
+            # Fallback if automatic generation fails
+            return f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n📝 *Use 'generate scenario' to continue the adventure.*"
+    
+    def _generate_scenario_after_choice(self, continuation_prompt: str, game_state: dict) -> str:
+        """Generate a scenario that continues after a player choice consequence"""
+        try:
+            # Get campaign context if available
+            campaign_context = ""
+            campaign_response = self._send_message_and_wait("campaign_manager", "get_campaign_context", {})
+            if campaign_response and campaign_response.get("success"):
+                campaign_context = json.dumps(campaign_response["context"])
             
-            # Update game state even in fallback
-            updated_game_state = game_state.copy()
-            updated_game_state["last_player_choice"] = selected_option
-            updated_game_state["last_consequence"] = continuation
-            updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
-            updated_game_state["story_progression"].append({
-                "choice": selected_option,
-                "consequence": continuation,
-                "timestamp": __import__('time').time()
-            })
+            # Build enhanced query that includes the recent choice and consequence with skill/combat options
+            context_dict = {
+                'campaign': {'title': '', 'setting': ''},
+                'game_state': game_state,
+                'recent_events': game_state.get("story_progression", [])[-2:]  # Last 2 events including current
+            }
             
-            if self.game_engine_agent:
-                self._send_message_and_wait("game_engine", "update_game_state", {
-                    "game_state": updated_game_state
+            enhanced_query = self._build_enhanced_scenario_query_with_context(continuation_prompt, context_dict)
+            
+            # Add timestamp to force new generation
+            cache_buster = f" (Continue Turn {len(game_state.get('story_progression', []))})"
+            final_query = enhanced_query + cache_buster
+            
+            # Generate scenario using Haystack pipeline
+            response = self._send_message_and_wait("haystack_pipeline", "query_scenario", {
+                "query": final_query,
+                "campaign_context": campaign_context,
+                "game_state": json.dumps(game_state)
+            }, timeout=25.0)
+            
+            if response and response.get("success"):
+                result = response["result"]
+                scenario_text = result.get("answer", "")
+                
+                # Extract and store options for later use
+                self._extract_and_store_options(scenario_text)
+                
+                # Update game state to track the new scenario generation
+                if self.game_engine_agent:
+                    game_state["last_scenario_query"] = continuation_prompt
+                    game_state["last_scenario_text"] = scenario_text
+                    game_state["scenario_count"] = game_state.get("scenario_count", 0) + 1
+                    
+                    self._send_message_and_wait("game_engine", "update_game_state", {
+                        "game_state": game_state
+                    })
+                
+                if self.verbose:
+                    print("🔄 Generated subsequent scenario automatically")
+                
+                return scenario_text
+            else:
+                error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+                if self.verbose:
+                    print(f"⚠️ Failed to generate subsequent scenario: {error_msg}")
+                return ""
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Error in automatic scenario generation: {e}")
+            return ""
+    
+    def _handle_skill_check_option(self, selected_option: str) -> Optional[Dict[str, Any]]:
+        """Handle skill check options and return roll results"""
+        import re
+        
+        # Look for skill check patterns like "**Stealth Check (DC 15)**" or "Stealth Check (DC 15)"
+        skill_patterns = [
+            r'\*\*([A-Za-z\s]+)\s+Check\s+\(DC\s+(\d+)\)\*\*',  # **Skill Check (DC X)**
+            r'([A-Za-z\s]+)\s+Check\s+\(DC\s+(\d+)\)',          # Skill Check (DC X)
+            r'\*\*([A-Za-z\s]+)\s+\(DC\s+(\d+)\)\*\*',          # **Skill (DC X)**
+        ]
+        
+        for pattern in skill_patterns:
+            match = re.search(pattern, selected_option, re.IGNORECASE)
+            if match:
+                skill_name = match.group(1).strip().lower()
+                dc = int(match.group(2))
+                
+                if self.verbose:
+                    print(f"🎲 Detected skill check: {skill_name} (DC {dc})")
+                
+                # Roll the skill check
+                dice_response = self._send_message_and_wait("dice_system", "roll_dice", {
+                    "expression": "1d20",
+                    "context": f"{skill_name.title()} Check (DC {dc})",
+                    "skill": skill_name
+                })
+                
+                if dice_response and dice_response.get("success"):
+                    result = dice_response["result"]
+                    total = result.get("total", 0)
+                    success = total >= dc
+                    
+                    return {
+                        "type": "skill_check",
+                        "skill": skill_name,
+                        "dc": dc,
+                        "roll_total": total,
+                        "success": success,
+                        "roll_description": result.get("description", f"Rolled {total}"),
+                        "expression": result.get("expression", "1d20")
+                    }
+        
+        return None
+    
+    def _handle_combat_option(self, selected_option: str, game_state: dict) -> Optional[Dict[str, Any]]:
+        """Handle combat options and initialize combat if detected"""
+        import re
+        
+        # Look for combat patterns like "**Combat**" or "Attack the bandits (2 Bandits, 1 Bandit Captain)"
+        combat_patterns = [
+            r'\*\*Combat\*\*',                                   # **Combat**
+            r'Attack\s+.*?\(([^)]+)\)',                         # Attack ... (enemies)
+            r'Fight\s+.*?\(([^)]+)\)',                          # Fight ... (enemies)
+            r'\*\*Combat\*\*\s*-\s*.*?\(([^)]+)\)',            # **Combat** - ... (enemies)
+        ]
+        
+        for pattern in combat_patterns:
+            match = re.search(pattern, selected_option, re.IGNORECASE)
+            if match:
+                if self.verbose:
+                    print(f"⚔️ Detected combat option: {selected_option}")
+                
+                # Extract enemy information if available
+                enemies = []
+                if match.groups():
+                    enemy_text = match.group(1)
+                    # Parse enemy information like "2 Bandits, 1 Bandit Captain"
+                    enemy_parts = [part.strip() for part in enemy_text.split(',')]
+                    for part in enemy_parts:
+                        # Look for patterns like "2 Bandits" or "1 Bandit Captain"
+                        enemy_match = re.match(r'(\d+)\s+(.+)', part.strip())
+                        if enemy_match:
+                            count = int(enemy_match.group(1))
+                            enemy_type = enemy_match.group(2).strip()
+                            for i in range(count):
+                                enemy_name = f"{enemy_type} {i+1}" if count > 1 else enemy_type
+                                enemies.append({
+                                    "name": enemy_name,
+                                    "type": enemy_type,
+                                    "max_hp": self._get_enemy_hp(enemy_type),
+                                    "armor_class": self._get_enemy_ac(enemy_type)
+                                })
+                
+                # Add all players to combat
+                self._setup_combat_with_players_and_enemies(enemies, game_state)
+                
+                return {
+                    "type": "combat",
+                    "enemies": enemies,
+                    "combat_started": True
+                }
+        
+        return None
+    
+    def _get_enemy_hp(self, enemy_type: str) -> int:
+        """Get default HP for enemy types"""
+        enemy_hp_defaults = {
+            "bandit": 11,
+            "bandit captain": 65,
+            "goblin": 7,
+            "orc": 15,
+            "skeleton": 13,
+            "zombie": 22,
+            "wolf": 11,
+            "guard": 11,
+            "cultist": 9,
+            "thug": 32
+        }
+        return enemy_hp_defaults.get(enemy_type.lower(), 15)  # Default 15 HP
+    
+    def _get_enemy_ac(self, enemy_type: str) -> int:
+        """Get default AC for enemy types"""
+        enemy_ac_defaults = {
+            "bandit": 12,
+            "bandit captain": 15,
+            "goblin": 15,
+            "orc": 13,
+            "skeleton": 13,
+            "zombie": 8,
+            "wolf": 13,
+            "guard": 16,
+            "cultist": 12,
+            "thug": 11
+        }
+        return enemy_ac_defaults.get(enemy_type.lower(), 12)  # Default 12 AC
+    
+    def _setup_combat_with_players_and_enemies(self, enemies: List[Dict], game_state: dict):
+        """Setup combat by adding all players and enemies to the combat engine"""
+        try:
+            # First, start combat
+            start_response = self._send_message_and_wait("combat_engine", "start_combat", {})
+            if not (start_response and start_response.get("success")):
+                if self.verbose:
+                    print("⚠️ Failed to start combat engine")
+                return
+            
+            # Add all players from campaign
+            players_response = self._send_message_and_wait("campaign_manager", "list_players", {})
+            if players_response and players_response.get("players"):
+                for player in players_response["players"]:
+                    self._send_message_and_wait("combat_engine", "add_combatant", {
+                        "name": player["name"],
+                        "max_hp": player.get("hp", 20),
+                        "armor_class": player.get("combat_stats", {}).get("armor_class", 12),
+                        "is_player": True
+                    })
+            
+            # Add all enemies
+            for enemy in enemies:
+                self._send_message_and_wait("combat_engine", "add_combatant", {
+                    "name": enemy["name"],
+                    "max_hp": enemy["max_hp"],
+                    "armor_class": enemy["armor_class"],
+                    "is_player": False
                 })
             
-            # Clear stored options
-            self.last_scenario_options = []
-            
-            return f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n📝 *Use 'generate scenario' to continue the adventure.*"
-        else:
-            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
-            return f"❌ Failed to process option: {error_msg}"
+            if self.verbose:
+                print(f"⚔️ Combat initialized with {len(enemies)} enemies and players")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Error setting up combat: {e}")
     
     def _extract_and_store_options(self, scenario_text: str):
         """Extract numbered options from scenario text and store them"""
@@ -1853,6 +2260,162 @@ class ModularDMAssistant:
         error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
         return f"❌ Failed to find rule: {error_msg}"
     
+    def _list_game_saves(self) -> List[Dict[str, Any]]:
+        """List all available game save files"""
+        saves = []
+        try:
+            if not os.path.exists(self.game_saves_dir):
+                return saves
+            
+            for filename in os.listdir(self.game_saves_dir):
+                if filename.endswith('.json'):
+                    filepath = os.path.join(self.game_saves_dir, filename)
+                    try:
+                        # Get file modification time
+                        mod_time = os.path.getmtime(filepath)
+                        mod_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
+                        
+                        # Try to read save metadata
+                        with open(filepath, 'r') as f:
+                            save_data = json.load(f)
+                        
+                        saves.append({
+                            'filename': filename,
+                            'filepath': filepath,
+                            'save_name': save_data.get('save_name', filename[:-5]),  # Remove .json
+                            'campaign': save_data.get('campaign_info', {}).get('title', 'Unknown Campaign'),
+                            'last_modified': mod_date,
+                            'scenario_count': save_data.get('game_state', {}).get('scenario_count', 0),
+                            'players': len(save_data.get('players', [])),
+                            'story_progression': len(save_data.get('game_state', {}).get('story_progression', []))
+                        })
+                    except (json.JSONDecodeError, IOError) as e:
+                        if self.verbose:
+                            print(f"⚠️ Could not read save file {filename}: {e}")
+                        continue
+            
+            # Sort by last modified date (newest first)
+            saves.sort(key=lambda x: x['last_modified'], reverse=True)
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Error listing game saves: {e}")
+        
+        return saves
+    
+    def _load_game_save(self, save_file: str) -> bool:
+        """Load a game save file"""
+        try:
+            filepath = os.path.join(self.game_saves_dir, save_file)
+            if not os.path.exists(filepath):
+                if self.verbose:
+                    print(f"❌ Save file not found: {save_file}")
+                return False
+            
+            with open(filepath, 'r') as f:
+                self.game_save_data = json.load(f)
+            
+            # Restore game state to game engine
+            if self.game_engine_agent and self.game_save_data.get('game_state'):
+                self._send_message_and_wait("game_engine", "update_game_state", {
+                    "game_state": self.game_save_data['game_state']
+                })
+            
+            # Restore last scenario options
+            if self.game_save_data.get('last_scenario_options'):
+                self.last_scenario_options = self.game_save_data['last_scenario_options']
+            
+            if self.verbose:
+                save_name = self.game_save_data.get('save_name', save_file)
+                campaign = self.game_save_data.get('campaign_info', {}).get('title', 'Unknown')
+                print(f"💾 Successfully loaded save: {save_name} (Campaign: {campaign})")
+            
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error loading save file {save_file}: {e}")
+            return False
+    
+    def _save_game(self, save_name: str, update_existing: bool = False) -> bool:
+        """Save the current game state"""
+        try:
+            # Generate filename
+            if update_existing and self.current_save_file:
+                filename = self.current_save_file
+            else:
+                # Create new save file
+                safe_name = "".join(c for c in save_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                safe_name = safe_name.replace(' ', '_')
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{safe_name}_{timestamp}.json"
+            
+            filepath = os.path.join(self.game_saves_dir, filename)
+            
+            # Gather current game state
+            current_game_state = {}
+            if self.game_engine_agent:
+                state_response = self._send_message_and_wait("game_engine", "get_game_state", {})
+                if state_response and state_response.get("game_state"):
+                    current_game_state = state_response["game_state"]
+            
+            # Gather campaign info
+            campaign_info = {}
+            campaign_response = self._send_message_and_wait("campaign_manager", "get_campaign_info", {})
+            if campaign_response and campaign_response.get("success"):
+                campaign_info = campaign_response["campaign"]
+            
+            # Gather players info
+            players_info = []
+            players_response = self._send_message_and_wait("campaign_manager", "list_players", {})
+            if players_response and players_response.get("players"):
+                players_info = players_response["players"]
+            
+            # Gather combat state if active
+            combat_state = {}
+            if self.combat_agent:
+                combat_response = self._send_message_and_wait("combat_engine", "get_combat_status", {})
+                if combat_response and combat_response.get("success"):
+                    combat_state = combat_response["status"]
+            
+            # Create save data structure
+            save_data = {
+                'save_name': save_name,
+                'save_date': datetime.now().isoformat(),
+                'version': '1.0',
+                'game_state': current_game_state,
+                'campaign_info': campaign_info,
+                'players': players_info,
+                'combat_state': combat_state,
+                'last_scenario_options': self.last_scenario_options,
+                'assistant_config': {
+                    'collection_name': self.collection_name,
+                    'campaigns_dir': self.campaigns_dir,
+                    'players_dir': self.players_dir,
+                    'enable_game_engine': self.enable_game_engine,
+                    'enable_caching': self.enable_caching,
+                    'enable_async': self.enable_async
+                }
+            }
+            
+            # Write save file
+            with open(filepath, 'w') as f:
+                json.dump(save_data, f, indent=2)
+            
+            # Update current save file reference
+            self.current_save_file = filename
+            self.game_save_data = save_data
+            
+            if self.verbose:
+                print(f"💾 Successfully saved game: {save_name} ({filename})")
+            
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error saving game: {e}")
+            return False
+    
     def run_interactive(self):
         """Run the interactive DM assistant"""
         print("=== Modular RAG-Powered Dungeon Master Assistant ===")
@@ -1879,6 +2442,7 @@ class ModularDMAssistant:
                         print("  🎲 Dice: roll [dice expression], roll 1d20, roll 3d6+2")
                         print("  ⚔️  Combat: start combat, add combatant [name], combat status, next turn, end combat")
                         print("  📖 Rules: check rule [query], rule [topic], how does [mechanic] work")
+                        print("  💾 Save/Load: save game [name], list saves, load save [n], update save")
                         print("  🖥️  System: agent status, game state")
                         print("  💬 General: Ask any D&D question for RAG-powered answers")
                         continue
@@ -1908,9 +2472,62 @@ def main():
         if not collection_name:
             collection_name = "dnd_documents"
         
+        # Check for existing game saves and offer to load them
+        game_saves_dir = "./game_saves"
+        game_save_file = None
+        
+        if os.path.exists(game_saves_dir):
+            saves = []
+            for filename in os.listdir(game_saves_dir):
+                if filename.endswith('.json'):
+                    filepath = os.path.join(game_saves_dir, filename)
+                    try:
+                        mod_time = os.path.getmtime(filepath)
+                        mod_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
+                        
+                        with open(filepath, 'r') as f:
+                            save_data = json.load(f)
+                        
+                        saves.append({
+                            'filename': filename,
+                            'save_name': save_data.get('save_name', filename[:-5]),
+                            'campaign': save_data.get('campaign_info', {}).get('title', 'Unknown'),
+                            'last_modified': mod_date,
+                            'scenario_count': save_data.get('game_state', {}).get('scenario_count', 0),
+                        })
+                    except (json.JSONDecodeError, IOError):
+                        continue
+            
+            # Sort by last modified date (newest first)
+            saves.sort(key=lambda x: x['last_modified'], reverse=True)
+            
+            if saves:
+                print("\n💾 EXISTING GAME SAVES FOUND:")
+                print("0. Start New Campaign")
+                for i, save in enumerate(saves, 1):
+                    print(f"{i}. {save['save_name']} - {save['campaign']} ({save['last_modified']}) - {save['scenario_count']} scenarios")
+                
+                while True:
+                    try:
+                        choice = input(f"\nSelect option (0-{len(saves)}): ").strip()
+                        if choice == "0":
+                            print("🆕 Starting new campaign...")
+                            break
+                        elif choice.isdigit():
+                            choice_num = int(choice)
+                            if 1 <= choice_num <= len(saves):
+                                selected_save = saves[choice_num - 1]
+                                game_save_file = selected_save['filename']
+                                print(f"📁 Loading save: {selected_save['save_name']}")
+                                break
+                        print(f"❌ Please enter a number between 0 and {len(saves)}")
+                    except (ValueError, KeyboardInterrupt):
+                        print("❌ Invalid input. Please enter a number.")
+        
         assistant = ModularDMAssistant(
             collection_name=collection_name,
-            verbose=True
+            verbose=True,
+            game_save_file=game_save_file
         )
         
         assistant.run_interactive()
