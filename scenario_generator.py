@@ -24,9 +24,10 @@ except ImportError:
 class ScenarioGeneratorAgent(BaseAgent):
     """Scenario Generator as an agent that creates dynamic scenarios and handles player choices"""
     
-    def __init__(self, rag_agent: Optional[RAGAgent] = None, verbose: bool = False):
+    def __init__(self, rag_agent: Optional[RAGAgent] = None, haystack_agent: Optional['HaystackPipelineAgent'] = None, verbose: bool = False):
         super().__init__("scenario_generator", "ScenarioGenerator")
         self.rag_agent = rag_agent
+        self.haystack_agent = haystack_agent
         self.verbose = verbose
         self.has_llm = CLAUDE_AVAILABLE
     
@@ -89,7 +90,32 @@ class ScenarioGeneratorAgent(BaseAgent):
         scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
         options_text = ""
         
-        if self.rag_agent:
+        # Try creative scenario generation first via HaystackPipelineAgent
+        if self.haystack_agent:
+            try:
+                prompt = self._build_creative_prompt(seed)
+                response = self.send_message_and_wait("haystack_pipeline", "query_scenario", {
+                    "query": prompt,
+                    "campaign_context": seed.get('story_arc', ''),
+                    "game_state": str(seed)
+                }, timeout=30.0)
+                
+                if response and response.get("success"):
+                    result = response.get("result", {})
+                    answer = result.get("answer", "")
+                    parsed_response = self._parse_generation_response(answer)
+                    
+                    if isinstance(parsed_response, dict):
+                        scene_text = parsed_response.get("scene_text", scene_text)
+                        options_text = parsed_response.get("options_text", "")
+                    elif isinstance(parsed_response, str):
+                        scene_text = parsed_response
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error in creative scenario generation: {e}")
+        
+        # Fallback to RAG agent if haystack agent failed or unavailable
+        elif self.rag_agent:
             try:
                 prompt = self._build_prompt(seed)
                 result = self.rag_agent.query(prompt)
@@ -102,11 +128,10 @@ class ScenarioGeneratorAgent(BaseAgent):
                         scene_text = parsed_response.get("scene_text", scene_text)
                         options_text = parsed_response.get("options_text", "")
                     elif isinstance(parsed_response, str):
-                        # Treat as scene text
                         scene_text = parsed_response
             except Exception as e:
                 if self.verbose:
-                    print(f"Error in scenario generation: {e}")
+                    print(f"Error in RAG scenario generation: {e}")
         
         # Generate fallback options if needed
         if not options_text:
@@ -132,6 +157,10 @@ class ScenarioGeneratorAgent(BaseAgent):
         """Apply a player's choice and return the continuation"""
         try:
             current_options = state.get("current_options", "")
+            if self.verbose:
+                print(f"DEBUG: current_options = {current_options}")
+                print(f"DEBUG: choice_value = {choice_value}")
+            
             lines = [line for line in current_options.splitlines() if line.strip()]
             target = None
             
@@ -147,12 +176,36 @@ class ScenarioGeneratorAgent(BaseAgent):
                 target = lines[idx]
             
             if not target:
-                return f"No such option: {choice_value}"
+                # Use a generic choice description
+                target = f"Option {choice_value}"
             
             continuation = f"{player} chose: {target}"
             
-            # Use RAG agent to generate consequences if available
-            if self.rag_agent:
+            # Try creative consequence generation first via HaystackPipelineAgent
+            if self.haystack_agent:
+                prompt = self._build_creative_choice_prompt(state, target, player)
+                try:
+                    response = self.send_message_and_wait("haystack_pipeline", "query_scenario", {
+                        "query": prompt,
+                        "campaign_context": state.get('story_arc', ''),
+                        "game_state": str(state)
+                    }, timeout=30.0)
+                    
+                    if response and response.get("success"):
+                        result = response.get("result", {})
+                        answer = result.get("answer", "")
+                        parsed_response = self._parse_choice_response(answer)
+                        
+                        if isinstance(parsed_response, dict):
+                            return parsed_response.get("continuation", continuation)
+                        elif isinstance(parsed_response, str):
+                            return parsed_response
+                except Exception:
+                    if self.verbose:
+                        print(f"Error in creative choice consequence generation")
+            
+            # Fallback to RAG agent if haystack agent failed or unavailable
+            elif self.rag_agent:
                 prompt = self._build_choice_consequence_prompt(state, target)
                 try:
                     result = self.rag_agent.query(prompt)
@@ -193,8 +246,29 @@ class ScenarioGeneratorAgent(BaseAgent):
         )
         return prompt
     
+    def _build_creative_prompt(self, seed: Dict[str, Any]) -> str:
+        """Build prompt for creative scenario generation"""
+        return (
+            f"Continue this D&D adventure story:\n"
+            f"Location: {seed['location']}\n"
+            f"Recent events: {', '.join(seed['recent'])}\n"
+            f"Party members: {', '.join(seed['party'])}\n"
+            f"Story arc: {seed['story_arc']}\n\n"
+            "Generate an engaging scene continuation (2-3 sentences) and provide 3-4 numbered options for the players."
+        )
+    
+    def _build_creative_choice_prompt(self, state: Dict[str, Any], choice: str, player: str) -> str:
+        """Build prompt for creative choice consequences"""
+        return (
+            f"In this D&D adventure, {player} chose: {choice}\n"
+            f"Current story context: {state.get('story_arc', '')}\n"
+            f"Game situation: Location: {state.get('session', {}).get('location', 'unknown')}\n\n"
+            "Describe what happens as a result of this choice. Make it engaging and appropriate for D&D. "
+            "Write 2-3 sentences showing the immediate consequence and outcome."
+        )
+    
     def _build_choice_consequence_prompt(self, state: Dict[str, Any], choice: str) -> str:
-        """Build prompt for choice consequences"""
+        """Build prompt for choice consequences (RAG fallback)"""
         return (
             f"CONTEXT: {state.get('story_arc')}\n"
             f"CHOICE: {choice}\n"

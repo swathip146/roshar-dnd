@@ -164,17 +164,23 @@ Answer:"""
         """Create scenario-specific prompt builder"""
         template = """You are an expert Dungeon Master creating engaging scenarios.
 
+{% if documents %}
 Context from D&D materials:
 {% for document in documents %}
   {{ document.content }}
   ---
 {% endfor %}
+{% endif %}
 
 Current situation: {{ query }}
 Campaign info: {{ campaign_context }}
 Game state: {{ game_state }}
 
-Generate a compelling scenario (2-3 sentences) and 3-4 numbered player options:"""
+{% if documents %}
+Generate a compelling scenario based on the provided context (2-3 sentences) and 3-4 numbered player options.
+{% else %}
+You are continuing an ongoing D&D story. Based on the current situation, campaign info, and game state provided, create a compelling narrative continuation. Use your creativity to advance the story in an engaging way that makes sense for a D&D adventure. Provide 2-3 sentences describing what happens next, followed by 3-4 numbered options for the players to choose from.
+{% endif %}"""
         return PromptBuilder(template=template)
     
     def _create_npc_prompt_builder(self) -> PromptBuilder:
@@ -257,21 +263,15 @@ Provide a clear, accurate answer with rule citations:"""
         if not self.has_llm:
             return
             
-        # Scenario generation pipeline
+        # Creative scenario generation pipeline (no document retrieval)
         self.scenario_pipeline = Pipeline()
-        self.scenario_pipeline.add_component("text_embedder", self._create_embedder())
-        self.scenario_pipeline.add_component("retriever", self._create_retriever())
-        self.scenario_pipeline.add_component("ranker", self._create_ranker())
-        self.scenario_pipeline.add_component("prompt_builder", self._create_scenario_prompt_builder())
+        self.scenario_pipeline.add_component("prompt_builder", self._create_creative_scenario_prompt_builder())
         self.scenario_pipeline.add_component("string_to_chat", StringToChatMessages())
         self.scenario_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
         ))
         
-        # Connect scenario pipeline
-        self.scenario_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-        self.scenario_pipeline.connect("retriever.documents", "ranker.documents")
-        self.scenario_pipeline.connect("ranker.documents", "prompt_builder.documents")
+        # Connect creative scenario pipeline (no retrieval)
         self.scenario_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
         self.scenario_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
         
@@ -310,6 +310,23 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.connect("ranker.documents", "prompt_builder.documents")
         self.rules_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
         self.rules_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
+    
+    def _create_creative_scenario_prompt_builder(self) -> PromptBuilder:
+        """Create creative scenario prompt builder for story generation"""
+        template = """You are an expert Dungeon Master continuing an ongoing D&D adventure.
+
+Current situation: {{ query }}
+Campaign info: {{ campaign_context }}
+Game state: {{ game_state }}
+
+Based on the player's choice and current situation, create an engaging continuation of the story. Use your creativity and D&D knowledge to:
+
+1. Describe what happens as a result of the player's choice (2-3 sentences)
+2. Advance the story in an interesting direction
+3. Present 3-4 numbered options for what the players can do next
+
+Make it engaging, appropriate for D&D, and keep the story moving forward naturally."""
+        return PromptBuilder(template=template)
     
     def _handle_query_rag(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle general RAG query"""
@@ -437,10 +454,8 @@ Provide a clear, accurate answer with rule citations:"""
             }
     
     def _run_scenario_pipeline(self, query: str, campaign_context: str, game_state: str) -> Dict[str, Any]:
-        """Run scenario-specific pipeline"""
+        """Run creative scenario-specific pipeline"""
         result = self.scenario_pipeline.run({
-            "text_embedder": {"text": query},
-            "ranker": {"query": query},
             "prompt_builder": {
                 "query": query,
                 "campaign_context": campaign_context,

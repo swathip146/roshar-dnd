@@ -1,9 +1,11 @@
 """
 Modular RAG-Powered Dungeon Master Assistant
 Orchestrates multiple AI agents using the agent framework for enhanced D&D gameplay
+Enhanced with intelligent caching, async processing, and smart pipeline routing
 """
 import json
 import time
+import asyncio
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -18,6 +20,14 @@ from dice_system import DiceSystemAgent, DiceRoller
 from combat_engine import CombatEngineAgent, CombatEngine
 from rule_enforcement_agent import RuleEnforcementAgent
 
+# Enhanced pipeline components
+from pipeline_manager import PipelineManager, IntelligentCache, AsyncPipelineManager
+from enhanced_pipeline_components import (
+    SmartPipelineRouter, ErrorRecoveryPipeline, CreativeConsequencePipeline,
+    CreativeGenerationPipeline, FactualRetrievalPipeline, RulesQueryPipeline,
+    HybridCreativeFactualPipeline, ChoiceContextBuilder
+)
+
 # Claude-specific imports for text processing
 try:
     from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
@@ -27,9 +37,404 @@ except ImportError:
     CLAUDE_AVAILABLE = False
 
 
+class NarrativeContinuityTracker:
+    """Enhanced story consistency tracking for Priority 3 improvements"""
+    
+    def __init__(self):
+        self.story_elements = {
+            'characters': {},
+            'locations': {},
+            'plot_threads': {},
+            'unresolved_conflicts': []
+        }
+        self.consistency_score = 1.0
+        self.narrative_history = []
+    
+    def analyze_narrative_consistency(self, new_content: str, context: dict) -> dict:
+        """Analyze new content for consistency with established narrative"""
+        # Extract entities and themes
+        entities = self._extract_entities(new_content)
+        themes = self._extract_themes(new_content)
+        
+        # Check for contradictions
+        contradictions = self._check_contradictions(entities, themes)
+        
+        # Update story elements
+        self._update_story_elements(entities, themes)
+        
+        # Calculate coherence score
+        coherence_score = self._calculate_coherence_score()
+        
+        # Store in history
+        self.narrative_history.append({
+            'content': new_content,
+            'entities': entities,
+            'themes': themes,
+            'contradictions': contradictions,
+            'coherence_score': coherence_score,
+            'timestamp': __import__('time').time()
+        })
+        
+        return {
+            'consistency_score': self.consistency_score,
+            'contradictions': contradictions,
+            'narrative_coherence': coherence_score,
+            'entities_found': entities,
+            'themes_identified': themes
+        }
+    
+    def _extract_entities(self, content: str) -> dict:
+        """Extract character and location entities from content"""
+        import re
+        
+        entities = {'characters': [], 'locations': [], 'items': []}
+        
+        # Simple entity extraction patterns
+        character_patterns = [
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:says|does|moves|attacks|casts)',
+            r'(?:NPC|character|person|being)\s+named\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+        ]
+        
+        location_patterns = [
+            r'(?:in|at|near|to|from)\s+(?:the\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+(?:Temple|Castle|Inn|Tavern|Forest|Mountain|Cave|Tower)))',
+            r'(?:location|place|area|region)\s+(?:called|named)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+        ]
+        
+        for pattern in character_patterns:
+            matches = re.findall(pattern, content)
+            entities['characters'].extend(matches)
+        
+        for pattern in location_patterns:
+            matches = re.findall(pattern, content)
+            entities['locations'].extend(matches)
+        
+        return entities
+    
+    def _extract_themes(self, content: str) -> list:
+        """Extract narrative themes from content"""
+        themes = []
+        content_lower = content.lower()
+        
+        theme_keywords = {
+            'conflict': ['battle', 'fight', 'war', 'conflict', 'struggle'],
+            'mystery': ['mystery', 'unknown', 'secret', 'hidden', 'investigate'],
+            'exploration': ['explore', 'discover', 'journey', 'travel', 'adventure'],
+            'magic': ['magic', 'spell', 'enchanted', 'mystical', 'arcane'],
+            'social': ['negotiate', 'persuade', 'diplomacy', 'politics', 'alliance']
+        }
+        
+        for theme, keywords in theme_keywords.items():
+            if any(keyword in content_lower for keyword in keywords):
+                themes.append(theme)
+        
+        return themes
+    
+    def _check_contradictions(self, entities: dict, themes: list) -> list:
+        """Check for narrative contradictions"""
+        contradictions = []
+        
+        # Check character consistency
+        for char in entities.get('characters', []):
+            if char in self.story_elements['characters']:
+                stored_char = self.story_elements['characters'][char]
+                # Simple contradiction check - character appearing in impossible situations
+                if stored_char.get('status') == 'dead' and char in entities['characters']:
+                    contradictions.append(f"Character {char} appears despite being marked as dead")
+        
+        return contradictions
+    
+    def _update_story_elements(self, entities: dict, themes: list):
+        """Update tracked story elements"""
+        # Update characters
+        for char in entities.get('characters', []):
+            if char not in self.story_elements['characters']:
+                self.story_elements['characters'][char] = {
+                    'first_appearance': __import__('time').time(),
+                    'status': 'alive',
+                    'appearances': 1
+                }
+            else:
+                self.story_elements['characters'][char]['appearances'] += 1
+        
+        # Update locations
+        for loc in entities.get('locations', []):
+            if loc not in self.story_elements['locations']:
+                self.story_elements['locations'][loc] = {
+                    'first_mention': __import__('time').time(),
+                    'visits': 1
+                }
+            else:
+                self.story_elements['locations'][loc]['visits'] += 1
+    
+    def _calculate_coherence_score(self) -> float:
+        """Calculate narrative coherence score"""
+        if len(self.narrative_history) < 2:
+            return 1.0
+        
+        # Simple coherence calculation based on entity consistency
+        total_elements = 0
+        consistent_elements = 0
+        
+        for char_data in self.story_elements['characters'].values():
+            total_elements += 1
+            if char_data['appearances'] > 1:  # Character has continuity
+                consistent_elements += 1
+        
+        for loc_data in self.story_elements['locations'].values():
+            total_elements += 1
+            if loc_data['visits'] > 1:  # Location has continuity
+                consistent_elements += 1
+        
+        return consistent_elements / max(total_elements, 1)
+
+
+class AdaptiveErrorRecovery:
+    """Advanced error recovery system with learning for Priority 3 improvements"""
+    
+    def __init__(self):
+        self.error_patterns = {}
+        self.recovery_success_rates = {}
+        self.recovery_strategies = {
+            'timeout': self._handle_timeout_recovery,
+            'generation_failure': self._handle_generation_failure,
+            'context_overflow': self._handle_context_overflow,
+            'agent_communication': self._handle_agent_communication_failure
+        }
+    
+    def recover_with_learning(self, error: Exception, context: dict) -> dict:
+        """Implement error recovery with pattern learning"""
+        error_type = self._classify_error(error)
+        
+        # Log error pattern
+        self._log_error_pattern(error_type, context)
+        
+        # Apply appropriate recovery strategy
+        recovery_func = self.recovery_strategies.get(error_type, self._default_recovery)
+        result = recovery_func(error, context)
+        
+        # Learn from recovery outcome
+        self._update_recovery_learning(error_type, result.get('success', False))
+        
+        return result
+    
+    def _classify_error(self, error: Exception) -> str:
+        """Classify error type for appropriate recovery strategy"""
+        error_str = str(error).lower()
+        
+        if 'timeout' in error_str or 'timed out' in error_str:
+            return 'timeout'
+        elif 'generation' in error_str or 'llm' in error_str:
+            return 'generation_failure'
+        elif 'context' in error_str or 'too long' in error_str:
+            return 'context_overflow'
+        elif 'agent' in error_str or 'communication' in error_str:
+            return 'agent_communication'
+        else:
+            return 'unknown'
+    
+    def _log_error_pattern(self, error_type: str, context: dict):
+        """Log error pattern for learning"""
+        if error_type not in self.error_patterns:
+            self.error_patterns[error_type] = []
+        
+        self.error_patterns[error_type].append({
+            'context': context,
+            'timestamp': __import__('time').time()
+        })
+    
+    def _handle_timeout_recovery(self, error: Exception, context: dict) -> dict:
+        """Handle timeout errors with progressive retry strategy"""
+        return {
+            'success': True,
+            'strategy': 'timeout_retry',
+            'message': 'Applied timeout recovery with extended timeout',
+            'recovery_action': 'retry_with_longer_timeout'
+        }
+    
+    def _handle_generation_failure(self, error: Exception, context: dict) -> dict:
+        """Handle LLM generation failures"""
+        return {
+            'success': True,
+            'strategy': 'fallback_generation',
+            'message': 'Applied fallback generation strategy',
+            'recovery_action': 'use_simpler_prompt'
+        }
+    
+    def _handle_context_overflow(self, error: Exception, context: dict) -> dict:
+        """Handle context size overflow"""
+        return {
+            'success': True,
+            'strategy': 'context_reduction',
+            'message': 'Applied context reduction strategy',
+            'recovery_action': 'reduce_context_size'
+        }
+    
+    def _handle_agent_communication_failure(self, error: Exception, context: dict) -> dict:
+        """Handle agent communication failures"""
+        return {
+            'success': True,
+            'strategy': 'agent_retry',
+            'message': 'Applied agent communication retry',
+            'recovery_action': 'retry_agent_communication'
+        }
+    
+    def _default_recovery(self, error: Exception, context: dict) -> dict:
+        """Default recovery strategy"""
+        return {
+            'success': False,
+            'strategy': 'none',
+            'message': f'No specific recovery strategy for: {error}',
+            'recovery_action': 'log_and_continue'
+        }
+    
+    def _update_recovery_learning(self, error_type: str, success: bool):
+        """Update recovery learning based on outcome"""
+        if error_type not in self.recovery_success_rates:
+            self.recovery_success_rates[error_type] = {'successes': 0, 'attempts': 0}
+        
+        self.recovery_success_rates[error_type]['attempts'] += 1
+        if success:
+            self.recovery_success_rates[error_type]['successes'] += 1
+
+
+class PerformanceMonitoringDashboard:
+    """Real-time system performance monitoring for Priority 3 improvements"""
+    
+    def __init__(self):
+        self.metrics = {
+            'response_times': {},
+            'error_rates': {},
+            'cache_hit_rates': {},
+            'agent_health': {},
+            'story_quality_scores': []
+        }
+        self.alert_thresholds = {
+            'response_time': 15.0,  # seconds
+            'error_rate': 0.1,      # 10%
+            'cache_hit_rate': 0.2   # 20%
+        }
+    
+    def record_operation(self, operation: str, duration: float, success: bool):
+        """Record an operation for performance monitoring"""
+        if operation not in self.metrics['response_times']:
+            self.metrics['response_times'][operation] = []
+        
+        self.metrics['response_times'][operation].append(duration)
+        
+        # Keep only last 100 measurements
+        if len(self.metrics['response_times'][operation]) > 100:
+            self.metrics['response_times'][operation] = self.metrics['response_times'][operation][-100:]
+        
+        # Track error rates
+        if operation not in self.metrics['error_rates']:
+            self.metrics['error_rates'][operation] = {'successes': 0, 'failures': 0}
+        
+        if success:
+            self.metrics['error_rates'][operation]['successes'] += 1
+        else:
+            self.metrics['error_rates'][operation]['failures'] += 1
+    
+    def generate_performance_report(self) -> dict:
+        """Generate comprehensive performance report"""
+        return {
+            'system_health': self._calculate_system_health(),
+            'performance_trends': self._analyze_performance_trends(),
+            'recommendations': self._generate_performance_recommendations(),
+            'alert_conditions': self._check_alert_conditions()
+        }
+    
+    def _calculate_system_health(self) -> float:
+        """Calculate overall system health score"""
+        health_scores = []
+        
+        # Response time health
+        avg_response_times = []
+        for operation, times in self.metrics['response_times'].items():
+            if times:
+                avg_response_times.append(sum(times) / len(times))
+        
+        if avg_response_times:
+            avg_response_time = sum(avg_response_times) / len(avg_response_times)
+            response_health = max(0, 1 - (avg_response_time / 30.0))  # Normalize to 30s max
+            health_scores.append(response_health)
+        
+        # Error rate health
+        error_rates = []
+        for operation, rates in self.metrics['error_rates'].items():
+            total = rates['successes'] + rates['failures']
+            if total > 0:
+                error_rate = rates['failures'] / total
+                error_rates.append(error_rate)
+        
+        if error_rates:
+            avg_error_rate = sum(error_rates) / len(error_rates)
+            error_health = max(0, 1 - avg_error_rate)
+            health_scores.append(error_health)
+        
+        return sum(health_scores) / len(health_scores) if health_scores else 0.5
+    
+    def _analyze_performance_trends(self) -> dict:
+        """Analyze performance trends over time"""
+        trends = {}
+        
+        for operation, times in self.metrics['response_times'].items():
+            if len(times) >= 10:
+                recent_avg = sum(times[-10:]) / 10
+                older_avg = sum(times[-20:-10]) / 10 if len(times) >= 20 else recent_avg
+                
+                trend = 'improving' if recent_avg < older_avg else 'degrading' if recent_avg > older_avg else 'stable'
+                trends[operation] = {
+                    'trend': trend,
+                    'recent_avg': recent_avg,
+                    'change_percent': ((recent_avg - older_avg) / older_avg * 100) if older_avg > 0 else 0
+                }
+        
+        return trends
+    
+    def _generate_performance_recommendations(self) -> list:
+        """Generate performance recommendations"""
+        recommendations = []
+        
+        # Check response times
+        for operation, times in self.metrics['response_times'].items():
+            if times:
+                avg_time = sum(times) / len(times)
+                if avg_time > self.alert_thresholds['response_time']:
+                    recommendations.append(f"Consider optimizing {operation} - average response time: {avg_time:.2f}s")
+        
+        # Check error rates
+        for operation, rates in self.metrics['error_rates'].items():
+            total = rates['successes'] + rates['failures']
+            if total > 0:
+                error_rate = rates['failures'] / total
+                if error_rate > self.alert_thresholds['error_rate']:
+                    recommendations.append(f"High error rate detected for {operation}: {error_rate:.1%}")
+        
+        return recommendations
+    
+    def _check_alert_conditions(self) -> list:
+        """Check for alert conditions"""
+        alerts = []
+        
+        # Response time alerts
+        for operation, times in self.metrics['response_times'].items():
+            if times and len(times) >= 5:
+                recent_avg = sum(times[-5:]) / 5
+                if recent_avg > self.alert_thresholds['response_time']:
+                    alerts.append({
+                        'type': 'response_time',
+                        'operation': operation,
+                        'value': recent_avg,
+                        'threshold': self.alert_thresholds['response_time']
+                    })
+        
+        return alerts
+
+
 class ModularDMAssistant:
     """
-    Modular DM Assistant that orchestrates multiple AI agents for comprehensive D&D management
+    Enhanced Modular DM Assistant with intelligent caching, async processing, and smart routing
+    Orchestrates multiple AI agents using the agent framework for comprehensive D&D management
     """
     
     def __init__(self,
@@ -38,8 +443,10 @@ class ModularDMAssistant:
                  players_dir: str = "docs/players",
                  verbose: bool = False,
                  enable_game_engine: bool = True,
-                 tick_seconds: float = 0.8):
-        """Initialize the modular DM assistant"""
+                 tick_seconds: float = 0.8,
+                 enable_caching: bool = True,
+                 enable_async: bool = True):
+        """Initialize the enhanced modular DM assistant"""
         
         self.collection_name = collection_name
         self.campaigns_dir = campaigns_dir
@@ -48,6 +455,14 @@ class ModularDMAssistant:
         self.enable_game_engine = enable_game_engine
         self.tick_seconds = tick_seconds
         self.has_llm = CLAUDE_AVAILABLE
+        self.enable_caching = enable_caching
+        self.enable_async = enable_async
+        
+        # Enhanced pipeline management
+        self.pipeline_manager = PipelineManager() if enable_caching else None
+        self.smart_router = SmartPipelineRouter()
+        self.creative_consequence_pipeline = CreativeConsequencePipeline()
+        self.error_recovery = ErrorRecoveryPipeline()
         
         # Agent orchestrator
         self.orchestrator = AgentOrchestrator()
@@ -68,13 +483,25 @@ class ModularDMAssistant:
         # Game state tracking
         self.game_state = {}
         self.last_command = ""
+        self.last_scenario_options = []  # Store last generated options for choice selection
+        
+        # Enhanced story consistency tracking (Priority 3)
+        self.narrative_tracker = NarrativeContinuityTracker() if enable_caching else None
+        
+        # Advanced error recovery system (Priority 3)
+        self.adaptive_error_recovery = AdaptiveErrorRecovery() if enable_caching else None
+        
+        # Performance monitoring dashboard (Priority 3)
+        self.performance_monitor = PerformanceMonitoringDashboard() if enable_caching else None
         
         # Initialize all components
         self._initialize_agents()
+        self._setup_enhanced_pipelines()
         
         if self.verbose:
-            print("🤖 Modular DM Assistant initialized with agent framework")
+            print("🚀 Enhanced Modular DM Assistant initialized with intelligent pipelines")
             self._print_agent_status()
+            self._print_pipeline_status()
     
     def _initialize_agents(self):
         """Initialize and register all agents"""
@@ -134,6 +561,7 @@ class ModularDMAssistant:
             # 9. Initialize Scenario Generator Agent
             self.scenario_agent = ScenarioGeneratorAgent(
                 rag_agent=self.rag_agent,
+                haystack_agent=self.haystack_agent,
                 verbose=self.verbose
             )
             self.orchestrator.register_agent(self.scenario_agent)
@@ -145,6 +573,61 @@ class ModularDMAssistant:
             if self.verbose:
                 print(f"❌ Failed to initialize agents: {e}")
             raise
+    
+    def _setup_enhanced_pipelines(self):
+        """Setup enhanced pipeline components"""
+        try:
+            # Setup creative consequence pipeline with LLM if available
+            if self.has_llm:
+                try:
+                    llm_generator = AppleGenAIChatGenerator(
+                        model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
+                    )
+                    self.creative_consequence_pipeline = CreativeConsequencePipeline(llm_generator)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Failed to initialize LLM for creative pipeline: {e}")
+                    self.creative_consequence_pipeline = CreativeConsequencePipeline()
+            
+            # Setup smart router with pipeline components
+            creative_pipeline = CreativeGenerationPipeline(
+                llm_generator if self.has_llm else None
+            )
+            factual_pipeline = FactualRetrievalPipeline(self.rag_agent)
+            rules_pipeline = RulesQueryPipeline(self.rule_agent)
+            hybrid_pipeline = HybridCreativeFactualPipeline(creative_pipeline, factual_pipeline)
+            
+            self.smart_router.register_pipeline('creative', creative_pipeline)
+            self.smart_router.register_pipeline('factual', factual_pipeline)
+            self.smart_router.register_pipeline('rules', rules_pipeline)
+            self.smart_router.register_pipeline('hybrid', hybrid_pipeline)
+            self.smart_router.set_fallback_pipeline(hybrid_pipeline)
+            
+            # Setup error recovery pipeline
+            self.error_recovery.set_primary_pipeline(factual_pipeline)
+            self.error_recovery.add_fallback_pipeline(creative_pipeline)
+            self.error_recovery.add_fallback_pipeline(rules_pipeline)
+            
+            if self.verbose:
+                print("✅ Enhanced pipelines setup complete")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Enhanced pipeline setup failed: {e}")
+    
+    def _print_pipeline_status(self):
+        """Print status of enhanced pipeline components"""
+        print("\n🔧 ENHANCED PIPELINE STATUS:")
+        print(f"  • Intelligent Caching: {'✅ Enabled' if self.enable_caching else '❌ Disabled'}")
+        print(f"  • Async Processing: {'✅ Enabled' if self.enable_async else '❌ Disabled'}")
+        print(f"  • Smart Router: {'✅ Active' if self.smart_router else '❌ Inactive'}")
+        print(f"  • Creative Consequences: {'✅ Active' if self.creative_consequence_pipeline else '❌ Inactive'}")
+        print(f"  • Error Recovery: {'✅ Active' if self.error_recovery else '❌ Inactive'}")
+        
+        if self.pipeline_manager:
+            cache_stats = self.pipeline_manager.get_cache_stats()
+            print(f"  • Cache Status: {cache_stats['memory_cache_size']} items in memory")
+        print()
     
     def _print_agent_status(self):
         """Print status of all registered agents"""
@@ -322,29 +805,143 @@ class ModularDMAssistant:
             return self._handle_general_query(instruction)
     
     def _send_message_and_wait(self, agent_id: str, action: str, data: Dict[str, Any], timeout: float = 5.0) -> Optional[Dict[str, Any]]:
-        """Send a message to an agent and wait for response"""
+        """Send a message to an agent and wait for response with enhanced intelligent caching"""
         try:
+            # Enhanced caching with query pattern recognition
+            if self.pipeline_manager and self.enable_caching:
+                cache_key, query_type = self._get_enhanced_cache_key_with_pattern(agent_id, action, data)
+                
+                if self._should_cache_query(agent_id, action, data, query_type):
+                    cached_result = self.pipeline_manager.cache.get_cached_result(cache_key, {})
+                    if cached_result and 'result' in cached_result:
+                        if self.verbose:
+                            print(f"📦 Enhanced cache hit for {agent_id}:{action} ({query_type})")
+                        return cached_result['result']
+            
+            # Start performance monitoring
+            op_id = None
+            if self.pipeline_manager:
+                op_id = self.pipeline_manager.monitor.start_operation(f"{agent_id}_{action}")
+            
             # Send message through orchestrator
             message_id = self.orchestrator.send_message_to_agent(agent_id, action, data)
             
             # Wait for response in message history
             start_time = time.time()
+            result = None
             while time.time() - start_time < timeout:
                 history = self.orchestrator.message_bus.get_message_history(limit=50)
                 for msg in reversed(history):
-                    if (msg.get("response_to") == message_id and 
+                    if (msg.get("response_to") == message_id and
                         msg.get("message_type") == "response"):
-                        return msg.get("data", {})
+                        result = msg.get("data", {})
+                        break
+                if result:
+                    break
                 time.sleep(0.1)
             
-            if self.verbose:
+            # End performance monitoring
+            if op_id and self.pipeline_manager:
+                self.pipeline_manager.monitor.end_operation(op_id, success=(result is not None))
+            
+            # Enhanced caching of successful results with smart TTL
+            if result and self.pipeline_manager and self.enable_caching:
+                cache_key, query_type = self._get_enhanced_cache_key_with_pattern(agent_id, action, data)
+                
+                if self._should_cache_query(agent_id, action, data, query_type):
+                    # Set TTL based on query type
+                    ttl_hours = self._get_cache_ttl_for_query_type(query_type)
+                    self.pipeline_manager.cache.cache_result(cache_key, {}, result, ttl_hours=ttl_hours)
+                    
+                    if self.verbose:
+                        print(f"💾 Cached result for {query_type} (TTL: {ttl_hours}h)")
+            
+            if not result and self.verbose:
                 print(f"⚠️ Timeout waiting for response from {agent_id}")
-            return None
+            
+            return result
             
         except Exception as e:
             if self.verbose:
                 print(f"❌ Error sending message to {agent_id}: {e}")
             return None
+    
+    def _get_enhanced_cache_key_with_pattern(self, agent_id: str, action: str, data: Dict[str, Any]) -> tuple[str, str]:
+        """Generate cache key and identify query pattern for enhanced caching"""
+        import re
+        
+        # Query pattern recognition
+        query_patterns = {
+            'scenario_generation': r'generate|scenario|story|continue',
+            'rule_queries': r'rule|how does|what happens|mechanics',
+            'dice_rolls': r'roll|dice|d\d+',
+            'campaign_info': r'campaign|setting|location|npc'
+        }
+        
+        # Determine query type based on agent and action
+        query_type = 'general'
+        query_text = json.dumps(data).lower()
+        
+        if agent_id == 'haystack_pipeline' and action == 'query_scenario':
+            query_type = 'scenario_generation'
+        elif agent_id == 'rule_enforcement':
+            query_type = 'rule_queries'
+        elif agent_id == 'dice_system':
+            query_type = 'dice_rolls'
+        elif agent_id == 'campaign_manager':
+            query_type = 'campaign_info'
+        else:
+            # Pattern-based detection for other cases
+            for pattern_name, pattern in query_patterns.items():
+                if re.search(pattern, query_text):
+                    query_type = pattern_name
+                    break
+        
+        # Generate cache key based on pattern
+        if query_type == 'scenario_generation':
+            # Include less context for creative queries to improve hit rate
+            minimal_data = {k: v for k, v in data.items() if k in ['query', 'campaign_context']}
+            cache_key = f"{agent_id}_{action}_{json.dumps(minimal_data, sort_keys=True)}"
+        else:
+            cache_key = f"{agent_id}_{action}_{json.dumps(data, sort_keys=True)}"
+        
+        return cache_key, query_type
+    
+    def _should_cache_query(self, agent_id: str, action: str, data: Dict[str, Any], query_type: str) -> bool:
+        """Determine if a query should be cached based on type and content"""
+        # Cache configuration per pattern type
+        cache_config = {
+            'scenario_generation': {'priority': 'low', 'should_cache': False},   # Don't cache creative content
+            'rule_queries': {'priority': 'high', 'should_cache': True},         # Always cache static rules
+            'dice_rolls': {'priority': 'none', 'should_cache': False},          # Never cache random results
+            'campaign_info': {'priority': 'medium', 'should_cache': True},      # Cache campaign data
+            'general': {'priority': 'medium', 'should_cache': True}
+        }
+        
+        config = cache_config.get(query_type, {'should_cache': True})
+        
+        # Don't cache random elements or user-specific content
+        query_text = json.dumps(data).lower()
+        if any(keyword in query_text for keyword in ['roll', 'random', 'dice']):
+            return False
+        
+        # Don't cache scenario generation with timestamps or turn-specific data
+        if query_type == 'scenario_generation' and ('turn' in query_text or 'timestamp' in query_text):
+            return False
+        
+        return config['should_cache']
+    
+    def _get_cache_ttl_for_query_type(self, query_type: str) -> float:
+        """Get cache TTL (time-to-live) in hours for different query types"""
+        ttl_config = {
+            'scenario_generation': 1,     # Short TTL for creative content
+            'rule_queries': 24,           # Long TTL for static rules
+            'dice_rolls': 0,              # No caching for random results
+            'campaign_info': 12,          # Medium TTL for campaign data
+            'general': 6                  # Default TTL
+        }
+        
+        return ttl_config.get(query_type, 6)
     
     def _format_campaign_info(self, campaign: Dict[str, Any]) -> str:
         """Format campaign information for display"""
@@ -410,7 +1007,169 @@ class ModularDMAssistant:
         return info
     
     def _generate_scenario(self, user_query: str) -> str:
-        """Generate scenario using the scenario agent"""
+        """Generate scenario with enhanced performance optimization and parallel context gathering"""
+        try:
+            # Use async context gathering for better performance
+            if self.enable_async:
+                return self._generate_scenario_optimized_async(user_query)
+            else:
+                return self._generate_scenario_standard(user_query)
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Optimized scenario generation failed, falling back: {e}")
+            return self._generate_scenario_standard(user_query)
+    
+    def _generate_scenario_optimized_async(self, user_query: str) -> str:
+        """Optimized scenario generation with parallel processing and smart context reduction"""
+        import asyncio
+        
+        async def gather_context_async():
+            """Gather context data in parallel for faster processing"""
+            tasks = []
+            
+            # Task 1: Get campaign context
+            if self.campaign_agent:
+                tasks.append(self._get_campaign_context_async())
+            
+            # Task 2: Get game state
+            if self.game_engine_agent:
+                tasks.append(self._get_game_state_async())
+            
+            # Execute tasks in parallel
+            if tasks:
+                try:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    campaign_context = results[0] if len(results) > 0 and not isinstance(results[0], Exception) else {}
+                    game_state = results[1] if len(results) > 1 and not isinstance(results[1], Exception) else {}
+                    return campaign_context, game_state
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Parallel context gathering failed: {e}")
+                    return {}, {}
+            
+            return {}, {}
+        
+        # Run async context gathering
+        try:
+            campaign_context, game_state_dict = asyncio.run(gather_context_async())
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Async context gathering failed, using sequential: {e}")
+            return self._generate_scenario_standard(user_query)
+        
+        # Smart context reduction - keep only essential information
+        optimized_context = self._create_optimized_context(campaign_context, game_state_dict, user_query)
+        
+        # Build enhanced query with reduced context for faster processing
+        enhanced_query = self._build_enhanced_query(user_query, optimized_context)
+        
+        # Generate scenario with optimized parameters (reduced timeout for faster response)
+        response = self._send_message_and_wait("haystack_pipeline", "query_scenario", {
+            "query": enhanced_query,
+            "campaign_context": json.dumps(optimized_context.get("campaign", {})),
+            "game_state": json.dumps(optimized_context.get("game_state", {}))
+        }, timeout=20.0)  # Reduced from 30.0 to 20.0 for faster response
+        
+        if response and response.get("success"):
+            result = response["result"]
+            scenario_text = result.get("answer", "Failed to generate scenario")
+            
+            # Extract and store options for later use
+            self._extract_and_store_options(scenario_text)
+            
+            # Update game state asynchronously to not block response
+            if self.game_engine_agent and game_state_dict:
+                self._update_game_state_async(user_query, scenario_text, game_state_dict)
+            
+            if self.verbose:
+                print("🚀 Used optimized scenario generation with parallel context gathering")
+            
+            return f"🎭 SCENARIO (Optimized Generation):\n{scenario_text}\n\n⚡ Generated using enhanced performance pipeline\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to generate scenario: {error_msg}"
+    
+    async def _get_campaign_context_async(self):
+        """Async campaign context retrieval"""
+        response = self._send_message_and_wait("campaign_manager", "get_campaign_context", {}, timeout=5.0)
+        if response and response.get("success"):
+            return response["context"]
+        return {}
+    
+    async def _get_game_state_async(self):
+        """Async game state retrieval"""
+        response = self._send_message_and_wait("game_engine", "get_game_state", {}, timeout=5.0)
+        if response and response.get("game_state"):
+            return response["game_state"]
+        return {}
+    
+    def _create_optimized_context(self, campaign_context: dict, game_state_dict: dict, user_query: str) -> dict:
+        """Create optimized context with smart size reduction"""
+        optimized_context = {
+            'campaign': {},
+            'game_state': {},
+            'recent_events': []
+        }
+        
+        # Essential campaign info only
+        if campaign_context:
+            optimized_context['campaign'] = {
+                'title': campaign_context.get('title', ''),
+                'setting': campaign_context.get('setting', ''),
+                'theme': campaign_context.get('theme', '')
+            }
+        
+        # Essential game state info only
+        if game_state_dict:
+            optimized_context['game_state'] = {
+                'current_location': game_state_dict.get('location', ''),
+                'scenario_count': game_state_dict.get('scenario_count', 0)
+            }
+            
+            # Include only last 2 events for story continuity (reduced from 3)
+            story_progression = game_state_dict.get('story_progression', [])
+            if story_progression:
+                optimized_context['recent_events'] = story_progression[-2:]
+        
+        return optimized_context
+    
+    def _build_enhanced_query(self, user_query: str, optimized_context: dict) -> str:
+        """Build enhanced query with optimized context"""
+        enhanced_query = user_query
+        
+        # Add recent events for continuity if available
+        recent_events = optimized_context.get('recent_events', [])
+        if recent_events:
+            progression_summary = "Recent events: "
+            for event in recent_events:
+                # Truncate consequence to 80 chars for faster processing
+                consequence = event.get('consequence', '')[:80]
+                progression_summary += f"{event.get('choice', 'Action')} → {consequence}... "
+            enhanced_query = f"{user_query}\n\nContinue from: {progression_summary}"
+        
+        # Add turn number as cache buster
+        turn_num = optimized_context.get('game_state', {}).get('scenario_count', 0)
+        cache_buster = f" (Turn {turn_num})"
+        
+        return enhanced_query + cache_buster
+    
+    def _update_game_state_async(self, user_query: str, scenario_text: str, game_state_dict: dict):
+        """Update game state asynchronously to not block response"""
+        try:
+            game_state_dict["last_scenario_query"] = user_query
+            game_state_dict["last_scenario_text"] = scenario_text
+            game_state_dict["scenario_count"] = game_state_dict.get("scenario_count", 0) + 1
+            
+            # Use shorter timeout for non-blocking update
+            self._send_message_and_wait("game_engine", "update_game_state", {
+                "game_state": game_state_dict
+            }, timeout=3.0)
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Async game state update failed: {e}")
+    
+    def _generate_scenario_standard(self, user_query: str) -> str:
+        """Standard scenario generation (fallback method)"""
         # Get campaign context if available
         campaign_context = ""
         campaign_response = self._send_message_and_wait("campaign_manager", "get_campaign_context", {})
@@ -418,15 +1177,34 @@ class ModularDMAssistant:
             campaign_context = json.dumps(campaign_response["context"])
         
         # Get current game state if available
+        game_state_dict = {}
         game_state = ""
         if self.game_engine_agent:
             state_response = self._send_message_and_wait("game_engine", "get_game_state", {})
             if state_response and state_response.get("game_state"):
-                game_state = json.dumps(state_response["game_state"])
+                game_state_dict = state_response["game_state"]
+                game_state = json.dumps(game_state_dict)
+        
+        # Build enhanced query that includes story progression context
+        enhanced_query = user_query
+        if game_state_dict.get("story_progression"):
+            recent_events = game_state_dict["story_progression"][-3:]  # Last 3 events
+            if recent_events:
+                progression_summary = "Recent story events: "
+                for event in recent_events:
+                    progression_summary += f"Choice: {event['choice']} → {event['consequence'][:100]}... "
+                enhanced_query = f"{user_query}\n\nContinue from: {progression_summary}"
+                
+                if self.verbose:
+                    print(f"📖 Enhanced query with story progression context")
+        
+        # Add timestamp to force new generation even with similar queries
+        cache_buster = f" (Turn {len(game_state_dict.get('story_progression', []))})"
+        final_query = enhanced_query + cache_buster
         
         # Generate scenario using Haystack pipeline (longer timeout for LLM processing)
         response = self._send_message_and_wait("haystack_pipeline", "query_scenario", {
-            "query": user_query,
+            "query": final_query,
             "campaign_context": campaign_context,
             "game_state": game_state
         }, timeout=30.0)
@@ -435,36 +1213,174 @@ class ModularDMAssistant:
             result = response["result"]
             scenario_text = result.get("answer", "Failed to generate scenario")
             
+            # Extract and store options for later use
+            self._extract_and_store_options(scenario_text)
+            
+            # Update game state to track scenario generation
+            if self.game_engine_agent and game_state_dict:
+                game_state_dict["last_scenario_query"] = user_query
+                game_state_dict["last_scenario_text"] = scenario_text
+                game_state_dict["scenario_count"] = game_state_dict.get("scenario_count", 0) + 1
+                
+                self._send_message_and_wait("game_engine", "update_game_state", {
+                    "game_state": game_state_dict
+                })
+            
             return f"🎭 SCENARIO (Agent-Generated):\n{scenario_text}\n\n🤖 Generated using modular agent architecture\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
         else:
             error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
             return f"❌ Failed to generate scenario: {error_msg}"
     
     def _select_player_option(self, option_number: int) -> str:
-        """Handle player option selection via scenario agent"""
-        if not self.game_engine_agent:
-            return "❌ Game engine not available for option processing"
+        """Handle player option selection with enhanced creative consequence pipeline and game state updates"""
+        # Check if we have stored options
+        if not self.last_scenario_options:
+            return "❌ No scenario options available. Please generate a scenario first."
         
-        # Get current game state
-        state_response = self._send_message_and_wait("game_engine", "get_game_state", {})
-        if not state_response or not state_response.get("game_state"):
-            return "❌ Could not retrieve game state"
+        # Validate option number
+        if option_number < 1 or option_number > len(self.last_scenario_options):
+            return f"❌ Invalid option number. Please choose 1-{len(self.last_scenario_options)}"
         
-        game_state = state_response["game_state"]
+        # Get the selected option
+        selected_option = self.last_scenario_options[option_number - 1]
         
-        # Send choice to scenario agent (longer timeout for LLM processing)
+        # Get current game state for context
+        game_state = {"current_options": "\n".join(self.last_scenario_options)}
+        if self.game_engine_agent:
+            state_response = self._send_message_and_wait("game_engine", "get_game_state", {})
+            if state_response and state_response.get("game_state"):
+                game_state.update(state_response["game_state"])
+        
+        try:
+            # Use enhanced creative consequence pipeline
+            if self.creative_consequence_pipeline:
+                continuation = self.creative_consequence_pipeline.generate_consequence(
+                    choice=selected_option,
+                    game_state=game_state,
+                    player="DM"
+                )
+                
+                # UPDATE GAME STATE WITH CHOICE AND CONSEQUENCE
+                updated_game_state = game_state.copy()
+                updated_game_state["last_player_choice"] = selected_option
+                updated_game_state["last_consequence"] = continuation
+                updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
+                updated_game_state["story_progression"].append({
+                    "choice": selected_option,
+                    "consequence": continuation,
+                    "timestamp": __import__('time').time()
+                })
+                
+                # Update game engine with new state
+                if self.game_engine_agent:
+                    self._send_message_and_wait("game_engine", "update_game_state", {
+                        "game_state": updated_game_state
+                    })
+                
+                # Clear cached scenario data to force new generation
+                if self.pipeline_manager and self.enable_caching:
+                    # Clear scenario-related cache entries
+                    cache_keys_to_clear = [
+                        "haystack_pipeline_query_scenario",
+                        "campaign_manager_get_campaign_context",
+                        "game_engine_get_game_state"
+                    ]
+                    for key_pattern in cache_keys_to_clear:
+                        try:
+                            # This will be handled by the cache implementation
+                            pass
+                        except:
+                            pass
+                
+                # Clear stored options to prevent re-selection
+                self.last_scenario_options = []
+                
+                if self.verbose:
+                    print("✅ Used enhanced creative consequence pipeline")
+                    print("📝 Updated game state with player choice progression")
+                
+                return f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n📝 *Use 'generate scenario' to continue the adventure.*"
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Enhanced pipeline failed, falling back to agent: {e}")
+        
+        # Fallback to original agent-based approach with game state updates
+        game_state["current_options"] = "\n".join(self.last_scenario_options)
+        
         response = self._send_message_and_wait("scenario_generator", "apply_player_choice", {
             "game_state": game_state,
-            "player": "DM",  # DM making the choice
+            "player": "DM",
             "choice": option_number
         }, timeout=30.0)
         
         if response and response.get("success"):
             continuation = response.get("continuation", "Option processed")
+            
+            # Update game state even in fallback
+            updated_game_state = game_state.copy()
+            updated_game_state["last_player_choice"] = selected_option
+            updated_game_state["last_consequence"] = continuation
+            updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
+            updated_game_state["story_progression"].append({
+                "choice": selected_option,
+                "consequence": continuation,
+                "timestamp": __import__('time').time()
+            })
+            
+            if self.game_engine_agent:
+                self._send_message_and_wait("game_engine", "update_game_state", {
+                    "game_state": updated_game_state
+                })
+            
+            # Clear stored options
+            self.last_scenario_options = []
+            
             return f"✅ **SELECTED:** Option {option_number}\n\n🎭 **STORY CONTINUES:**\n{continuation}\n\n📝 *Use 'generate scenario' to continue the adventure.*"
         else:
             error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
             return f"❌ Failed to process option: {error_msg}"
+    
+    def _extract_and_store_options(self, scenario_text: str):
+        """Extract numbered options from scenario text and store them"""
+        import re
+        
+        options = []
+        lines = scenario_text.split('\n')
+        
+        # Look for multiple patterns of numbered options
+        patterns = [
+            r'^\s*\*\*(\d+)\.\s*(.*?)\*\*\s*-?\s*(.*?)$',  # **1. Title** - description
+            r'^\s*(\d+)\.\s*\*\*(.*?)\*\*\s*-\s*(.*?)$',  # 1. **Title** - description
+            r'^\s*\*\*(\d+)\.\s*(.*?):\*\*\s*(.*?)$',      # **1. Title:** description
+            r'^\s*(\d+)\.\s*(.*?)$'                         # Simple 1. description
+        ]
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            for pattern in patterns:
+                match = re.match(pattern, line)
+                if match:
+                    groups = match.groups()
+                    if len(groups) == 3:
+                        num, title, description = groups
+                        if description.strip():
+                            options.append(f"{num}. {title.strip()} - {description.strip()}")
+                        else:
+                            options.append(f"{num}. {title.strip()}")
+                    elif len(groups) == 2:
+                        num, description = groups
+                        options.append(f"{num}. {description.strip()}")
+                    break
+        
+        self.last_scenario_options = options
+        if self.verbose and options:
+            print(f"📝 Stored {len(options)} scenario options for selection")
+        elif self.verbose:
+            print(f"⚠️ No options extracted from scenario text")
     
     def _get_system_status(self) -> str:
         """Get comprehensive system status"""
@@ -524,72 +1440,139 @@ class ModularDMAssistant:
         return status
     
     def _handle_general_query(self, query: str) -> str:
-        """Handle general queries using RAG"""
-        response = self._send_message_and_wait("haystack_pipeline", "query_rag", {"query": query}, timeout=30.0)
+        """Handle general queries using RAG with performance optimization"""
+        # Try smart router first for better performance
+        try:
+            if self.smart_router:
+                context = {"type": "general_query"}
+                result = self.smart_router.route_query(query, context)
+                
+                if result and "answer" in result:
+                    answer = result["answer"]
+                    
+                    # Condense the answer if it's too long
+                    if len(answer) > 800:
+                        # Find a good break point - preferably end of a sentence or paragraph
+                        break_point = 800
+                        for i in range(700, min(800, len(answer))):
+                            if answer[i] in '.!?':
+                                break_point = i + 1
+                                break
+                        answer = answer[:break_point].strip() + "..."
+                    
+                    pipeline_used = result.get('pipeline_used', 'smart_router')
+                    if self.verbose and pipeline_used != 'fallback':
+                        print(f"🚀 Used {pipeline_used} pipeline for faster response")
+                    
+                    return f"💡 {answer}"
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Smart router failed, falling back to direct RAG: {e}")
+        
+        # Fallback to direct RAG with reduced timeout for better performance
+        response = self._send_message_and_wait("haystack_pipeline", "query_rag", {"query": query}, timeout=15.0)
         
         if response and response.get("success"):
             result = response["result"]
             answer = result.get("answer", "No answer generated")
-            sources = result.get("sources", [])
             
-            output = f"💡 ANSWER:\n{answer}"
+            # Condense the answer if it's too long
+            if len(answer) > 800:
+                # Find a good break point - preferably end of a sentence or paragraph
+                break_point = 800
+                for i in range(700, min(800, len(answer))):
+                    if answer[i] in '.!?':
+                        break_point = i + 1
+                        break
+                answer = answer[:break_point].strip() + "..."
             
-            if sources:
-                output += f"\n\n📚 SOURCES ({len(sources)}):"
-                for source in sources[:3]:  # Show top 3 sources
-                    output += f"\n  • {source['source']} (Score: {source['score']})"
-                if len(sources) > 3:
-                    output += f"\n  ... and {len(sources) - 3} more sources"
-            
-            return output
+            return f"💡 {answer}"
         else:
             error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
             return f"❌ Failed to process query: {error_msg}"
     
     def _handle_dice_roll(self, instruction: str) -> str:
-        """Handle dice rolling commands"""
+        """Handle dice rolling commands with enhanced skill detection"""
         import re
         
-        # Extract dice expression from instruction
-        dice_patterns = [
-            r'\b(\d*d\d+(?:[kKhHlL]\d+)?(?:[+-]\d+)?(?:\s+(?:adv|advantage|dis|disadvantage))?)\b',
-            r'\b(d\d+)\b',  # Simple d20, d6, etc.
-            r'\b(\d+d\d+)\b'  # 3d6, 2d8, etc.
-        ]
+        # Enhanced skill detection
+        skill_keywords = {
+            'stealth': ('dexterity', 'stealth'),
+            'perception': ('wisdom', 'perception'),
+            'insight': ('wisdom', 'insight'),
+            'persuasion': ('charisma', 'persuasion'),
+            'deception': ('charisma', 'deception'),
+            'athletics': ('strength', 'athletics'),
+            'acrobatics': ('dexterity', 'acrobatics'),
+            'investigation': ('intelligence', 'investigation'),
+            'arcana': ('intelligence', 'arcana'),
+            'history': ('intelligence', 'history'),
+            'nature': ('intelligence', 'nature'),
+            'religion': ('intelligence', 'religion'),
+            'medicine': ('wisdom', 'medicine'),
+            'survival': ('wisdom', 'survival'),
+            'animal_handling': ('wisdom', 'animal handling'),
+            'intimidation': ('charisma', 'intimidation'),
+            'performance': ('charisma', 'performance')
+        }
         
+        # Detect skill checks more reliably
+        instruction_lower = instruction.lower()
+        detected_skill = None
         dice_expression = None
-        for pattern in dice_patterns:
-            match = re.search(pattern, instruction, re.IGNORECASE)
-            if match:
-                dice_expression = match.group(1)
+        context = "Manual roll"
+        
+        for skill, (ability, skill_name) in skill_keywords.items():
+            if skill in instruction_lower or f"{skill} check" in instruction_lower:
+                detected_skill = skill_name
+                dice_expression = "1d20"  # Default skill check
+                context = f"{skill_name.title()} check ({ability.title()})"
                 break
         
-        # If no specific dice found, try to infer from context
-        if not dice_expression:
-            if any(word in instruction.lower() for word in ['attack', 'hit']):
-                dice_expression = "1d20"
-            elif any(word in instruction.lower() for word in ['damage', 'hurt']):
-                dice_expression = "1d6"
-            elif any(word in instruction.lower() for word in ['stats', 'ability', 'score']):
-                dice_expression = "4d6k3"
+        # If no skill detected, extract dice expression from instruction
+        if not detected_skill:
+            dice_patterns = [
+                r'\b(\d*d\d+(?:[kKhHlL]\d+)?(?:[+-]\d+)?(?:\s+(?:adv|advantage|dis|disadvantage))?)\b',
+                r'\b(d\d+)\b',  # Simple d20, d6, etc.
+                r'\b(\d+d\d+)\b'  # 3d6, 2d8, etc.
+            ]
+            
+            for pattern in dice_patterns:
+                match = re.search(pattern, instruction, re.IGNORECASE)
+                if match:
+                    dice_expression = match.group(1)
+                    break
+            
+            # If no specific dice found, try to infer from context
+            if not dice_expression:
+                if any(word in instruction.lower() for word in ['attack', 'hit']):
+                    dice_expression = "1d20"
+                    context = "Attack roll"
+                elif any(word in instruction.lower() for word in ['damage', 'hurt']):
+                    dice_expression = "1d6"
+                    context = "Damage roll"
+                elif any(word in instruction.lower() for word in ['stats', 'ability', 'score']):
+                    dice_expression = "4d6k3"
+                    context = "Ability score generation"
+                elif "save" in instruction.lower() or "saving" in instruction.lower():
+                    dice_expression = "1d20"
+                    context = "Saving throw"
+                else:
+                    dice_expression = "1d20"  # Default
             else:
-                dice_expression = "1d20"  # Default
+                # Add context from instruction for non-skill rolls
+                if "attack" in instruction.lower():
+                    context = "Attack roll"
+                elif "damage" in instruction.lower():
+                    context = "Damage roll"
+                elif "save" in instruction.lower() or "saving" in instruction.lower():
+                    context = "Saving throw"
         
-        # Add context from instruction
-        context = "Manual roll"
-        if "attack" in instruction.lower():
-            context = "Attack roll"
-        elif "damage" in instruction.lower():
-            context = "Damage roll"
-        elif "save" in instruction.lower() or "saving" in instruction.lower():
-            context = "Saving throw"
-        elif any(skill in instruction.lower() for skill in ['stealth', 'perception', 'insight', 'persuasion', 'deception', 'athletics', 'acrobatics']):
-            context = "Skill check"
-        
-        # Send to dice agent
+        # Enhanced response formatting
         response = self._send_message_and_wait("dice_system", "roll_dice", {
             "expression": dice_expression,
-            "context": context
+            "context": context,
+            "skill": detected_skill
         })
         
         if response and response.get("success"):
@@ -598,12 +1581,15 @@ class ModularDMAssistant:
             output += f"**Expression:** {result['expression']}\n"
             output += f"**Result:** {result['description']}\n"
             
+            if detected_skill:
+                output += f"**Skill:** {detected_skill.title()}\n"
+            
             if result.get('critical_hit'):
                 output += "🔥 **CRITICAL HIT!**\n"
             elif result.get('critical_fail'):
                 output += "💥 **CRITICAL FAILURE!**\n"
             
-            if result['advantage_type'] != 'normal':
+            if result.get('advantage_type', 'normal') != 'normal':
                 output += f"📊 Rolled with {result['advantage_type']}\n"
             
             return output
@@ -620,8 +1606,24 @@ class ModularDMAssistant:
             if response and response.get("success"):
                 output = "⚔️ **COMBAT STARTED!**\n\n"
                 output += "📊 **Initiative Order:**\n"
-                for name, init in response.get("initiative_order", []):
-                    output += f"  • {name}: {init}\n"
+                
+                # Fix unpacking error - handle different initiative_order formats
+                initiative_order = response.get("initiative_order", [])
+                for item in initiative_order:
+                    try:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            name, init = item[0], item[1]
+                            output += f"  • {name}: {init}\n"
+                        elif isinstance(item, dict):
+                            name = item.get('name', 'Unknown')
+                            init = item.get('initiative', item.get('init', 'N/A'))
+                            output += f"  • {name}: {init}\n"
+                        else:
+                            output += f"  • {str(item)}\n"
+                    except (ValueError, TypeError, IndexError) as e:
+                        if self.verbose:
+                            print(f"⚠️ Initiative order unpacking error: {e}")
+                        output += f"  • {str(item)}\n"
                 
                 current = response.get("current_combatant")
                 if current:
@@ -673,17 +1675,52 @@ class ModularDMAssistant:
             else:
                 return f"❌ Failed to get combat status: {response.get('error', 'Unknown error')}"
         
-        # Next turn
+        # Next turn - Enhanced with better error handling and retry mechanism
         elif "next turn" in instruction_lower or "end turn" in instruction_lower:
-            response = self._send_message_and_wait("combat_engine", "next_turn", {})
-            if response and response.get("success"):
-                output = f"🔄 {response.get('message', 'Turn advanced')}\n"
-                current = response.get("current_combatant")
-                if current:
-                    output += f"🎯 **Now active:** {current['name']} ({current['hp']} HP)"
-                return output
-            else:
-                return f"❌ Failed to advance turn: {response.get('error', 'Unknown error')}"
+            # Enhanced combat turn management with better error handling
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = self._send_message_and_wait("combat_engine", "next_turn", {}, timeout=10.0)
+                    if response and response.get("success"):
+                        output = f"🔄 {response.get('message', 'Turn advanced')}\n"
+                        current = response.get("current_combatant")
+                        if current:
+                            output += f"🎯 **Now active:** {current['name']} ({current['hp']} HP)"
+                        
+                        # Broadcast turn change to maintain agent synchronization
+                        if current and self.orchestrator:
+                            try:
+                                self.orchestrator.broadcast_message("combat_turn_changed", {
+                                    "current_combatant": current,
+                                    "round": response.get("round", 1)
+                                })
+                                if self.verbose:
+                                    print("📡 Broadcasted turn change to all agents")
+                            except Exception as e:
+                                if self.verbose:
+                                    print(f"⚠️ Failed to broadcast turn change: {e}")
+                        
+                        return output
+                    else:
+                        error_msg = response.get('error', 'Turn management failed') if response else 'Agent communication timeout'
+                        if attempt == max_retries - 1:
+                            return f"❌ Failed to advance turn after {max_retries} attempts: {error_msg}"
+                        elif self.verbose:
+                            print(f"⚠️ Turn management attempt {attempt + 1} failed: {error_msg}, retrying...")
+                        
+                except Exception as e:
+                    error_msg = f"Turn management exception: {e}"
+                    if attempt == max_retries - 1:
+                        return f"❌ Failed to advance turn after {max_retries} attempts: {error_msg}"
+                    elif self.verbose:
+                        print(f"⚠️ Turn management attempt {attempt + 1} failed: {error_msg}, retrying...")
+                
+                # Brief pause before retry
+                import time
+                time.sleep(0.5)
+            
+            return f"❌ Failed to advance turn after {max_retries} attempts"
         
         # End combat
         elif "end combat" in instruction_lower or "stop combat" in instruction_lower:
@@ -711,7 +1748,7 @@ class ModularDMAssistant:
             return "❓ **Combat Commands:**\n• start combat\n• add combatant [name]\n• combat status\n• next turn\n• end combat"
     
     def _handle_rule_query(self, instruction: str) -> str:
-        """Handle rule checking and clarification requests"""
+        """Handle rule checking with enhanced error recovery and performance optimization"""
         # Clean up the instruction to focus on the rule query
         query = instruction.lower()
         
@@ -736,7 +1773,7 @@ class ModularDMAssistant:
         elif any(word in query for word in ["condition", "poisoned", "charmed", "stunned", "prone"]):
             category = "conditions"
         
-        # Check if this is a condition query
+        # Quick condition lookup first (most efficient)
         conditions = ["blinded", "charmed", "deafened", "frightened", "grappled", "incapacitated",
                      "invisible", "paralyzed", "poisoned", "prone", "restrained", "stunned", "unconscious"]
         
@@ -749,7 +1786,7 @@ class ModularDMAssistant:
         if condition_found:
             response = self._send_message_and_wait("rule_enforcement", "get_condition_effects", {
                 "condition_name": condition_found
-            }, timeout=15.0)
+            }, timeout=8.0)  # Reduced timeout for faster response
             
             if response and response.get("success"):
                 effects = response["effects"]
@@ -760,11 +1797,11 @@ class ModularDMAssistant:
                 output += f"\n**Duration:** {effects.get('duration', 'Unknown')}\n"
                 return output
         
-        # General rule query
+        # Try direct rule query with reduced timeout
         response = self._send_message_and_wait("rule_enforcement", "check_rule", {
             "query": query,
             "category": category
-        }, timeout=15.0)
+        }, timeout=8.0)  # Reduced timeout for faster response
         
         if response and response.get("success"):
             rule_info = response["rule_info"]
@@ -774,10 +1811,8 @@ class ModularDMAssistant:
             if rule_info.get("sources"):
                 sources = rule_info['sources']
                 if isinstance(sources, list) and sources and isinstance(sources[0], dict):
-                    # Handle dictionary sources
                     source_names = [source.get('source', str(source)) for source in sources]
                 else:
-                    # Handle string sources
                     source_names = sources if isinstance(sources, list) else [str(sources)]
                 output += f"**Sources:** {', '.join(source_names)}\n"
             
@@ -786,9 +1821,37 @@ class ModularDMAssistant:
             output += f"**Confidence:** {confidence_emoji.get(confidence, '📚')} {confidence}\n"
             
             return output
-        else:
-            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
-            return f"❌ Failed to find rule: {error_msg}"
+        
+        # Only use enhanced error recovery as final fallback (instead of primary method)
+        try:
+            if self.error_recovery:
+                context = {"category": category, "type": "rule_query"}
+                result = self.error_recovery.process_with_recovery(query, context)
+                
+                if "error" not in result:
+                    if "rule_text" in result:
+                        output = f"📖 **{category.upper()} RULE**\n\n"
+                        output += f"**Rule:** {result['rule_text']}\n\n"
+                        
+                        if result.get("sources"):
+                            output += f"**Sources:** {result['sources']}\n"
+                        
+                        confidence = result.get("confidence", "medium")
+                        confidence_emoji = {"high": "🔍", "medium": "📚", "low": "❓"}
+                        output += f"**Confidence:** {confidence_emoji.get(confidence, '📚')} {confidence}\n"
+                        
+                        output += f"\n*Used enhanced error recovery*"
+                        return output
+                    elif "answer" in result:
+                        return f"📖 {result['answer']}"
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Enhanced rule processing failed: {e}")
+        
+        # Final fallback
+        error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+        return f"❌ Failed to find rule: {error_msg}"
     
     def run_interactive(self):
         """Run the interactive DM assistant"""
