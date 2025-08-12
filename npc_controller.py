@@ -6,19 +6,16 @@ import random
 from typing import Dict, List, Any, Optional
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-try:
-    from rag_agent_integrated import RAGAgent
-except ImportError:
-    from rag_agent import RAGAgent
+from haystack_pipeline_agent import HaystackPipelineAgent
 
 
 class NPCControllerAgent(BaseAgent):
     """NPC Controller as an agent that manages NPC behavior and decisions"""
     
-    def __init__(self, rag_agent: Optional[RAGAgent] = None, mode: str = "hybrid"):
+    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, mode: str = "hybrid"):
         super().__init__("npc_controller", "NPCController")
-        self.rag_agent = rag_agent
-        self.mode = mode  # "rag", "rule_based", or "hybrid"
+        self.haystack_agent = haystack_agent
+        self.mode = mode  # "haystack", "rule_based", or "hybrid"
     
     def _setup_handlers(self):
         """Setup message handlers for NPC controller"""
@@ -59,7 +56,7 @@ class NPCControllerAgent(BaseAgent):
         """Handle NPC status request"""
         return {
             "mode": self.mode,
-            "rag_available": self.rag_agent is not None,
+            "haystack_available": self.haystack_agent is not None,
             "agent_type": self.agent_type
         }
     
@@ -87,31 +84,35 @@ class NPCControllerAgent(BaseAgent):
         # Use appropriate decision-making method based on mode
         if self.mode == "rule_based":
             return self._rule_based_decision(npc, game_state)
-        elif self.mode == "rag" and self.rag_agent:
-            return self._rag_based_decision(npc, game_state)
+        elif self.mode == "haystack" and self.haystack_agent:
+            return self._haystack_based_decision(npc, game_state)
         elif self.mode == "hybrid":
-            # Try RAG first, fall back to rule-based
-            if self.rag_agent:
-                decision = self._rag_based_decision(npc, game_state)
+            # Try Haystack first, fall back to rule-based
+            if self.haystack_agent:
+                decision = self._haystack_based_decision(npc, game_state)
                 if decision:
                     return decision
             return self._rule_based_decision(npc, game_state)
         else:
             return self._rule_based_decision(npc, game_state)
     
-    def _rag_based_decision(self, npc: Dict[str, Any], game_state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Make NPC decision using RAG system"""
+    def _haystack_based_decision(self, npc: Dict[str, Any], game_state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Make NPC decision using Haystack system"""
         prompt = self._build_prompt_for_npc(npc, game_state)
         
         try:
-            result = self.rag_agent.query(prompt)
+            response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
+                "query": prompt,
+                "npc_context": str(npc),
+                "game_state": str(game_state)
+            }, timeout=15.0)
             
-            if "error" in result:
+            if not response or not response.get("success"):
                 return None
             
-            # Parse the result - could be dict or string
+            result = response.get("result", {})
             answer = result.get("answer", "")
-            plan = self._parse_rag_response(answer)
+            plan = self._parse_haystack_response(answer)
             
             if isinstance(plan, dict):
                 dest = plan.get("move_to") or plan.get("to")
@@ -137,8 +138,8 @@ class NPCControllerAgent(BaseAgent):
         except Exception:
             return None
     
-    def _parse_rag_response(self, response: str) -> Any:
-        """Parse RAG response to extract actionable information"""
+    def _parse_haystack_response(self, response: str) -> Any:
+        """Parse Haystack response to extract actionable information"""
         # Try to parse as JSON first
         import json
         try:
@@ -221,8 +222,8 @@ class NPCControllerAgent(BaseAgent):
 class NPCController:
     """Traditional NPCController class for backward compatibility"""
     
-    def __init__(self, rag_agent: Optional[RAGAgent] = None, mode: str = "hybrid"):
-        self.rag_agent = rag_agent
+    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, mode: str = "hybrid"):
+        self.haystack_agent = haystack_agent
         self.mode = mode
     
     def decide(self, game_state: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -238,29 +239,33 @@ class NPCController:
                 if action:
                     actions.append(action)
             else:
-                if self.mode in ("rag", "hybrid") and self.rag_agent:
+                if self.mode in ("haystack", "hybrid") and self.haystack_agent:
                     prompt = self._build_prompt_for_npc(npc_obj, game_state)
                     try:
-                        plan = self.rag_agent.query(prompt)
-                        # Accept multiple shapes: dict or string
-                        if isinstance(plan, dict):
-                            dest = plan.get("move_to") or plan.get("to")
-                            if dest:
+                        response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
+                            "query": prompt,
+                            "npc_context": str(npc_obj),
+                            "game_state": str(game_state)
+                        }, timeout=15.0)
+                        
+                        if response and response.get("success"):
+                            result = response.get("result", {})
+                            answer = result.get("answer", "")
+                            
+                            # Try to parse the response
+                            if "to " in answer:
+                                to_idx = answer.index("to ")
+                                dest = answer[to_idx + 3:].split()[0]
                                 actions.append({
                                     "actor": npc_name,
                                     "type": "move",
                                     "args": {"to": dest}
                                 })
-                        elif isinstance(plan, str):
-                            # Best-effort parse: look for 'to <location>'
-                            if "to " in plan:
-                                to_idx = plan.index("to ")
-                                dest = plan[to_idx + 3:].split()[0]
-                                actions.append({
-                                    "actor": npc_name,
-                                    "type": "move",
-                                    "args": {"to": dest}
-                                })
+                        else:
+                            # Fallback to rule-based
+                            action = self._rule_based(npc_obj, game_state)
+                            if action:
+                                actions.append(action)
                     except Exception:
                         # Degrade to rule-based
                         action = self._rule_based(npc_obj, game_state)

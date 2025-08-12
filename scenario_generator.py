@@ -7,10 +7,7 @@ import random
 from typing import Dict, List, Any, Optional, Tuple
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-try:
-    from rag_agent_integrated import RAGAgent
-except ImportError:
-    from rag_agent import RAGAgent
+from haystack_pipeline_agent import HaystackPipelineAgent
 
 # Claude-specific imports
 try:
@@ -24,9 +21,8 @@ except ImportError:
 class ScenarioGeneratorAgent(BaseAgent):
     """Scenario Generator as an agent that creates dynamic scenarios and handles player choices"""
     
-    def __init__(self, rag_agent: Optional[RAGAgent] = None, haystack_agent: Optional['HaystackPipelineAgent'] = None, verbose: bool = False):
+    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, verbose: bool = False):
         super().__init__("scenario_generator", "ScenarioGenerator")
-        self.rag_agent = rag_agent
         self.haystack_agent = haystack_agent
         self.verbose = verbose
         self.has_llm = CLAUDE_AVAILABLE
@@ -78,7 +74,7 @@ class ScenarioGeneratorAgent(BaseAgent):
     def _handle_get_generator_status(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle generator status request"""
         return {
-            "rag_available": self.rag_agent is not None,
+            "haystack_available": self.haystack_agent is not None,
             "llm_available": self.has_llm,
             "verbose": self.verbose,
             "agent_type": self.agent_type
@@ -94,44 +90,29 @@ class ScenarioGeneratorAgent(BaseAgent):
         if self.haystack_agent:
             try:
                 prompt = self._build_creative_prompt(seed)
-                response = self.send_message_and_wait("haystack_pipeline", "query_scenario", {
+                # Send message to haystack agent through orchestrator
+                message_id = self.send_message("haystack_pipeline", "query_scenario", {
                     "query": prompt,
                     "campaign_context": seed.get('story_arc', ''),
                     "game_state": str(seed)
-                }, timeout=30.0)
+                })
                 
-                if response and response.get("success"):
-                    result = response.get("result", {})
-                    answer = result.get("answer", "")
-                    parsed_response = self._parse_generation_response(answer)
-                    
-                    if isinstance(parsed_response, dict):
-                        scene_text = parsed_response.get("scene_text", scene_text)
-                        options_text = parsed_response.get("options_text", "")
-                    elif isinstance(parsed_response, str):
-                        scene_text = parsed_response
+                if message_id:
+                    # Note: In agent architecture, we don't wait for responses synchronously
+                    # The response will be handled by the orchestrator
+                    if self.verbose:
+                        print("📤 Sent scenario generation request to haystack pipeline")
+                        
             except Exception as e:
                 if self.verbose:
-                    print(f"Error in creative scenario generation: {e}")
+                    print(f"Error in creative scenario generation: {str(e)}")
+                    import traceback
+                    print(f"Traceback: {traceback.format_exc()}")
         
-        # Fallback to RAG agent if haystack agent failed or unavailable
-        elif self.rag_agent:
-            try:
-                prompt = self._build_prompt(seed)
-                result = self.rag_agent.query(prompt)
-                
-                if "error" not in result:
-                    answer = result.get("answer", "")
-                    parsed_response = self._parse_generation_response(answer)
-                    
-                    if isinstance(parsed_response, dict):
-                        scene_text = parsed_response.get("scene_text", scene_text)
-                        options_text = parsed_response.get("options_text", "")
-                    elif isinstance(parsed_response, str):
-                        scene_text = parsed_response
-            except Exception as e:
-                if self.verbose:
-                    print(f"Error in RAG scenario generation: {e}")
+        # If haystack agent failed or unavailable, use basic fallback
+        elif not self.haystack_agent:
+            if self.verbose:
+                print("No Haystack agent available, using basic scenario generation")
         
         # Generate fallback options if needed
         if not options_text:
@@ -157,9 +138,9 @@ class ScenarioGeneratorAgent(BaseAgent):
         """Apply a player's choice and return the continuation"""
         try:
             current_options = state.get("current_options", "")
-            if self.verbose:
-                print(f"DEBUG: current_options = {current_options}")
-                print(f"DEBUG: choice_value = {choice_value}")
+            # if self.verbose:
+            #     print(f"DEBUG: current_options = {current_options}")
+            #     print(f"DEBUG: choice_value = {choice_value}")
             
             lines = [line for line in current_options.splitlines() if line.strip()]
             target = None
@@ -185,40 +166,29 @@ class ScenarioGeneratorAgent(BaseAgent):
             if self.haystack_agent:
                 prompt = self._build_creative_choice_prompt(state, target, player)
                 try:
-                    response = self.send_message_and_wait("haystack_pipeline", "query_scenario", {
+                    # Send message to haystack agent through orchestrator
+                    message_id = self.send_message("haystack_pipeline", "query_scenario", {
                         "query": prompt,
                         "campaign_context": state.get('story_arc', ''),
                         "game_state": str(state)
-                    }, timeout=30.0)
+                    })
                     
-                    if response and response.get("success"):
-                        result = response.get("result", {})
-                        answer = result.get("answer", "")
-                        parsed_response = self._parse_choice_response(answer)
+                    if message_id:
+                        if self.verbose:
+                            print("📤 Sent choice consequence request to haystack pipeline")
+                        # In agent architecture, return basic continuation since we can't wait synchronously
+                        # The detailed response will be handled by the orchestrator
                         
-                        if isinstance(parsed_response, dict):
-                            return parsed_response.get("continuation", continuation)
-                        elif isinstance(parsed_response, str):
-                            return parsed_response
-                except Exception:
+                except Exception as e:
                     if self.verbose:
-                        print(f"Error in creative choice consequence generation")
+                        print(f"Error in creative choice consequence generation: {str(e)}")
+                        import traceback
+                        print(f"Traceback: {traceback.format_exc()}")
             
-            # Fallback to RAG agent if haystack agent failed or unavailable
-            elif self.rag_agent:
-                prompt = self._build_choice_consequence_prompt(state, target)
-                try:
-                    result = self.rag_agent.query(prompt)
-                    if "error" not in result:
-                        answer = result.get("answer", "")
-                        parsed_response = self._parse_choice_response(answer)
-                        
-                        if isinstance(parsed_response, dict):
-                            return parsed_response.get("continuation", continuation)
-                        elif isinstance(parsed_response, str):
-                            return parsed_response
-                except Exception:
-                    pass
+            # If haystack agent failed or unavailable, use basic continuation
+            elif not self.haystack_agent:
+                if self.verbose:
+                    print("No Haystack agent available for choice consequence generation")
             
             return continuation
             
@@ -327,8 +297,8 @@ class ScenarioGeneratorAgent(BaseAgent):
 class ScenarioGenerator:
     """Traditional ScenarioGenerator class for backward compatibility"""
     
-    def __init__(self, rag_agent: Optional[RAGAgent] = None, verbose: bool = False):
-        self.rag_agent = rag_agent
+    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, verbose: bool = False):
+        self.haystack_agent = haystack_agent
         self.verbose = verbose
     
     def _seed_scene(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -355,18 +325,25 @@ class ScenarioGenerator:
         scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
         options_text = ""
         
-        if self.rag_agent:
+        if self.haystack_agent:
             try:
                 prompt = self._build_prompt(seed)
-                resp = self.rag_agent.query(prompt)
-                if isinstance(resp, dict):
-                    scene_text = resp.get("scene_text", scene_text)
-                    options_text = resp.get("options_text", "")
-                elif isinstance(resp, str):
-                    # Quick heuristic: treat as scene_text
-                    scene_text = resp
-            except Exception:
-                pass
+                response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_scenario", {
+                    "query": prompt,
+                    "campaign_context": seed.get('story_arc', ''),
+                    "game_state": str(seed)
+                }, timeout=30.0)
+                
+                if response and response.get("success"):
+                    result = response.get("result", {})
+                    answer = result.get("answer", "")
+                    
+                    # Try to parse the response
+                    if isinstance(answer, str) and len(answer) > 50:
+                        scene_text = answer
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error in backward compatibility scenario generation: {str(e)}")
         
         if not options_text:
             # Fallback options
@@ -409,20 +386,27 @@ class ScenarioGenerator:
             
             cont = f"{player} chose: {target}"
             
-            # Ask rag agent for consequence
-            if self.rag_agent:
+            # Ask haystack agent for consequence
+            if self.haystack_agent:
                 prompt = (
                     f"CONTEXT: {state.get('story_arc')}\nCHOICE: {target}\n"
                     "Describe the immediate consequence in 2-3 sentences and return a short 'continuation' field."
                 )
                 try:
-                    resp = self.rag_agent.query(prompt)
-                    if isinstance(resp, dict):
-                        return resp.get("continuation", cont)
-                    elif isinstance(resp, str):
-                        return resp
-                except Exception:
-                    pass
+                    response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_scenario", {
+                        "query": prompt,
+                        "campaign_context": state.get('story_arc', ''),
+                        "game_state": str(state)
+                    }, timeout=30.0)
+                    
+                    if response and response.get("success"):
+                        result = response.get("result", {})
+                        answer = result.get("answer", "")
+                        if isinstance(answer, str) and len(answer) > 10:
+                            return answer
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Error in backward compatibility choice consequence generation: {str(e)}")
             
             return cont
             

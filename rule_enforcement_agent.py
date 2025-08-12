@@ -210,7 +210,20 @@ class RuleEnforcementAgent(BaseAgent):
         
         try:
             effects = self.get_condition_effects(condition_name)
-            return {"success": True, "effects": effects}
+            # Format response to match expected pattern
+            formatted_response = f"CONDITION RULE - {condition_name.title()}:\n"
+            formatted_response += f"Effects: {', '.join(effects.get('effects', []))}\n"
+            formatted_response += f"Duration: {effects.get('duration', 'Unknown')}"
+            
+            return {
+                "success": True,
+                "effects": effects,
+                "rule_info": {
+                    "rule_text": formatted_response,
+                    "category": "conditions",
+                    "confidence": "high"
+                }
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
     

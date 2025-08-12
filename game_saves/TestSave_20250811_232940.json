@@ -1,0 +1,95 @@
+{
+  "save_name": "TestSave",
+  "save_date": "2025-08-11T23:29:41.352139",
+  "version": "1.0",
+  "game_state": {
+    "players": {},
+    "npcs": {},
+    "world": {
+      "locations": []
+    },
+    "story_arc": "",
+    "scene_history": [
+      "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}"
+    ],
+    "current_scenario": "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}",
+    "current_options": "1. Stealth Check (DC 16) - Sneak closer to the obelisk to examine the runes and overhear the chanting without alerting the spectral figures\n2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes\n3. Combat - Launch a surprise attack on the ghostly figures before they complete whatever ritual they're performing (3 Specters)\n4. Call out to the spectral figures and attempt to communicate, risking interrupting their ritual but potentially gaining valuable information about this place",
+    "session": {
+      "location": "unknown",
+      "time": "",
+      "events": [
+        "New scene generated"
+      ]
+    },
+    "action_queue": [],
+    "story_progression": [
+      {
+        "choice": "1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "consequence": "\ud83c\udfb2 **STEALTH CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [19] = 19 = **19** - SUCCESS!\n\n**Story Continues:**\nDM chose: 1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "timestamp": 1754979915.400506,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "stealth",
+          "dc": 14,
+          "roll_total": 19,
+          "success": true,
+          "roll_description": "1d20 \u2192 [19] = 19",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "timestamp": 1754979976.46099,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "investigation",
+          "dc": 15,
+          "roll_total": 14,
+          "success": false,
+          "roll_description": "1d20 \u2192 [14] = 14",
+          "expression": "1d20"
+        }
+      }
+    ],
+    "scenario_count": 5,
+    "location": "Unknown Location",
+    "last_scenario_query": "Continue the story after: \ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+    "last_scenario_text": "You strain your eyes trying to decipher the ancient symbols and understand the spectral ritual unfolding before you, but the shifting blue flames create confusing shadows that obscure crucial details. Just as you're beginning to make sense of the scene, one of the spectral figures suddenly stops mid-chant and turns its hollow gaze directly toward your hiding spot - you've been spotted! The other two spirits pause their circling, and an unnatural chill fills the air as all three begin to drift menacingly in your direction.\n\n**What do you do?**\n\n1. **Stealth Check (DC 18)** - Quickly duck behind the nearest cover and attempt to break line of sight before the specters can pinpoint your exact location\n\n2. **Persuasion Check (DC 16)** - Step out with hands raised and try to convince the spirits you mean no harm, hoping to avoid a confrontation\n\n3. **Combat** - Stand your ground and prepare for battle as the three angry spirits approach (3 Specters)\n\n4. **Athletics Check (DC 14)** - Make a hasty retreat, sprinting back toward the bridge before the specters can surround you",
+    "last_updated": 1754979976.0800571,
+    "last_player_choice": "2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+    "last_consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes"
+  },
+  "campaign_info": {},
+  "players": [
+    {
+      "name": "kali",
+      "race": "Azish",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "11/11"
+    },
+    {
+      "name": "Aggi",
+      "race": "Alethi",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "8/8"
+    }
+  ],
+  "combat_state": {
+    "state": "inactive",
+    "round": 0,
+    "combatants": [],
+    "current_combatant": null
+  },
+  "last_scenario_options": [],
+  "assistant_config": {
+    "collection_name": "dnd_documents",
+    "campaigns_dir": "docs/current_campaign",
+    "players_dir": "docs/players",
+    "enable_game_engine": true,
+    "enable_caching": true,
+    "enable_async": true
+  }
+}

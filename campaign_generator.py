@@ -7,8 +7,16 @@ import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-# Import RAG agent functionality
-from rag_agent import RAGAgent, CLAUDE_AVAILABLE
+# Import Haystack pipeline agent functionality
+from haystack_pipeline_agent import HaystackPipelineAgent
+
+# Claude-specific imports
+try:
+    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+    from hwtgenielib.dataclasses import ChatMessage
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
 
 class CampaignGenerator:
     """D&D Campaign Generator using RAG-enhanced context"""
@@ -22,11 +30,11 @@ class CampaignGenerator:
             verbose: Enable verbose output
         """
         self.verbose = verbose
-        self.rag_agent: Optional[RAGAgent] = None
+        self.haystack_agent: Optional[HaystackPipelineAgent] = None
         self.current_campaign: Dict[str, Any] = {}
         
-        # Initialize RAG agent
-        self._initialize_rag_agent(collection_name)
+        # Initialize Haystack agent
+        self._initialize_haystack_agent(collection_name)
         
         # Campaign template structure
         self.campaign_template = {
@@ -48,28 +56,34 @@ class CampaignGenerator:
             "user_prompts": []
         }
     
-    def _initialize_rag_agent(self, collection_name: str) -> bool:
-        """Initialize the RAG agent for context retrieval"""
+    def _initialize_haystack_agent(self, collection_name: str) -> bool:
+        """Initialize the Haystack agent for context retrieval"""
         try:
-            self.rag_agent = RAGAgent(collection_name=collection_name, verbose=self.verbose)
+            self.haystack_agent = HaystackPipelineAgent(collection_name=collection_name, verbose=self.verbose)
             if self.verbose:
-                print("✓ RAG Agent initialized successfully")
+                print("✓ Haystack Agent initialized successfully")
             return True
         except Exception as e:
             if self.verbose:
-                print(f"❌ Failed to initialize RAG agent: {e}")
+                print(f"❌ Failed to initialize Haystack agent: {e}")
             return False
     
     def get_campaign_context(self, query: str) -> str:
         """Get context from existing campaigns and D&D resources"""
-        if not self.rag_agent:
-            return f"RAG agent not available. Basic context for: {query}"
+        if not self.haystack_agent:
+            return f"Haystack agent not available. Basic context for: {query}"
         
         try:
-            result = self.rag_agent.query(query)
-            if "error" in result:
-                return f"Error retrieving context: {result['error']}"
-            return result["answer"]
+            response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": query,
+                "context": "campaign generation"
+            }, timeout=30.0)
+            
+            if response and response.get("success"):
+                result = response.get("result", {})
+                return result.get("answer", f"No context found for: {query}")
+            else:
+                return f"Error retrieving context for: {query}"
         except Exception as e:
             return f"Error getting context: {e}"
     
@@ -83,8 +97,8 @@ class CampaignGenerator:
         Returns:
             Generated campaign dictionary
         """
-        if not self.rag_agent or not CLAUDE_AVAILABLE:
-            return {"error": "RAG agent or Claude not available for campaign generation"}
+        if not self.haystack_agent or not CLAUDE_AVAILABLE:
+            return {"error": "Haystack agent or Claude not available for campaign generation"}
         
         # Get context from existing documents - use broader queries to find relevant content
         rules_context = self.get_campaign_context(
@@ -149,12 +163,17 @@ CRITICAL: Return ONLY a valid JSON object with no additional text, explanations,
 Example format: {{"title": "Campaign Name", "theme": "Horror", "setting": "Location"}}"""
 
         try:
-            result = self.rag_agent.query(generation_query)
-            if "error" in result:
-                return {"error": f"Failed to generate campaign: {result['error']}"}
+            response_data = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": generation_query,
+                "context": "campaign generation"
+            }, timeout=60.0)
+            
+            if not response_data or not response_data.get("success"):
+                return {"error": "Failed to generate campaign using Haystack agent"}
             
             # Parse the JSON response
-            response = result["answer"]
+            result = response_data.get("result", {})
+            response = result.get("answer", "")
             
             # Try multiple approaches to extract JSON
             campaign_data = None
@@ -220,8 +239,8 @@ Example format: {{"title": "Campaign Name", "theme": "Horror", "setting": "Locat
         if not self.current_campaign:
             return {"error": "No current campaign to refine. Generate a campaign first."}
         
-        if not self.rag_agent or not CLAUDE_AVAILABLE:
-            return {"error": "RAG agent or Claude not available for campaign refinement"}
+        if not self.haystack_agent or not CLAUDE_AVAILABLE:
+            return {"error": "Haystack agent or Claude not available for campaign refinement"}
         
         # Get additional context if needed
         additional_context = self.get_campaign_context(refinement_prompt)
@@ -247,11 +266,16 @@ Return the complete updated campaign JSON with all fields, maintaining the same 
 Return ONLY the JSON object, no additional text."""
 
         try:
-            result = self.rag_agent.query(refinement_query)
-            if "error" in result:
-                return {"error": f"Failed to refine campaign: {result['error']}"}
+            response_data = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": refinement_query,
+                "context": "campaign refinement"
+            }, timeout=60.0)
             
-            response = result["answer"]
+            if not response_data or not response_data.get("success"):
+                return {"error": "Failed to refine campaign using Haystack agent"}
+            
+            result = response_data.get("result", {})
+            response = result.get("answer", "")
             
             # Extract JSON from response
             start = response.find('{')
@@ -279,8 +303,8 @@ Return ONLY the JSON object, no additional text."""
     
     def get_campaign_suggestions(self, theme: str = "") -> List[str]:
         """Get campaign suggestions based on available knowledge"""
-        if not self.rag_agent:
-            return ["RAG agent not available for suggestions"]
+        if not self.haystack_agent:
+            return ["Haystack agent not available for suggestions"]
         
         suggestion_query = f"""Based on available D&D campaigns and lore, suggest 5 interesting campaign concepts.
         {f'Focus on themes related to: {theme}' if theme else ''}
@@ -294,13 +318,19 @@ Return ONLY the JSON object, no additional text."""
         Format as a simple numbered list of campaign concepts, each in 1-2 sentences."""
         
         try:
-            result = self.rag_agent.query(suggestion_query)
-            if "error" in result:
-                return [f"Error getting suggestions: {result['error']}"]
+            response_data = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": suggestion_query,
+                "context": "campaign suggestions"
+            }, timeout=30.0)
+            
+            if not response_data or not response_data.get("success"):
+                return ["Error getting suggestions from Haystack agent"]
             
             # Parse suggestions from response
             suggestions = []
-            lines = result["answer"].split('\n')
+            result = response_data.get("result", {})
+            answer = result.get("answer", "")
+            lines = answer.split('\n')
             for line in lines:
                 line = line.strip()
                 if line and (line[0].isdigit() or line.startswith('-') or line.startswith('•')):

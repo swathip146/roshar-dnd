@@ -1,0 +1,264 @@
+{
+  "save_name": "Test",
+  "save_date": "2025-08-11T23:55:48.103261",
+  "version": "1.0",
+  "game_state": {
+    "players": {},
+    "npcs": {},
+    "world": {
+      "locations": []
+    },
+    "story_arc": "",
+    "scene_history": [
+      "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}"
+    ],
+    "current_scenario": "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}",
+    "current_options": "1. Athletics Check (DC 14) - Tackle the lead cultist to the ground and prevent him from restarting the summoning ritual with his emergency components\n2. Arcana Check (DC 12) - Use your knowledge of magical theory to completely reverse the summoning circle's polarity and banish the weakened shadow entity\n3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)\n4. Perception Check (DC 13) - Quickly scan the collapsing chamber for an alternate escape route or hidden passage before the ceiling gives way completely",
+    "session": {
+      "location": "unknown",
+      "time": "",
+      "events": [
+        "New scene generated"
+      ]
+    },
+    "action_queue": [],
+    "story_progression": [
+      {
+        "choice": "1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "consequence": "\ud83c\udfb2 **STEALTH CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [19] = 19 = **19** - SUCCESS!\n\n**Story Continues:**\nDM chose: 1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "timestamp": 1754979915.400506,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "stealth",
+          "dc": 14,
+          "roll_total": 19,
+          "success": true,
+          "roll_description": "1d20 \u2192 [19] = 19",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "timestamp": 1754979976.46099,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "investigation",
+          "dc": 15,
+          "roll_total": 14,
+          "success": false,
+          "roll_description": "1d20 \u2192 [14] = 14",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "1. Athletics Check (DC 16) - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [6] = 6 = **6** - FAILURE!\n\n**Story Continues:**\nDM chose: 1. Athletics Check (DC 16) - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded",
+        "timestamp": 1754980501.791772,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 16,
+          "roll_total": 6,
+          "success": false,
+          "roll_description": "1d20 \u2192 [6] = 6",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Draw weapons and fight the ambushing cultists before they can finish their ritual (3 Cultists)",
+        "consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Cultists 1, Cultists 2, Cultists 3\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 2. Combat - Draw weapons and fight the ambushing cultists before they can finish their ritual (3 Cultists)",
+        "timestamp": 1754980528.555968,
+        "combat_started": true,
+        "enemies": [
+          {
+            "name": "Cultists 1",
+            "type": "Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Cultists 2",
+            "type": "Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Cultists 3",
+            "type": "Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          }
+        ]
+      },
+      {
+        "choice": "2. Arcana Check (DC 16) - Try to disrupt the magical energies by identifying and destroying the ritual's focus components scattered around the altar",
+        "consequence": "\ud83c\udfb2 **ARCANA CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [7] = 7 = **7** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Arcana Check (DC 16) - Try to disrupt the magical energies by identifying and destroying the ritual's focus components scattered around the altar",
+        "timestamp": 1754980552.991696,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "arcana",
+          "dc": 16,
+          "roll_total": 7,
+          "success": false,
+          "roll_description": "1d20 \u2192 [7] = 7",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Focus your attacks on the lead cultist who seems to be directing the summoning ritual (Lead Cultist, 2 Cultist Acolytes)",
+        "consequence": "DM chose: 2. Combat - Focus your attacks on the lead cultist who seems to be directing the summoning ritual (Lead Cultist, 2 Cultist Acolytes)",
+        "timestamp": 1754980581.132452
+      },
+      {
+        "choice": "2. Combat - Unleash everything you have in an all-out assault to drop the cultists before the ritual finishes (Lead Cultist [wounded], 2 Cultist Acolytes, emerging Shadow Entity)",
+        "consequence": "DM chose: 2. Combat - Unleash everything you have in an all-out assault to drop the cultists before the ritual finishes (Lead Cultist [wounded], 2 Cultist Acolytes, emerging Shadow Entity)",
+        "timestamp": 1754980606.948218
+      },
+      {
+        "choice": "2. Arcana Check (DC 14) - Try to reverse or disrupt the summoning magic using your knowledge of arcane principles and the lead cultist's ritual notes",
+        "consequence": "\ud83c\udfb2 **ARCANA CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [10] = 10 = **10** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Arcana Check (DC 14) - Try to reverse or disrupt the summoning magic using your knowledge of arcane principles and the lead cultist's ritual notes",
+        "timestamp": 1754980635.913722,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "arcana",
+          "dc": 14,
+          "roll_total": 10,
+          "success": false,
+          "roll_description": "1d20 \u2192 [10] = 10",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "4. Athletics Check (DC 12) - Attempt to climb the chamber walls to gain a height advantage and potentially drop down behind the cultists",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 12)**\n**Roll:** 1d20 \u2192 [5] = 5 = **5** - FAILURE!\n\n**Story Continues:**\nDM chose: 4. Athletics Check (DC 12) - Attempt to climb the chamber walls to gain a height advantage and potentially drop down behind the cultists",
+        "timestamp": 1754981056.412739,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 12,
+          "roll_total": 5,
+          "success": false,
+          "roll_description": "1d20 \u2192 [5] = 5",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "1. Stealth Check (DC 16) - Quickly duck behind the nearest pillar and try to break line of sight before they can pinpoint your exact location",
+        "consequence": "\ud83c\udfb2 **STEALTH CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [10] = 10 = **10** - FAILURE!\n\n**Story Continues:**\nDM chose: 1. Stealth Check (DC 16) - Quickly duck behind the nearest pillar and try to break line of sight before they can pinpoint your exact location",
+        "timestamp": 1754981106.910271,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "stealth",
+          "dc": 16,
+          "roll_total": 10,
+          "success": false,
+          "roll_description": "1d20 \u2192 [10] = 10",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Charge out from behind the pillar with weapons ready, accepting that stealth has failed and committing to a direct assault (Lead Cultist, 2 Cultist Acolytes, 95% completed Shadow Entity)",
+        "consequence": "DM chose: 2. Combat - Charge out from behind the pillar with weapons ready, accepting that stealth has failed and committing to a direct assault (Lead Cultist, 2 Cultist Acolytes, 95% completed Shadow Entity)",
+        "timestamp": 1754981142.606346
+      },
+      {
+        "choice": "4. Try to topple one of the massive stone pillars to create chaos and potentially damage the ritual setup, though this risks bringing the ceiling down on everyone",
+        "consequence": "DM chose: 4. Try to topple one of the massive stone pillars to create chaos and potentially damage the ritual setup, though this risks bringing the ceiling down on everyone",
+        "timestamp": 1754981423.630095
+      },
+      {
+        "choice": "2. Acrobatics Check (DC 13) - Leap and dodge through the falling rubble to reach the damaged summoning circle and scatter the remaining ritual components",
+        "consequence": "\ud83c\udfb2 **ACROBATICS CHECK (DC 13)**\n**Roll:** 1d20 \u2192 [17] = 17 = **17** - SUCCESS!\n\n**Story Continues:**\nDM chose: 2. Acrobatics Check (DC 13) - Leap and dodge through the falling rubble to reach the damaged summoning circle and scatter the remaining ritual components",
+        "timestamp": 1754981456.390553,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "acrobatics",
+          "dc": 13,
+          "roll_total": 17,
+          "success": true,
+          "roll_description": "1d20 \u2192 [17] = 17",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)",
+        "consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Cultist Acolytes 1, Cultist Acolytes 2\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)",
+        "timestamp": 1754981496.368837,
+        "combat_started": true,
+        "enemies": [
+          {
+            "name": "Cultist Acolytes 1",
+            "type": "Cultist Acolytes",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Cultist Acolytes 2",
+            "type": "Cultist Acolytes",
+            "max_hp": 15,
+            "armor_class": 12
+          }
+        ]
+      },
+      {
+        "choice": "1. Athletics Check (DC 14) - Grab a large chunk of fallen masonry and hurl it at the Lead Cultist to knock them off balance before they can complete their attack",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [17] = 17 = **17** - SUCCESS!\n\n**Story Continues:**\nDM chose: 1. Athletics Check (DC 14) - Grab a large chunk of fallen masonry and hurl it at the Lead Cultist to knock them off balance before they can complete their attack",
+        "timestamp": 1754981728.274909,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 14,
+          "roll_total": 17,
+          "success": true,
+          "roll_description": "1d20 \u2192 [17] = 17",
+          "expression": "1d20"
+        }
+      }
+    ],
+    "scenario_count": 21,
+    "location": "Unknown Location",
+    "last_scenario_query": "generate scenario with combat options",
+    "last_scenario_text": "With rubble still cascading around you, you land gracefully within the shattered summoning circle, your boots crushing the scattered ritual components beneath them. The shadow entity writhes and begins to destabilize, its form flickering between dimensions as the broken circle fails to contain it, while the Lead Cultist shrieks in fury and raises a wicked curved dagger. Two remaining Cultist Acolytes emerge from behind fallen pillars, their eyes blazing with fanatical rage as they close in on your position.\n\n**Choose your action:**\n\n1. **Athletics Check (DC 14)** - Grab a large chunk of fallen masonry and hurl it at the Lead Cultist to knock them off balance before they can complete their attack\n\n2. **Combat** - Draw your weapon and engage all enemies head-on (Lead Cultist [desperate], 2 Cultist Acolytes, unstable Shadow Entity)\n\n3. **Arcana Check (DC 16)** - Attempt to use the disrupted magical energies from the broken circle to turn the destabilizing Shadow Entity against the cultists\n\n4. **Intimidation Check (DC 15)** - Point to the collapsing shadow entity and shout warnings about the danger, trying to make the cultists flee in terror rather than fight",
+    "last_updated": 1754981726.953015,
+    "last_player_choice": "3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)",
+    "last_consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Cultist Acolytes 1, Cultist Acolytes 2\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)"
+  },
+  "campaign_info": {},
+  "players": [
+    {
+      "name": "kali",
+      "race": "Azish",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "11/11"
+    },
+    {
+      "name": "Aggi",
+      "race": "Alethi",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "8/8"
+    }
+  ],
+  "combat_state": {
+    "state": "inactive",
+    "round": 0,
+    "combatants": [],
+    "current_combatant": null
+  },
+  "last_scenario_options": [
+    "1. Intimidation Check (DC 12) - Press your advantage by shouting threats at the shaken acolytes, demanding they surrender or flee before you crush them like their leader",
+    "2. Combat - Capitalize on the momentum and attack the hesitant Cultist Acolytes while they're still reeling from shock (2 Cultist Acolytes [shaken])",
+    "3. Acrobatics Check (DC 15) - Sprint and dive-roll toward the fallen Lead Cultist to grab their ceremonial dagger before the acolytes can react",
+    "4. Arcana Check (DC 14) - Focus on the destabilizing Shadow Entity and attempt to banish it completely while it's vulnerable and retreating"
+  ],
+  "assistant_config": {
+    "collection_name": "dnd_documents",
+    "campaigns_dir": "docs/current_campaign",
+    "players_dir": "docs/players",
+    "enable_game_engine": true,
+    "enable_caching": true,
+    "enable_async": true
+  }
+}

@@ -2,7 +2,7 @@
 Example usage of the RAG Agent for D&D document queries with Claude
 """
 import os
-from rag_agent import RAGAgent
+from haystack_pipeline_agent import HaystackPipelineAgent
 
 def example_queries():
     """Run example queries against the RAG agent"""
@@ -24,36 +24,38 @@ def example_queries():
     print()
     
     try:
-        # Initialize RAG agent
-        print("Initializing RAG agent...")
-        agent = RAGAgent(collection_name="dnd_documents", top_k=3)
+        # Initialize Haystack agent
+        print("Initializing Haystack agent...")
+        agent = HaystackPipelineAgent(collection_name="dnd_documents", verbose=True)
         
-        # Get collection info
-        info = agent.get_collection_info()
-        if "error" not in info:
-            print(f"✓ Connected to collection: {info['collection_name']}")
-            print(f"✓ Total documents: {info['total_documents']}")
+        # Get collection info (basic status)
+        print(f"✓ Connected to Haystack pipeline agent")
         print()
         
         # Run sample queries
         for i, question in enumerate(sample_questions, 1):
             print(f"[{i}/{len(sample_questions)}] Question: {question}")
             
-            result = agent.query(question)
+            response = agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": question,
+                "context": "example usage"
+            }, timeout=30.0)
             
-            if "error" in result:
-                print(f"   ✗ Error: {result['error']}")
+            if not response or not response.get("success"):
+                print(f"   ✗ Error: Failed to get response from Haystack agent")
                 continue
             
-            print(f"   ✓ Found {len(result['retrieved_documents'])} relevant documents")
+            result = response.get("result", {})
+            answer = result.get("answer", "No answer available")
+            sources = result.get("source_documents", [])
             
-            # Show top source
-            if result['source_documents']:
-                top_source = result['source_documents'][0]
-                print(f"   📄 Top source: {top_source['source_file']} ({top_source['document_tag']})")
+            print(f"   ✓ Found response from Haystack pipeline")
+            
+            # Show top source if available
+            if sources:
+                print(f"   📄 Sources found: {len(sources)} documents")
             
             # Show answer (truncated for display)
-            answer = result.get('answer', result.get('manual_answer', 'No answer'))
             if len(answer) > 150:
                 answer = answer[:150] + "..."
             print(f"   💬 Answer: {answer}")
@@ -70,32 +72,37 @@ def custom_query_example():
     print("=== Custom Query Example ===")
     
     try:
-        agent = RAGAgent(collection_name="dnd_documents")
+        agent = HaystackPipelineAgent(collection_name="dnd_documents")
         
         # Custom question
         question = "What equipment does a level 1 fighter start with?"
         
         print(f"Question: {question}")
-        result = agent.query(question)
+        response = agent.send_message_and_wait("haystack_pipeline", "query", {
+            "query": question,
+            "context": "custom query example"
+        }, timeout=30.0)
         
-        if "error" in result:
-            print(f"Error: {result['error']}")
+        if not response or not response.get("success"):
+            print("Error: Failed to get response from Haystack agent")
             return
         
         print("\nDetailed Results:")
         print("-" * 40)
         
         # Show full answer
-        answer = result.get('answer', result.get('manual_answer', 'No answer'))
+        result = response.get("result", {})
+        answer = result.get("answer", "No answer available")
         print(f"Answer: {answer}")
         print()
         
-        # Show all sources
-        print("Retrieved Sources:")
-        for source in result['source_documents']:
-            print(f"  {source['rank']}. {source['source_file']}")
-            print(f"     Tags: {source['document_tag']}")
-            print(f"     Preview: {source['content_preview']}")
+        # Show sources if available
+        sources = result.get("source_documents", [])
+        if sources:
+            print("Retrieved Sources:")
+            for i, source in enumerate(sources, 1):
+                source_info = source if isinstance(source, str) else str(source)
+                print(f"  {i}. {source_info}")
             print()
             
     except Exception as e:
@@ -113,20 +120,24 @@ def batch_query_example():
     ]
     
     try:
-        agent = RAGAgent(collection_name="dnd_documents")
+        agent = HaystackPipelineAgent(collection_name="dnd_documents")
         
         results = []
         for question in questions:
-            result = agent.query(question)
-            results.append((question, result))
+            response = agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": question,
+                "context": "batch query"
+            }, timeout=30.0)
+            results.append((question, response))
         
         # Display results
-        for i, (question, result) in enumerate(results, 1):
+        for i, (question, response) in enumerate(results, 1):
             print(f"{i}. {question}")
-            if "error" in result:
-                print(f"   Error: {result['error']}")
+            if not response or not response.get("success"):
+                print(f"   Error: Failed to get response from Haystack agent")
             else:
-                answer = result.get('answer', result.get('manual_answer', 'No answer'))
+                result = response.get("result", {})
+                answer = result.get("answer", "No answer available")
                 if len(answer) > 100:
                     answer = answer[:100] + "..."
                 print(f"   Answer: {answer}")
@@ -138,8 +149,8 @@ def batch_query_example():
 
 def main():
     """Main function to run examples"""
-    print("RAG Agent Examples")
-    print("==================")
+    print("Haystack Pipeline Agent Examples")
+    print("================================")
     print("Choose an example to run:")
     print("1. Sample Questions")
     print("2. Custom Query")

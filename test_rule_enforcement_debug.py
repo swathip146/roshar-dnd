@@ -5,7 +5,7 @@ Debug script for Rule Enforcement Agent issues
 import sys
 import traceback
 from rule_enforcement_agent import RuleEnforcementAgent
-from rag_agent_integrated import RAGAgent
+from haystack_pipeline_agent import HaystackPipelineAgent
 
 def test_rule_enforcement():
     """Test rule enforcement agent in isolation"""
@@ -19,40 +19,43 @@ def test_rule_enforcement():
         print(f"   Result: {result}")
         print(f"   Success: {'✅' if result.get('rule_text', '').startswith('Could not find') == False else '❌'}")
         
-        # Test 2: Initialize RAG agent
-        print("\n2. Testing RAG Agent initialization...")
+        # Test 2: Initialize Haystack agent
+        print("\n2. Testing Haystack Agent initialization...")
         try:
-            rag_agent = RAGAgent(collection_name="dnd_documents", verbose=True)
-            print("   RAG Agent initialized: ✅")
+            haystack_agent = HaystackPipelineAgent(collection_name="dnd_documents", verbose=True)
+            print("   Haystack Agent initialized: ✅")
             
-            # Test RAG agent directly
-            print("\n3. Testing RAG Agent query...")
-            rag_result = rag_agent.query("D&D 5e attack rolls")
-            print(f"   RAG Result keys: {list(rag_result.keys())}")
-            print(f"   RAG Success: {'✅' if 'error' not in rag_result else '❌'}")
-            if 'error' in rag_result:
-                print(f"   RAG Error: {rag_result['error']}")
+            # Test Haystack agent directly
+            print("\n3. Testing Haystack Agent query...")
+            response = haystack_agent.send_message_and_wait("haystack_pipeline", "query", {
+                "query": "D&D 5e attack rolls",
+                "context": "rule enforcement test"
+            }, timeout=30.0)
+            
+            print(f"   Haystack Response: {'✅' if response and response.get('success') else '❌'}")
+            if not response or not response.get('success'):
+                print(f"   Haystack Error: Failed to get valid response")
             
         except Exception as e:
-            print(f"   RAG Agent failed: ❌ {e}")
+            print(f"   Haystack Agent failed: ❌ {e}")
             print(f"   Traceback: {traceback.format_exc()}")
-            rag_agent = None
+            haystack_agent = None
         
-        # Test 3: Rule agent with RAG
-        if rag_agent:
-            print("\n4. Testing Rule Agent with RAG...")
-            rule_agent_with_rag = RuleEnforcementAgent(rag_agent=rag_agent, strict_mode=False)
+        # Test 3: Rule agent with Haystack
+        if haystack_agent:
+            print("\n4. Testing Rule Agent with Haystack...")
+            rule_agent_with_haystack = RuleEnforcementAgent(haystack_agent=haystack_agent, strict_mode=False)
             
-            # Test the internal method directly 
+            # Test the internal method directly
             try:
-                result = rule_agent_with_rag.check_rule("attack rolls", "combat")
+                result = rule_agent_with_haystack.check_rule("attack rolls", "combat")
                 print(f"   Rule check result: {result}")
                 print(f"   Success: {'✅' if result.get('confidence', 'low') != 'low' else '❌'}")
             except Exception as e:
                 print(f"   Rule check failed: ❌ {e}")
                 print(f"   Traceback: {traceback.format_exc()}")
         
-        # Test 4: Test condition effects (should work without RAG)
+        # Test 4: Test condition effects (should work without Haystack)
         print("\n5. Testing condition effects...")
         effects = rule_agent.get_condition_effects("poisoned")
         print(f"   Condition effects: {effects}")

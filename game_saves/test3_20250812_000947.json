@@ -1,0 +1,509 @@
+{
+  "save_name": "test3",
+  "save_date": "2025-08-12T00:09:47.697185",
+  "version": "1.0",
+  "game_state": {
+    "players": {},
+    "npcs": {},
+    "world": {
+      "locations": []
+    },
+    "story_arc": "",
+    "scene_history": [
+      "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}"
+    ],
+    "current_scenario": "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}",
+    "current_options": "1. Investigation Check (DC 16) - Quickly examine the glowing runic patterns forming on the floor to understand their purpose before whatever ritual completes\n2. Combat - Attack the possessed cultists before they can complete whatever dark magic they're channeling (2 Possessed Lesser Cultists, 1 Convulsing Lead Cultist)\n3. Persuasion Check (DC 18) - Attempt to communicate with whatever entity is speaking through the cultists to learn more about this \"Convergence\" and their master\n4. Retreat immediately through the passage you came from while you still can, before the dark ritual reaches completion",
+    "session": {
+      "location": "unknown",
+      "time": "",
+      "events": [
+        "New scene generated"
+      ]
+    },
+    "action_queue": [],
+    "story_progression": [
+      {
+        "choice": "1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "consequence": "\ud83c\udfb2 **STEALTH CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [19] = 19 = **19** - SUCCESS!\n\n**Story Continues:**\nDM chose: 1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "timestamp": 1754979915.400506,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "stealth",
+          "dc": 14,
+          "roll_total": 19,
+          "success": true,
+          "roll_description": "1d20 \u2192 [19] = 19",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "timestamp": 1754979976.46099,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "investigation",
+          "dc": 15,
+          "roll_total": 14,
+          "success": false,
+          "roll_description": "1d20 \u2192 [14] = 14",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "1. Athletics Check (DC 16) - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [6] = 6 = **6** - FAILURE!\n\n**Story Continues:**\nDM chose: 1. Athletics Check (DC 16) - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded",
+        "timestamp": 1754980501.791772,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 16,
+          "roll_total": 6,
+          "success": false,
+          "roll_description": "1d20 \u2192 [6] = 6",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Draw weapons and fight the ambushing cultists before they can finish their ritual (3 Cultists)",
+        "consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Cultists 1, Cultists 2, Cultists 3\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 2. Combat - Draw weapons and fight the ambushing cultists before they can finish their ritual (3 Cultists)",
+        "timestamp": 1754980528.555968,
+        "combat_started": true,
+        "enemies": [
+          {
+            "name": "Cultists 1",
+            "type": "Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Cultists 2",
+            "type": "Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Cultists 3",
+            "type": "Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          }
+        ]
+      },
+      {
+        "choice": "2. Arcana Check (DC 16) - Try to disrupt the magical energies by identifying and destroying the ritual's focus components scattered around the altar",
+        "consequence": "\ud83c\udfb2 **ARCANA CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [7] = 7 = **7** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Arcana Check (DC 16) - Try to disrupt the magical energies by identifying and destroying the ritual's focus components scattered around the altar",
+        "timestamp": 1754980552.991696,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "arcana",
+          "dc": 16,
+          "roll_total": 7,
+          "success": false,
+          "roll_description": "1d20 \u2192 [7] = 7",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Focus your attacks on the lead cultist who seems to be directing the summoning ritual (Lead Cultist, 2 Cultist Acolytes)",
+        "consequence": "DM chose: 2. Combat - Focus your attacks on the lead cultist who seems to be directing the summoning ritual (Lead Cultist, 2 Cultist Acolytes)",
+        "timestamp": 1754980581.132452
+      },
+      {
+        "choice": "2. Combat - Unleash everything you have in an all-out assault to drop the cultists before the ritual finishes (Lead Cultist [wounded], 2 Cultist Acolytes, emerging Shadow Entity)",
+        "consequence": "DM chose: 2. Combat - Unleash everything you have in an all-out assault to drop the cultists before the ritual finishes (Lead Cultist [wounded], 2 Cultist Acolytes, emerging Shadow Entity)",
+        "timestamp": 1754980606.948218
+      },
+      {
+        "choice": "2. Arcana Check (DC 14) - Try to reverse or disrupt the summoning magic using your knowledge of arcane principles and the lead cultist's ritual notes",
+        "consequence": "\ud83c\udfb2 **ARCANA CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [10] = 10 = **10** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Arcana Check (DC 14) - Try to reverse or disrupt the summoning magic using your knowledge of arcane principles and the lead cultist's ritual notes",
+        "timestamp": 1754980635.913722,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "arcana",
+          "dc": 14,
+          "roll_total": 10,
+          "success": false,
+          "roll_description": "1d20 \u2192 [10] = 10",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "4. Athletics Check (DC 12) - Attempt to climb the chamber walls to gain a height advantage and potentially drop down behind the cultists",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 12)**\n**Roll:** 1d20 \u2192 [5] = 5 = **5** - FAILURE!\n\n**Story Continues:**\nDM chose: 4. Athletics Check (DC 12) - Attempt to climb the chamber walls to gain a height advantage and potentially drop down behind the cultists",
+        "timestamp": 1754981056.412739,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 12,
+          "roll_total": 5,
+          "success": false,
+          "roll_description": "1d20 \u2192 [5] = 5",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "1. Stealth Check (DC 16) - Quickly duck behind the nearest pillar and try to break line of sight before they can pinpoint your exact location",
+        "consequence": "\ud83c\udfb2 **STEALTH CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [10] = 10 = **10** - FAILURE!\n\n**Story Continues:**\nDM chose: 1. Stealth Check (DC 16) - Quickly duck behind the nearest pillar and try to break line of sight before they can pinpoint your exact location",
+        "timestamp": 1754981106.910271,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "stealth",
+          "dc": 16,
+          "roll_total": 10,
+          "success": false,
+          "roll_description": "1d20 \u2192 [10] = 10",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Charge out from behind the pillar with weapons ready, accepting that stealth has failed and committing to a direct assault (Lead Cultist, 2 Cultist Acolytes, 95% completed Shadow Entity)",
+        "consequence": "DM chose: 2. Combat - Charge out from behind the pillar with weapons ready, accepting that stealth has failed and committing to a direct assault (Lead Cultist, 2 Cultist Acolytes, 95% completed Shadow Entity)",
+        "timestamp": 1754981142.606346
+      },
+      {
+        "choice": "4. Try to topple one of the massive stone pillars to create chaos and potentially damage the ritual setup, though this risks bringing the ceiling down on everyone",
+        "consequence": "DM chose: 4. Try to topple one of the massive stone pillars to create chaos and potentially damage the ritual setup, though this risks bringing the ceiling down on everyone",
+        "timestamp": 1754981423.630095
+      },
+      {
+        "choice": "2. Acrobatics Check (DC 13) - Leap and dodge through the falling rubble to reach the damaged summoning circle and scatter the remaining ritual components",
+        "consequence": "\ud83c\udfb2 **ACROBATICS CHECK (DC 13)**\n**Roll:** 1d20 \u2192 [17] = 17 = **17** - SUCCESS!\n\n**Story Continues:**\nDM chose: 2. Acrobatics Check (DC 13) - Leap and dodge through the falling rubble to reach the damaged summoning circle and scatter the remaining ritual components",
+        "timestamp": 1754981456.390553,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "acrobatics",
+          "dc": 13,
+          "roll_total": 17,
+          "success": true,
+          "roll_description": "1d20 \u2192 [17] = 17",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)",
+        "consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Cultist Acolytes 1, Cultist Acolytes 2\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 3. Combat - Stand your ground in the center of the disrupted circle and fight the enraged cultists who are now converging on your position (Lead Cultist [desperate], 2 Cultist Acolytes, destabilizing Shadow Entity)",
+        "timestamp": 1754981496.368837,
+        "combat_started": true,
+        "enemies": [
+          {
+            "name": "Cultist Acolytes 1",
+            "type": "Cultist Acolytes",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Cultist Acolytes 2",
+            "type": "Cultist Acolytes",
+            "max_hp": 15,
+            "armor_class": 12
+          }
+        ]
+      },
+      {
+        "choice": "1. Athletics Check (DC 14) - Grab a large chunk of fallen masonry and hurl it at the Lead Cultist to knock them off balance before they can complete their attack",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [17] = 17 = **17** - SUCCESS!\n\n**Story Continues:**\nDM chose: 1. Athletics Check (DC 14) - Grab a large chunk of fallen masonry and hurl it at the Lead Cultist to knock them off balance before they can complete their attack",
+        "timestamp": 1754981728.274909,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 14,
+          "roll_total": 17,
+          "success": true,
+          "roll_description": "1d20 \u2192 [17] = 17",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Investigation Check (DC 13) - Quickly examine the disrupted ritual circle to find a way to permanently destabilize the shadow entity before it solidifies",
+        "consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 13)**\n**Roll:** 1d20 \u2192 [12] = 12 = **12** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 13) - Quickly examine the disrupted ritual circle to find a way to permanently destabilize the shadow entity before it solidifies",
+        "timestamp": 1754981755.6379461,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "investigation",
+          "dc": 13,
+          "roll_total": 12,
+          "success": false,
+          "roll_description": "1d20 \u2192 [12] = 12",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Athletics Check (DC 14) - Rush forward to tackle the Lead Cultist while they're still off-balance, preventing them from regaining control of the ritual",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [17] = 17 = **17** - SUCCESS!\n\n**Story Continues:**\nDM chose: 2. Athletics Check (DC 14) - Rush forward to tackle the Lead Cultist while they're still off-balance, preventing them from regaining control of the ritual",
+        "timestamp": 1754981784.947802,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 14,
+          "roll_total": 17,
+          "success": true,
+          "roll_description": "1d20 \u2192 [17] = 17",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Combat - Engage the three Shadow Manifestations before they can fully solidify and coordinate their attacks (3 Shadow Manifestations, 1 Lead Cultist prone, 2 Lesser Cultists)",
+        "consequence": "DM chose: 2. Combat - Engage the three Shadow Manifestations before they can fully solidify and coordinate their attacks (3 Shadow Manifestations, 1 Lead Cultist prone, 2 Lesser Cultists)",
+        "timestamp": 1754981811.5429
+      },
+      {
+        "choice": "2. Combat - Press the attack against the weakened enemies while you have the advantage (3 Dying Shadow Manifestations, 1 Lead Cultist prone, 2 Lesser Cultists attempting to flee)",
+        "consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Dying Shadow Manifestations 1, Dying Shadow Manifestations 2, Dying Shadow Manifestations 3, Lead Cultist prone, Lesser Cultists attempting to flee 1, Lesser Cultists attempting to flee 2\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 2. Combat - Press the attack against the weakened enemies while you have the advantage (3 Dying Shadow Manifestations, 1 Lead Cultist prone, 2 Lesser Cultists attempting to flee)",
+        "timestamp": 1754981843.847795,
+        "combat_started": true,
+        "enemies": [
+          {
+            "name": "Dying Shadow Manifestations 1",
+            "type": "Dying Shadow Manifestations",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Dying Shadow Manifestations 2",
+            "type": "Dying Shadow Manifestations",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Dying Shadow Manifestations 3",
+            "type": "Dying Shadow Manifestations",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Lead Cultist prone",
+            "type": "Lead Cultist prone",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Lesser Cultists attempting to flee 1",
+            "type": "Lesser Cultists attempting to flee",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Lesser Cultists attempting to flee 2",
+            "type": "Lesser Cultists attempting to flee",
+            "max_hp": 15,
+            "armor_class": 12
+          }
+        ]
+      },
+      {
+        "choice": "2. Combat - Attack the possessed cultists before they can complete whatever dark magic they're channeling (2 Possessed Lesser Cultists, 1 Convulsing Lead Cultist)",
+        "consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Possessed Lesser Cultists 1, Possessed Lesser Cultists 2, Convulsing Lead Cultist\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 2. Combat - Attack the possessed cultists before they can complete whatever dark magic they're channeling (2 Possessed Lesser Cultists, 1 Convulsing Lead Cultist)",
+        "timestamp": 1754981874.960761,
+        "combat_started": true,
+        "enemies": [
+          {
+            "name": "Possessed Lesser Cultists 1",
+            "type": "Possessed Lesser Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Possessed Lesser Cultists 2",
+            "type": "Possessed Lesser Cultists",
+            "max_hp": 15,
+            "armor_class": 12
+          },
+          {
+            "name": "Convulsing Lead Cultist",
+            "type": "Convulsing Lead Cultist",
+            "max_hp": 15,
+            "armor_class": 12
+          }
+        ]
+      },
+      {
+        "choice": "2. Perception Check (DC 14) - Listen carefully to pinpoint the source of those unsettling sounds echoing across the Plains and watch for movement in the shadows",
+        "consequence": "\ud83c\udfb2 **PERCEPTION CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [6] = 6 = **6** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Perception Check (DC 14) - Listen carefully to pinpoint the source of those unsettling sounds echoing across the Plains and watch for movement in the shadows",
+        "timestamp": 1754982320.402223,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "perception",
+          "dc": 14,
+          "roll_total": 6,
+          "success": false,
+          "roll_description": "1d20 \u2192 [6] = 6",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "4. Grab your most essential gear and make a tactical retreat toward the center of the Plains where the open ground will prevent ambushes",
+        "consequence": "DM chose: 4. Grab your most essential gear and make a tactical retreat toward the center of the Plains where the open ground will prevent ambushes",
+        "timestamp": 1754982367.785912
+      },
+      {
+        "choice": "2. Survival Check (DC 14) - Use your knowledge of the Shattered Plains to find the safest route toward the nearest permanent shelter or defensible position",
+        "consequence": "\ud83c\udfb2 **SURVIVAL CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [16] = 16 = **16** - SUCCESS!\n\n**Story Continues:**\nDM chose: 2. Survival Check (DC 14) - Use your knowledge of the Shattered Plains to find the safest route toward the nearest permanent shelter or defensible position",
+        "timestamp": 1754982401.047526,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "survival",
+          "dc": 14,
+          "roll_total": 16,
+          "success": true,
+          "roll_description": "1d20 \u2192 [16] = 16",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "3. Combat - Turn and make your stand in the open ground before the depot, using the elevated position to your advantage against the pursuing creatures (4 Voidspren-touched Chasmfiends, 2 Corrupted Greatshells)",
+        "consequence": "DM chose: 3. Combat - Turn and make your stand in the open ground before the depot, using the elevated position to your advantage against the pursuing creatures (4 Voidspren-touched Chasmfiends, 2 Corrupted Greatshells)",
+        "timestamp": 1754982433.588224
+      },
+      {
+        "choice": "3. Combat - Focus fire on the two Corrupted Greatshells first, as their thick shells and ranged acid attacks pose the greatest threat to your elevated position (4 Voidspren-touched Chasmfiends, 2 Corrupted Greatshells)",
+        "consequence": "DM chose: 3. Combat - Focus fire on the two Corrupted Greatshells first, as their thick shells and ranged acid attacks pose the greatest threat to your elevated position (4 Voidspren-touched Chasmfiends, 2 Corrupted Greatshells)",
+        "timestamp": 1754982537.924337
+      }
+    ],
+    "scenario_count": 30,
+    "location": "Unknown Location",
+    "last_scenario_query": "the players are in the shattered plains awaiting for their first encounter. Generate scenario",
+    "last_scenario_text": "The crimson sun hangs low over the Shattered Plains as your party makes camp in the shadow of a massive stone plateau, the wind carrying the distant sound of something that definitely isn't the usual rockbud clicking. As you settle in for what should be a routine rest, the ground beneath your feet begins to vibrate with an unnatural rhythm, and strange violet light begins seeping from cracks between the stone formations around you. The air grows thick with an otherworldly energy that makes your skin crawl, and you realize this is no ordinary camping spot on the Plains.\n\n**Choose your action:**\n\n1. **Investigation Check (DC 16)** - Carefully examine the violet light and stone formations to determine the source of this strange phenomenon before it potentially becomes dangerous\n\n2. **Perception Check (DC 14)** - Listen carefully to pinpoint the source of those unsettling sounds echoing across the Plains and watch for movement in the shadows\n\n3. **Combat** - Prepare for battle as several Chasmfiend Spawn emerge from the glowing cracks, drawn by the violet energy (3 Chasmfiend Spawn, 1 Corrupted Greatshell)\n\n4. Quickly break camp and retreat to higher ground on the plateau, putting distance between yourselves and whatever is causing these unnatural disturbances",
+    "last_updated": 1754982300.978915,
+    "last_player_choice": "2. Combat - Attack the possessed cultists before they can complete whatever dark magic they're channeling (2 Possessed Lesser Cultists, 1 Convulsing Lead Cultist)",
+    "last_consequence": "\u2694\ufe0f **COMBAT INITIATED!**\n**Enemies:** Possessed Lesser Cultists 1, Possessed Lesser Cultists 2, Convulsing Lead Cultist\n\nCombat has been automatically set up with all players and enemies.\nUse combat commands: 'combat status', 'next turn', 'end combat'\n\n**Story Continues:**\nDM chose: 2. Combat - Attack the possessed cultists before they can complete whatever dark magic they're channeling (2 Possessed Lesser Cultists, 1 Convulsing Lead Cultist)"
+  },
+  "campaign_info": {
+    "title": "Shards of Honor: The Veden Crisis",
+    "theme": "Epic Fantasy Adventure",
+    "setting": "The world of Roshar, focusing on the kingdom of Vedens and neighboring Alethi territories",
+    "level_range": "1-10",
+    "overview": "Shards of Honor: The Veden Crisis",
+    "background": "Shards of Honor: The Veden Crisis",
+    "main_plot": "Shards of Honor: The Veden Crisis",
+    "npcs": [
+      {
+        "name": "Kalak the Herald",
+        "role": "Herald Mentor",
+        "description": "One of the ten Heralds, appearing as a weathered man bearing the weight of millennia. He carries an ancient Honorblade and speaks with the authority of one who has faced countless Desolations.",
+        "motivation": "Seeks to train new Knights Radiant quickly enough to face the returning Voidbringers, haunted by his abandonment of the Oathpact",
+        "stats": {}
+      },
+      {
+        "name": "Nale the Herald",
+        "role": "Conflicted Herald",
+        "description": "The Herald of Justice who has been hunting Knights Radiant, believing their return will trigger another Desolation. Now questions his methods as Voidbringers march regardless.",
+        "motivation": "Torn between his belief that Radiants cause Desolations and the reality that they may be necessary to stop this one",
+        "stats": {}
+      },
+      {
+        "name": "Vyre the Corrupted",
+        "role": "Fallen Knight Radiant",
+        "description": "A former Radiant who killed his spren and now serves Odium, wielding corrupted Shards. He leads the Voidbringer forces with tactical precision.",
+        "motivation": "Believes that serving Odium will bring an end to the cycle of Desolations, even if it means the destruction of current civilization",
+        "stats": {}
+      },
+      {
+        "name": "The Sibling",
+        "role": "Ancient Spren",
+        "description": "A powerful spren who once bonded with the city of Urithiru itself. Now weakened and in hiding, speaking only to those who prove worthy.",
+        "motivation": "Desperately seeks Knights Radiant pure enough to help restore the ancient safeguards against Voidbringers",
+        "stats": {}
+      }
+    ],
+    "locations": [
+      {
+        "name": "The Shattered Plains",
+        "location_type": "Ancient Battleground",
+        "description": "A vast expanse of broken plateaus where honorspren gather in great numbers. The echoes of ancient oaths spoken here make it easier for new Radiants to progress. Voidspren also lurk in the depths.",
+        "significance": "First location where players must retrieve the Oathstone, a gemstone that amplifies Radiant abilities, while facing corrupted singers and learning to work with their spren",
+        "floorplan": "```\n#########################\n#...~...#...............#\n#..~~~..+...@...........#\n#.~~~~~.#......^........#\n#..~~~..#.....^^^.......#\n#...~...#....^^^^^......#\n#########+##^^^^@#####+##\n#X......#.....^^^.......#\n#XX.....#....^^^^^......#\n#XXX....+...^^^^^^^.....#\n#XXXX...#..^^^^^^^^^....#\n#XXXXX..#.^^^^^@^^^^^...#\n#XXXXXX.+^^^^^^^^^^^....#\n#XXXXXXX#...........T...#\n#########################\n```"
+      },
+      {
+        "name": "Lasting Integrity",
+        "location_type": "Spren Fortress in Shadesmar",
+        "description": "The honorspren stronghold in the Cognitive Realm where spren debate whether to bond with humans again. Reality shifts based on emotion and thought here.",
+        "significance": "Players must convince the honorspren to provide aid and retrieve the Radiant Codex while navigating spren politics and proving their worthiness",
+        "floorplan": "```\n#########################\n#.......+ Assembly +....#\n#...T...# Chamber #.T..#\n#.......#....@....#....#\n#####+###.........#####+#\n#Debate.+....~....+.Med.#\n#Chamber#....~....#Room.#\n#...T...#....~....#..@..#\n#####+###....~....#####+#\n#.......#....~....#.....#\n#..@....+....~....+..T..#\n#.......#....~....#.....#\n#####+##################\n#^.^.^.^.^.^.^.^.^.^.^.^#\n#########################\n```"
+      },
+      {
+        "name": "Urithiru",
+        "location_type": "Ancient Tower City",
+        "description": "The legendary tower city of the Knights Radiant, now mostly dark and empty. Hidden chambers contain ancient fabrials and the sleeping Sibling spren.",
+        "significance": "Final preparation location where players must awaken the tower's defenses and gain the ultimate weapon before the climactic battle",
+        "floorplan": "```\n#########################\n#.......+.......+.......#\n#.T.....#.......#.....T.#\n#.......#...@...#.......#\n#.......+.......+.......#\n#.......#.......#.......#\n#..^....#.......#....^..#\n#.......#.......#.......#\n#.......+...@...+.......#\n#.......#.......#.......#\n#.T.....#.......#.....T.#\n#.......#.......#.......#\n#.......+.......+.......#\n#..~~~..#.......#..~~~..#\n#########################\n```"
+      }
+    ],
+    "encounters": [
+      {
+        "title": "The First Oath Awakening",
+        "encounter_type": "Combat/Mystical",
+        "description": "Players defend civilians from Voidbringers while their spren first manifest, requiring them to speak 'Life before death, strength before weakness, journey before destination' to unlock their powers.",
+        "challenge": "Medium - tutorial combat with oath-speaking mechanics"
+      },
+      {
+        "title": "Trial of the Honorspren",
+        "encounter_type": "Social/Mental",
+        "description": "In Shadesmar, players must convince ancient honorspren to trust humans again by proving their dedication to their oaths through tests of character.",
+        "challenge": "Hard - requires deep roleplay and understanding of Radiant ideals"
+      },
+      {
+        "title": "The Battle of the Singing Peaks",
+        "encounter_type": "Mass Combat",
+        "description": "Epic final battle where players lead allied armies of Alethi, Veden forces, honorspren, and reformed singers against waves of Voidbringers, corrupted singers, and Odium's champions across a massive battlefield.",
+        "challenge": "Very Hard - large-scale battle with multiple objectives and ally management"
+      },
+      {
+        "title": "Confronting the Sibling",
+        "encounter_type": "Mystical/Social",
+        "description": "Players must prove their worth to the tower spren while navigating the dangers of a partially awakened Urithiru and its ancient defenses.",
+        "challenge": "Medium - puzzle-solving combined with moral choices"
+      }
+    ],
+    "hooks": [
+      "Each character begins having dreams where a spren calls to them, leading them to the same border town just as Voidbringers attack",
+      "The characters are drawn together when they all instinctively rush to defend innocents, causing their spren to manifest simultaneously",
+      "Kalak appears to each character in visions, calling them to gather at a specific location where their destiny as Knights Radiant will be revealed"
+    ],
+    "rewards": [
+      "Progressive oath abilities that unlock as players speak their First, Second, and Third Oaths throughout the campaign",
+      "Shardblades and Shardplate recovered from ancient caches in each location",
+      "Stormlight-infused gems and fabrials that enhance spren abilities and provide utility powers",
+      "The eternal gratitude of multiple nations and spren, plus the knowledge that they have prevented a new Desolation"
+    ],
+    "dm_notes": "Shards of Honor: The Veden Crisis"
+  },
+  "players": [
+    {
+      "name": "kali",
+      "race": "Azish",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "11/11"
+    },
+    {
+      "name": "Aggi",
+      "race": "Alethi",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "8/8"
+    }
+  ],
+  "combat_state": {
+    "state": "inactive",
+    "round": 0,
+    "combatants": [],
+    "current_combatant": null
+  },
+  "last_scenario_options": [
+    "1. Athletics Check (DC 15) - Leap onto the back of the nearest climbing Chasmfiend to attack its vulnerable neck joints before it can reach the top of your defensive position",
+    "2. Intimidation Check (DC 16) - Channel your recent victory over the Greatshells into a terrifying war cry, attempting to break the Chasmfiends' coordinated assault through sheer force of presence",
+    "3. Combat - Stand your ground and engage all four Chasmfiends in melee combat as they crest the ridge (4 Voidspren-touched Chasmfiends at close range)",
+    "4. Use the momentum from your ranged success to execute a fighting retreat toward the depot's ballista emplacements, forcing the Chasmfiends to follow you into a more defensible chokepoint"
+  ],
+  "assistant_config": {
+    "collection_name": "dnd_documents",
+    "campaigns_dir": "docs/current_campaign",
+    "players_dir": "docs/players",
+    "enable_game_engine": true,
+    "enable_caching": true,
+    "enable_async": true
+  }
+}

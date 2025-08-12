@@ -1,0 +1,31 @@
+{
+  "title": "Test Adventure Campaign",
+  "theme": "Fantasy Adventure",
+  "setting": "Forgotten Realms",
+  "level_range": "1-5",
+  "overview": "A test campaign for comprehensive system testing.",
+  "npcs": [
+    {
+      "name": "Elara the Wise",
+      "role": "Village Elder",
+      "location": "Greenville"
+    },
+    {
+      "name": "Grimjaw the Bandit",
+      "role": "Antagonist",
+      "location": "Forest Road"
+    }
+  ],
+  "locations": [
+    {
+      "name": "Greenville",
+      "location_type": "Village",
+      "description": "A peaceful farming village"
+    },
+    {
+      "name": "Darkwood Forest",
+      "location_type": "Wilderness",
+      "description": "A dangerous forest filled with bandits"
+    }
+  ]
+}

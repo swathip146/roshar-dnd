@@ -17,18 +17,19 @@ from npc_controller import NPCControllerAgent
 from scenario_generator import ScenarioGeneratorAgent
 from campaign_management import CampaignManagerAgent
 from haystack_pipeline_agent import HaystackPipelineAgent
-from rag_agent_integrated import create_rag_agent, RAGAgentFramework, RAGAgent
+# Removed redundant RAG imports - using HaystackPipelineAgent only
 from dice_system import DiceSystemAgent, DiceRoller
 from combat_engine import CombatEngineAgent, CombatEngine
 from rule_enforcement_agent import RuleEnforcementAgent
 
-# Enhanced pipeline components
-from pipeline_manager import PipelineManager, IntelligentCache, AsyncPipelineManager
-from enhanced_pipeline_components import (
-    SmartPipelineRouter, ErrorRecoveryPipeline, CreativeConsequencePipeline,
-    CreativeGenerationPipeline, FactualRetrievalPipeline, RulesQueryPipeline,
-    HybridCreativeFactualPipeline, ChoiceContextBuilder
-)
+# New D&D-specific agents
+from character_manager_agent import CharacterManagerAgent
+from session_manager_agent import SessionManagerAgent
+from inventory_manager_agent import InventoryManagerAgent
+from spell_manager_agent import SpellManagerAgent
+from experience_manager_agent import ExperienceManagerAgent
+
+# Removed over-engineered pipeline components - using simple inline methods instead
 
 # Claude-specific imports for text processing
 try:
@@ -37,6 +38,142 @@ try:
     CLAUDE_AVAILABLE = True
 except ImportError:
     CLAUDE_AVAILABLE = False
+
+
+# Simple command mapping dictionary - replaces complex CommandMapper class
+COMMAND_MAP = {
+    # Campaign management
+    'list campaigns': ('campaign_manager', 'list_campaigns'),
+    'show campaigns': ('campaign_manager', 'list_campaigns'),
+    'available campaigns': ('campaign_manager', 'list_campaigns'),
+    'select campaign': ('campaign_manager', 'select_campaign'),
+    'choose campaign': ('campaign_manager', 'select_campaign'),
+    'campaign info': ('campaign_manager', 'get_campaign_info'),
+    'show campaign': ('campaign_manager', 'get_campaign_info'),
+    'current campaign': ('campaign_manager', 'get_campaign_info'),
+    
+    # Player management
+    'list players': ('campaign_manager', 'list_players'),
+    'show players': ('campaign_manager', 'list_players'),
+    'party members': ('campaign_manager', 'list_players'),
+    'player info': ('campaign_manager', 'get_player_info'),
+    'show player': ('campaign_manager', 'get_player_info'),
+    
+    # Dice rolling
+    'roll': ('dice_system', 'roll_dice'),
+    'dice': ('dice_system', 'roll_dice'),
+    
+    # Combat commands
+    'start combat': ('combat_engine', 'start_combat'),
+    'begin combat': ('combat_engine', 'start_combat'),
+    'initiative': ('combat_engine', 'start_combat'),
+    'combat status': ('combat_engine', 'get_combat_status'),
+    'initiative order': ('combat_engine', 'get_combat_status'),
+    'next turn': ('combat_engine', 'next_turn'),
+    'end turn': ('combat_engine', 'next_turn'),
+    'advance turn': ('combat_engine', 'next_turn'),
+    'end combat': ('combat_engine', 'end_combat'),
+    'stop combat': ('combat_engine', 'end_combat'),
+    
+    # Rule queries
+    'rule': ('rule_enforcement', 'check_rule'),
+    'check rule': ('rule_enforcement', 'check_rule'),
+    'how does': ('rule_enforcement', 'check_rule'),
+    'what happens': ('rule_enforcement', 'check_rule'),
+    
+    # Scenario generation
+    'introduce scenario': ('haystack_pipeline', 'query_scenario'),
+    'generate scenario': ('haystack_pipeline', 'query_scenario'),
+    'create scenario': ('haystack_pipeline', 'query_scenario'),
+    'new scene': ('haystack_pipeline', 'query_scenario'),
+    'encounter': ('haystack_pipeline', 'query_scenario'),
+    'adventure': ('haystack_pipeline', 'query_scenario'),
+    'select option': ('scenario_generator', 'apply_player_choice'),
+    'choose option': ('scenario_generator', 'apply_player_choice'),
+    'option': ('scenario_generator', 'apply_player_choice'),
+    
+    # Game state management
+    'save game': ('game_engine', 'save_game'),
+    'load game': ('game_engine', 'load_game'),
+    'list saves': ('game_engine', 'list_saves'),
+    'load save': ('game_engine', 'load_save'),
+    'game state': ('game_engine', 'get_game_state'),
+    
+    # System commands
+    'agent status': ('orchestrator', 'get_agent_status'),
+    'system status': ('orchestrator', 'get_agent_status'),
+    
+    # Character management
+    'create character': ('character_manager', 'create_character'),
+    'new character': ('character_manager', 'create_character'),
+    'level up': ('experience_manager', 'level_up'),
+    
+    # Rest mechanics
+    'short rest': ('session_manager', 'take_short_rest'),
+    'long rest': ('session_manager', 'take_long_rest'),
+    'sleep': ('session_manager', 'take_long_rest'),
+    
+    # Inventory management
+    'add item': ('inventory_manager', 'add_item'),
+    'remove item': ('inventory_manager', 'remove_item'),
+    'show inventory': ('inventory_manager', 'get_inventory'),
+    'list items': ('inventory_manager', 'get_inventory'),
+    
+    # Spell management
+    'cast spell': ('spell_manager', 'cast_spell'),
+    'cast': ('spell_manager', 'cast_spell'),
+    'prepare spells': ('spell_manager', 'get_prepared_spells')
+}
+
+def get_command_help() -> str:
+    """Return formatted help text for all available commands"""
+    help_text = "🎮 AVAILABLE COMMANDS:\n\n"
+    
+    categories = {
+        "📚 Campaign Management": [
+            "list campaigns - Show available campaigns",
+            "select campaign [number] - Choose a campaign",
+            "campaign info - Show current campaign details"
+        ],
+        "👥 Player Management": [
+            "list players - Show all players",
+            "player info [name] - Show player details",
+            "create character [name] - Create new character"
+        ],
+        "🎭 Scenarios & Stories": [
+            "generate scenario - Create new story scenario",
+            "select option [number] - Choose story option"
+        ],
+        "🎲 Dice & Rules": [
+            "roll [dice] - Roll dice (e.g., 'roll 1d20', 'roll 3d6+2')",
+            "rule [topic] - Look up D&D rules"
+        ],
+        "⚔️ Combat": [
+            "start combat - Begin combat encounter",
+            "combat status - Show initiative order",
+            "next turn - Advance to next combatant",
+            "end combat - Finish combat encounter"
+        ],
+        "💾 Game Management": [
+            "save game [name] - Save current game state",
+            "list saves - Show available save files"
+        ],
+        "🎒 Character Features": [
+            "short rest - Take a short rest",
+            "long rest - Take a long rest",
+            "show inventory - Display character items",
+            "cast [spell] - Cast a spell"
+        ]
+    }
+    
+    for category, commands in categories.items():
+        help_text += f"{category}:\n"
+        for command in commands:
+            help_text += f"  • {command}\n"
+        help_text += "\n"
+    
+    help_text += "💬 You can also ask any general D&D question for RAG-powered answers!"
+    return help_text
 
 
 class NarrativeContinuityTracker:
@@ -190,247 +327,88 @@ class NarrativeContinuityTracker:
         return consistent_elements / max(total_elements, 1)
 
 
-class AdaptiveErrorRecovery:
-    """Advanced error recovery system with learning for Priority 3 improvements"""
-    
-    def __init__(self):
-        self.error_patterns = {}
-        self.recovery_success_rates = {}
-        self.recovery_strategies = {
-            'timeout': self._handle_timeout_recovery,
-            'generation_failure': self._handle_generation_failure,
-            'context_overflow': self._handle_context_overflow,
-            'agent_communication': self._handle_agent_communication_failure
-        }
-    
-    def recover_with_learning(self, error: Exception, context: dict) -> dict:
-        """Implement error recovery with pattern learning"""
-        error_type = self._classify_error(error)
-        
-        # Log error pattern
-        self._log_error_pattern(error_type, context)
-        
-        # Apply appropriate recovery strategy
-        recovery_func = self.recovery_strategies.get(error_type, self._default_recovery)
-        result = recovery_func(error, context)
-        
-        # Learn from recovery outcome
-        self._update_recovery_learning(error_type, result.get('success', False))
-        
-        return result
-    
-    def _classify_error(self, error: Exception) -> str:
-        """Classify error type for appropriate recovery strategy"""
-        error_str = str(error).lower()
-        
-        if 'timeout' in error_str or 'timed out' in error_str:
-            return 'timeout'
-        elif 'generation' in error_str or 'llm' in error_str:
-            return 'generation_failure'
-        elif 'context' in error_str or 'too long' in error_str:
-            return 'context_overflow'
-        elif 'agent' in error_str or 'communication' in error_str:
-            return 'agent_communication'
-        else:
-            return 'unknown'
-    
-    def _log_error_pattern(self, error_type: str, context: dict):
-        """Log error pattern for learning"""
-        if error_type not in self.error_patterns:
-            self.error_patterns[error_type] = []
-        
-        self.error_patterns[error_type].append({
-            'context': context,
-            'timestamp': __import__('time').time()
-        })
-    
-    def _handle_timeout_recovery(self, error: Exception, context: dict) -> dict:
-        """Handle timeout errors with progressive retry strategy"""
-        return {
-            'success': True,
-            'strategy': 'timeout_retry',
-            'message': 'Applied timeout recovery with extended timeout',
-            'recovery_action': 'retry_with_longer_timeout'
-        }
-    
-    def _handle_generation_failure(self, error: Exception, context: dict) -> dict:
-        """Handle LLM generation failures"""
-        return {
-            'success': True,
-            'strategy': 'fallback_generation',
-            'message': 'Applied fallback generation strategy',
-            'recovery_action': 'use_simpler_prompt'
-        }
-    
-    def _handle_context_overflow(self, error: Exception, context: dict) -> dict:
-        """Handle context size overflow"""
-        return {
-            'success': True,
-            'strategy': 'context_reduction',
-            'message': 'Applied context reduction strategy',
-            'recovery_action': 'reduce_context_size'
-        }
-    
-    def _handle_agent_communication_failure(self, error: Exception, context: dict) -> dict:
-        """Handle agent communication failures"""
-        return {
-            'success': True,
-            'strategy': 'agent_retry',
-            'message': 'Applied agent communication retry',
-            'recovery_action': 'retry_agent_communication'
-        }
-    
-    def _default_recovery(self, error: Exception, context: dict) -> dict:
-        """Default recovery strategy"""
-        return {
-            'success': False,
-            'strategy': 'none',
-            'message': f'No specific recovery strategy for: {error}',
-            'recovery_action': 'log_and_continue'
-        }
-    
-    def _update_recovery_learning(self, error_type: str, success: bool):
-        """Update recovery learning based on outcome"""
-        if error_type not in self.recovery_success_rates:
-            self.recovery_success_rates[error_type] = {'successes': 0, 'attempts': 0}
-        
-        self.recovery_success_rates[error_type]['attempts'] += 1
-        if success:
-            self.recovery_success_rates[error_type]['successes'] += 1
+# Removed AdaptiveErrorRecovery and PerformanceMonitoringDashboard classes
+# These were over-engineered components that added unnecessary complexity
 
 
-class PerformanceMonitoringDashboard:
-    """Real-time system performance monitoring for Priority 3 improvements"""
+class SimpleInlineCache:
+    """Simple TTL-based in-memory cache for basic caching needs"""
     
     def __init__(self):
-        self.metrics = {
-            'response_times': {},
-            'error_rates': {},
-            'cache_hit_rates': {},
-            'agent_health': {},
-            'story_quality_scores': []
-        }
-        self.alert_thresholds = {
-            'response_time': 15.0,  # seconds
-            'error_rate': 0.1,      # 10%
-            'cache_hit_rate': 0.2   # 20%
-        }
+        self.cache = {}
+        self.timestamps = {}
     
-    def record_operation(self, operation: str, duration: float, success: bool):
-        """Record an operation for performance monitoring"""
-        if operation not in self.metrics['response_times']:
-            self.metrics['response_times'][operation] = []
+    def get(self, key: str, default_ttl_hours: float = 1.0):
+        """Get value from cache if not expired"""
+        if key not in self.cache:
+            return None
         
-        self.metrics['response_times'][operation].append(duration)
+        # Check if expired
+        import time
+        current_time = time.time()
+        if key in self.timestamps:
+            cache_time, ttl_seconds = self.timestamps[key]
+            if current_time - cache_time > ttl_seconds:
+                # Expired, remove from cache
+                del self.cache[key]
+                del self.timestamps[key]
+                return None
         
-        # Keep only last 100 measurements
-        if len(self.metrics['response_times'][operation]) > 100:
-            self.metrics['response_times'][operation] = self.metrics['response_times'][operation][-100:]
-        
-        # Track error rates
-        if operation not in self.metrics['error_rates']:
-            self.metrics['error_rates'][operation] = {'successes': 0, 'failures': 0}
-        
-        if success:
-            self.metrics['error_rates'][operation]['successes'] += 1
-        else:
-            self.metrics['error_rates'][operation]['failures'] += 1
+        return self.cache[key]
     
-    def generate_performance_report(self) -> dict:
-        """Generate comprehensive performance report"""
+    def set(self, key: str, value, ttl_hours: float = 1.0):
+        """Set value in cache with TTL"""
+        import time
+        self.cache[key] = value
+        self.timestamps[key] = (time.time(), ttl_hours * 3600)  # Convert hours to seconds
+    
+    def delete(self, key: str):
+        """Delete specific key from cache"""
+        if key in self.cache:
+            del self.cache[key]
+        if key in self.timestamps:
+            del self.timestamps[key]
+    
+    def clear(self):
+        """Clear all cached items"""
+        self.cache.clear()
+        self.timestamps.clear()
+    
+    def cleanup_expired(self):
+        """Remove all expired items from cache"""
+        import time
+        current_time = time.time()
+        expired_keys = []
+        
+        for key, (cache_time, ttl_seconds) in self.timestamps.items():
+            if current_time - cache_time > ttl_seconds:
+                expired_keys.append(key)
+        
+        for key in expired_keys:
+            if key in self.cache:
+                del self.cache[key]
+            del self.timestamps[key]
+    
+    def get_stats(self) -> dict:
+        """Get cache statistics"""
+        # Clean up expired items first
+        self.cleanup_expired()
+        
         return {
-            'system_health': self._calculate_system_health(),
-            'performance_trends': self._analyze_performance_trends(),
-            'recommendations': self._generate_performance_recommendations(),
-            'alert_conditions': self._check_alert_conditions()
+            'total_items': len(self.cache),
+            'memory_usage_estimate': sum(len(str(k)) + len(str(v)) for k, v in self.cache.items()),
+            'oldest_item_age_seconds': self._get_oldest_item_age()
         }
     
-    def _calculate_system_health(self) -> float:
-        """Calculate overall system health score"""
-        health_scores = []
+    def _get_oldest_item_age(self) -> float:
+        """Get age of oldest cached item in seconds"""
+        if not self.timestamps:
+            return 0.0
         
-        # Response time health
-        avg_response_times = []
-        for operation, times in self.metrics['response_times'].items():
-            if times:
-                avg_response_times.append(sum(times) / len(times))
-        
-        if avg_response_times:
-            avg_response_time = sum(avg_response_times) / len(avg_response_times)
-            response_health = max(0, 1 - (avg_response_time / 30.0))  # Normalize to 30s max
-            health_scores.append(response_health)
-        
-        # Error rate health
-        error_rates = []
-        for operation, rates in self.metrics['error_rates'].items():
-            total = rates['successes'] + rates['failures']
-            if total > 0:
-                error_rate = rates['failures'] / total
-                error_rates.append(error_rate)
-        
-        if error_rates:
-            avg_error_rate = sum(error_rates) / len(error_rates)
-            error_health = max(0, 1 - avg_error_rate)
-            health_scores.append(error_health)
-        
-        return sum(health_scores) / len(health_scores) if health_scores else 0.5
-    
-    def _analyze_performance_trends(self) -> dict:
-        """Analyze performance trends over time"""
-        trends = {}
-        
-        for operation, times in self.metrics['response_times'].items():
-            if len(times) >= 10:
-                recent_avg = sum(times[-10:]) / 10
-                older_avg = sum(times[-20:-10]) / 10 if len(times) >= 20 else recent_avg
-                
-                trend = 'improving' if recent_avg < older_avg else 'degrading' if recent_avg > older_avg else 'stable'
-                trends[operation] = {
-                    'trend': trend,
-                    'recent_avg': recent_avg,
-                    'change_percent': ((recent_avg - older_avg) / older_avg * 100) if older_avg > 0 else 0
-                }
-        
-        return trends
-    
-    def _generate_performance_recommendations(self) -> list:
-        """Generate performance recommendations"""
-        recommendations = []
-        
-        # Check response times
-        for operation, times in self.metrics['response_times'].items():
-            if times:
-                avg_time = sum(times) / len(times)
-                if avg_time > self.alert_thresholds['response_time']:
-                    recommendations.append(f"Consider optimizing {operation} - average response time: {avg_time:.2f}s")
-        
-        # Check error rates
-        for operation, rates in self.metrics['error_rates'].items():
-            total = rates['successes'] + rates['failures']
-            if total > 0:
-                error_rate = rates['failures'] / total
-                if error_rate > self.alert_thresholds['error_rate']:
-                    recommendations.append(f"High error rate detected for {operation}: {error_rate:.1%}")
-        
-        return recommendations
-    
-    def _check_alert_conditions(self) -> list:
-        """Check for alert conditions"""
-        alerts = []
-        
-        # Response time alerts
-        for operation, times in self.metrics['response_times'].items():
-            if times and len(times) >= 5:
-                recent_avg = sum(times[-5:]) / 5
-                if recent_avg > self.alert_thresholds['response_time']:
-                    alerts.append({
-                        'type': 'response_time',
-                        'operation': operation,
-                        'value': recent_avg,
-                        'threshold': self.alert_thresholds['response_time']
-                    })
-        
-        return alerts
+        import time
+        current_time = time.time()
+        oldest_time = min(cache_time for cache_time, _ in self.timestamps.values())
+        return current_time - oldest_time
 
 
 class ModularDMAssistant:
@@ -469,11 +447,8 @@ class ModularDMAssistant:
         # Ensure game saves directory exists
         os.makedirs(self.game_saves_dir, exist_ok=True)
         
-        # Enhanced pipeline management
-        self.pipeline_manager = PipelineManager() if enable_caching else None
-        self.smart_router = SmartPipelineRouter()
-        self.creative_consequence_pipeline = CreativeConsequencePipeline()
-        self.error_recovery = ErrorRecoveryPipeline()
+        # Simple caching only - removed complex pipeline management
+        self.inline_cache = SimpleInlineCache() if enable_caching else None
         
         # Agent orchestrator
         self.orchestrator = AgentOrchestrator()
@@ -488,8 +463,14 @@ class ModularDMAssistant:
         self.combat_agent: Optional[CombatEngineAgent] = None
         self.rule_agent: Optional[RuleEnforcementAgent] = None
         
-        # Legacy RAG agent for compatibility
-        self.rag_agent: Optional[RAGAgent] = None
+        # New D&D-specific agents
+        self.character_agent: Optional[CharacterManagerAgent] = None
+        self.session_agent: Optional[SessionManagerAgent] = None
+        self.inventory_agent: Optional[InventoryManagerAgent] = None
+        self.spell_agent: Optional[SpellManagerAgent] = None
+        self.experience_agent: Optional[ExperienceManagerAgent] = None
+        
+        # RAG functionality now handled by HaystackPipelineAgent only
         
         # Game state tracking
         self.game_state = {}
@@ -499,15 +480,13 @@ class ModularDMAssistant:
         # Enhanced story consistency tracking (Priority 3)
         self.narrative_tracker = NarrativeContinuityTracker() if enable_caching else None
         
-        # Advanced error recovery system (Priority 3)
-        self.adaptive_error_recovery = AdaptiveErrorRecovery() if enable_caching else None
+        # Removed over-engineered components: AdaptiveErrorRecovery and PerformanceMonitoringDashboard
         
-        # Performance monitoring dashboard (Priority 3)
-        self.performance_monitor = PerformanceMonitoringDashboard() if enable_caching else None
+        # Simple command mapping - no complex class needed
+        self.command_map = COMMAND_MAP
         
         # Initialize all components
         self._initialize_agents()
-        self._setup_enhanced_pipelines()
         
         # Load game save if specified
         if self.current_save_file:
@@ -517,7 +496,7 @@ class ModularDMAssistant:
             print("🚀 Enhanced Modular DM Assistant initialized with intelligent pipelines")
             if self.current_save_file:
                 print(f"💾 Loaded game save: {self.current_save_file}")
-            self._print_agent_status()
+            # Note: Agent status will be printed after orchestrator starts
             self._print_pipeline_status()
     
     def _initialize_agents(self):
@@ -555,95 +534,84 @@ class ModularDMAssistant:
             self.combat_agent = CombatEngineAgent(dice_roller)
             self.orchestrator.register_agent(self.combat_agent)
             
-            # 6. Initialize legacy RAG agent for backward compatibility
-            self.rag_agent = RAGAgent(
-                collection_name=self.collection_name,
-                verbose=self.verbose
-            )
+            # 6. RAG agent removed - using HaystackPipelineAgent only
             
             # 7. Initialize Rule Enforcement Agent
             self.rule_agent = RuleEnforcementAgent(
-                rag_agent=self.rag_agent,
+                rag_agent=self.haystack_agent,  # Use HaystackPipelineAgent instead
                 strict_mode=False
             )
             self.orchestrator.register_agent(self.rule_agent)
             
             # 8. Initialize NPC Controller Agent
             self.npc_agent = NPCControllerAgent(
-                rag_agent=self.rag_agent,
+                haystack_agent=self.haystack_agent,  # Use HaystackPipelineAgent instead
                 mode="hybrid"
             )
             self.orchestrator.register_agent(self.npc_agent)
             
             # 9. Initialize Scenario Generator Agent
             self.scenario_agent = ScenarioGeneratorAgent(
-                rag_agent=self.rag_agent,
                 haystack_agent=self.haystack_agent,
                 verbose=self.verbose
             )
             self.orchestrator.register_agent(self.scenario_agent)
             
+            # 10. Initialize Character Manager Agent
+            self.character_agent = CharacterManagerAgent(
+                characters_dir="docs/characters",
+                verbose=self.verbose
+            )
+            self.orchestrator.register_agent(self.character_agent)
+            
+            # 11. Initialize Session Manager Agent
+            self.session_agent = SessionManagerAgent(
+                sessions_dir="docs/sessions",
+                verbose=self.verbose
+            )
+            self.orchestrator.register_agent(self.session_agent)
+            
+            # 12. Initialize Inventory Manager Agent
+            self.inventory_agent = InventoryManagerAgent(
+                inventory_dir="docs/inventory",
+                verbose=self.verbose
+            )
+            self.orchestrator.register_agent(self.inventory_agent)
+            
+            # 13. Initialize Spell Manager Agent
+            self.spell_agent = SpellManagerAgent(
+                spells_dir="docs/spells",
+                verbose=self.verbose
+            )
+            self.orchestrator.register_agent(self.spell_agent)
+            
+            # 14. Initialize Experience Manager Agent
+            self.experience_agent = ExperienceManagerAgent(
+                xp_dir="docs/experience",
+                verbose=self.verbose
+            )
+            self.orchestrator.register_agent(self.experience_agent)
+            
             if self.verbose:
-                print("✅ All agents initialized successfully")
+                print("✅ All agents initialized successfully (including new D&D agents)")
                 
         except Exception as e:
             if self.verbose:
                 print(f"❌ Failed to initialize agents: {e}")
             raise
     
-    def _setup_enhanced_pipelines(self):
-        """Setup enhanced pipeline components"""
-        try:
-            # Setup creative consequence pipeline with LLM if available
-            if self.has_llm:
-                try:
-                    llm_generator = AppleGenAIChatGenerator(
-                        model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
-                    )
-                    self.creative_consequence_pipeline = CreativeConsequencePipeline(llm_generator)
-                except Exception as e:
-                    if self.verbose:
-                        print(f"⚠️ Failed to initialize LLM for creative pipeline: {e}")
-                    self.creative_consequence_pipeline = CreativeConsequencePipeline()
-            
-            # Setup smart router with pipeline components
-            creative_pipeline = CreativeGenerationPipeline(
-                llm_generator if self.has_llm else None
-            )
-            factual_pipeline = FactualRetrievalPipeline(self.rag_agent)
-            rules_pipeline = RulesQueryPipeline(self.rule_agent)
-            hybrid_pipeline = HybridCreativeFactualPipeline(creative_pipeline, factual_pipeline)
-            
-            self.smart_router.register_pipeline('creative', creative_pipeline)
-            self.smart_router.register_pipeline('factual', factual_pipeline)
-            self.smart_router.register_pipeline('rules', rules_pipeline)
-            self.smart_router.register_pipeline('hybrid', hybrid_pipeline)
-            self.smart_router.set_fallback_pipeline(hybrid_pipeline)
-            
-            # Setup error recovery pipeline
-            self.error_recovery.set_primary_pipeline(factual_pipeline)
-            self.error_recovery.add_fallback_pipeline(creative_pipeline)
-            self.error_recovery.add_fallback_pipeline(rules_pipeline)
-            
-            if self.verbose:
-                print("✅ Enhanced pipelines setup complete")
-                
-        except Exception as e:
-            if self.verbose:
-                print(f"⚠️ Enhanced pipeline setup failed: {e}")
+    # Removed _setup_enhanced_pipelines method - no longer needed with simplified architecture
     
     def _print_pipeline_status(self):
-        """Print status of enhanced pipeline components"""
-        print("\n🔧 ENHANCED PIPELINE STATUS:")
-        print(f"  • Intelligent Caching: {'✅ Enabled' if self.enable_caching else '❌ Disabled'}")
+        """Print status of simplified system components"""
+        print("\n🔧 SYSTEM STATUS:")
+        print(f"  • Simple Caching: {'✅ Enabled' if self.enable_caching else '❌ Disabled'}")
         print(f"  • Async Processing: {'✅ Enabled' if self.enable_async else '❌ Disabled'}")
-        print(f"  • Smart Router: {'✅ Active' if self.smart_router else '❌ Inactive'}")
-        print(f"  • Creative Consequences: {'✅ Active' if self.creative_consequence_pipeline else '❌ Inactive'}")
-        print(f"  • Error Recovery: {'✅ Active' if self.error_recovery else '❌ Inactive'}")
         
-        if self.pipeline_manager:
-            cache_stats = self.pipeline_manager.get_cache_stats()
-            print(f"  • Cache Status: {cache_stats['memory_cache_size']} items in memory")
+        # Show cache statistics
+        if self.enable_caching and self.inline_cache:
+            inline_stats = self.inline_cache.get_stats()
+            print(f"  • Inline Cache: {inline_stats['total_items']} items cached")
         print()
     
     def _print_agent_status(self):
@@ -665,6 +633,13 @@ class ModularDMAssistant:
                 print("🚀 Agent orchestrator started")
                 stats = self.orchestrator.get_message_statistics()
                 print(f"📊 Message bus active with {stats['registered_agents']} agents")
+                
+                # Brief pause to allow agents to fully initialize
+                import time
+                time.sleep(0.2)
+                
+                # Now print agent status after they've started
+                self._print_agent_status()
         except Exception as e:
             if self.verbose:
                 print(f"❌ Failed to start orchestrator: {e}")
@@ -681,12 +656,20 @@ class ModularDMAssistant:
                 print(f"❌ Failed to stop orchestrator: {e}")
     
     def process_dm_input(self, instruction: str) -> str:
-        """Process DM instruction and coordinate agent responses"""
+        """Process DM instruction using simplified command mapping"""
         instruction_lower = instruction.lower().strip()
         
-        # Handle simple numeric input for campaign selection
-        if instruction.strip().isdigit() and self.last_command == "list_campaigns":
-            campaign_idx = int(instruction.strip()) - 1
+        # Handle help command directly
+        if instruction_lower == "help":
+            return get_command_help()
+        
+        # Handle system commands directly
+        if instruction_lower in ["agent status", "system status"]:
+            return self._get_system_status()
+        
+        # Handle numeric input for campaign selection
+        if instruction_lower.isdigit() and self.last_command == "list_campaigns":
+            campaign_idx = int(instruction_lower) - 1
             response = self._send_message_and_wait("campaign_manager", "select_campaign", {"index": campaign_idx})
             self.last_command = ""
             if response and response.get("success"):
@@ -694,341 +677,669 @@ class ModularDMAssistant:
             else:
                 return f"❌ {response.get('error', 'Failed to select campaign')}"
         
-        # Campaign management commands
-        if "list campaigns" in instruction_lower or "show campaigns" in instruction_lower:
-            response = self._send_message_and_wait("campaign_manager", "list_campaigns", {})
-            if response:
-                campaigns = response.get("campaigns", [])
-                if campaigns:
-                    self.last_command = "list_campaigns"
-                    return "📚 AVAILABLE CAMPAIGNS:\n" + "\n".join(campaigns) + "\n\n💡 *Type the campaign number to select it*"
-                else:
-                    return "❌ No campaigns available. Check campaigns directory."
-            return "❌ Failed to retrieve campaigns"
+        # Check for direct command matches
+        for pattern, (agent, action) in self.command_map.items():
+            if pattern in instruction_lower:
+                return self._route_command(agent, action, instruction)
         
-        elif "select campaign" in instruction_lower:
-            self.last_command = ""
-            # Extract campaign number
-            words = instruction.split()
-            for word in words:
-                if word.isdigit():
-                    campaign_idx = int(word) - 1
-                    response = self._send_message_and_wait("campaign_manager", "select_campaign", {"index": campaign_idx})
-                    if response and response.get("success"):
-                        return f"✅ Selected campaign: {response['campaign']}"
-                    else:
-                        return f"❌ {response.get('error', 'Failed to select campaign')}"
-            
-            # If no number found, show available campaigns
+        # Handle special patterns with parameters
+        if instruction_lower.startswith('roll '):
+            return self._handle_dice_roll(instruction)
+        elif instruction_lower.startswith('rule ') or 'how does' in instruction_lower or self._is_condition_query(instruction_lower):
+            return self._handle_rule_query(instruction)
+        elif self._is_scenario_request(instruction_lower):
+            return self._generate_scenario(instruction)
+        elif instruction_lower.startswith('select option'):
+            import re
+            match = re.search(r'select option (\d+)', instruction_lower)
+            if match:
+                return self._select_player_option(int(match.group(1)))
+        
+        # Fallback to general query
+        return self._handle_general_query(instruction)
+    
+    def _route_command(self, agent_id: str, action: str, instruction: str) -> str:
+        """Route command to appropriate agent"""
+        if agent_id == 'campaign_manager':
+            if action == 'list_campaigns':
+                return self._handle_list_campaigns(instruction, {})
+            elif action == 'get_campaign_info':
+                return self._handle_campaign_info(instruction, {})
+            elif action == 'list_players':
+                return self._handle_list_players(instruction, {})
+        elif agent_id == 'combat_engine':
+            return self._handle_combat_command(instruction)
+        elif agent_id == 'dice_system':
+            return self._handle_dice_roll(instruction)
+        elif agent_id == 'rule_enforcement':
+            return self._handle_rule_query(instruction)
+        elif agent_id == 'game_engine':
+            if action == 'save_game':
+                return self._handle_save_game(instruction, self._extract_params(instruction))
+            elif action == 'load_game':
+                return self._handle_load_game(instruction, {})
+            elif action == 'list_saves':
+                return self._handle_list_saves(instruction, {})
+            elif action == 'load_save':
+                return self._handle_load_save(instruction, self._extract_params(instruction))
+            elif action == 'get_game_state':
+                return self._handle_game_state(instruction, {})
+            else:
+                return self._handle_general_query(instruction)
+        elif agent_id == 'haystack_pipeline':
+            if action == 'query_scenario':
+                return self._generate_scenario(instruction)
+            else:
+                return self._handle_general_query(instruction)
+        elif agent_id == 'scenario_generator':
+            if action == 'apply_player_choice':
+                # Extract option number from instruction
+                import re
+                match = re.search(r'select option (\d+)', instruction.lower())
+                if match:
+                    option_number = int(match.group(1))
+                    return self._select_player_option(option_number)
+                else:
+                    return "❌ Please specify option number (e.g., 'select option 2')"
+            else:
+                return self._handle_general_query(instruction)
+        elif agent_id == 'session_manager':
+            if 'short rest' in instruction:
+                return self._handle_short_rest(instruction, {})
+            elif 'long rest' in instruction or 'sleep' in instruction:
+                return self._handle_long_rest(instruction, {})
+        elif agent_id == 'orchestrator':
+            return self._handle_system_status(instruction, {})
+        
+        # Default fallback
+        return self._handle_general_query(instruction)
+    
+    # Command Handler Methods
+    def _handle_list_campaigns(self, instruction: str, params: dict) -> str:
+        """Handle list campaigns command"""
+        response = self._send_message_and_wait("campaign_manager", "list_campaigns", {})
+        if response:
+            campaigns = response.get("campaigns", [])
+            if campaigns:
+                self.last_command = "list_campaigns"
+                return "📚 AVAILABLE CAMPAIGNS:\n" + "\n".join(campaigns) + "\n\n💡 *Type the campaign number to select it*"
+            else:
+                return "❌ No campaigns available. Check campaigns directory."
+        return "❌ Failed to retrieve campaigns"
+    
+    def _handle_select_campaign(self, instruction: str, params: dict) -> str:
+        """Handle select campaign command"""
+        # Extract campaign number from params
+        campaign_idx = None
+        if 'param_1' in params and params['param_1'].isdigit():
+            campaign_idx = int(params['param_1']) - 1
+        
+        if campaign_idx is not None:
+            response = self._send_message_and_wait("campaign_manager", "select_campaign", {"index": campaign_idx})
+            if response and response.get("success"):
+                return f"✅ Selected campaign: {response['campaign']}"
+            else:
+                return f"❌ {response.get('error', 'Failed to select campaign')}"
+        else:
+            # Show available campaigns
             response = self._send_message_and_wait("campaign_manager", "list_campaigns", {})
             if response:
                 campaigns = response.get("campaigns", [])
                 return f"❌ Please specify campaign number (1-{len(campaigns)})"
             return "❌ No campaigns available"
-        
-        elif "campaign info" in instruction_lower or "show campaign" in instruction_lower:
-            self.last_command = ""
-            response = self._send_message_and_wait("campaign_manager", "get_campaign_info", {})
-            if response and response.get("success"):
-                return self._format_campaign_info(response["campaign"])
-            else:
-                return f"❌ {response.get('error', 'No campaign selected')}"
-        
-        # Player management commands
-        elif "list players" in instruction_lower or "show players" in instruction_lower:
-            self.last_command = ""
-            response = self._send_message_and_wait("campaign_manager", "list_players", {})
-            if response:
-                return self._format_player_list(response.get("players", []))
-            return "❌ Failed to retrieve players"
-        
-        elif "player info" in instruction_lower:
-            self.last_command = ""
-            # Extract player name
-            words = instruction.split()
-            player_name = None
-            for i, word in enumerate(words):
-                if word.lower() in ["info", "player"] and i + 1 < len(words):
-                    player_name = words[i + 1]
-                    break
-            
-            if player_name:
-                response = self._send_message_and_wait("campaign_manager", "get_player_info", {"name": player_name})
-                if response and response.get("success"):
-                    return self._format_player_info(response["player"])
-                else:
-                    return f"❌ {response.get('error', 'Player not found')}"
-            else:
-                return "❌ Please specify player name. Usage: player info [name]"
-        
-        # Dice rolling commands
-        elif any(keyword in instruction_lower for keyword in ["roll", "dice", "d20", "d6", "d8", "d10", "d12", "d4", "d100"]):
-            self.last_command = ""
-            return self._handle_dice_roll(instruction)
-        
-        # Combat commands
-        elif any(keyword in instruction_lower for keyword in ["combat", "initiative", "attack", "damage", "heal", "condition"]):
-            self.last_command = ""
-            return self._handle_combat_command(instruction)
-        
-        # Rule checking commands
-        elif any(keyword in instruction_lower for keyword in ["rule", "rules", "check rule", "how does", "what happens when"]):
-            self.last_command = ""
-            return self._handle_rule_query(instruction)
-        
-        # Scenario generation and game management
-        elif any(keyword in instruction_lower for keyword in ["introduce scenario", "generate", "scenario", "scene", "encounter", "adventure"]):
-            self.last_command = ""
-            return self._generate_scenario(instruction)
-        
-        elif "select option" in instruction_lower:
-            self.last_command = ""
-            # Extract option number
-            words = instruction.split()
-            for word in words:
-                if word.isdigit():
-                    option_num = int(word)
-                    return self._select_player_option(option_num)
-            return "❌ Please specify option number (e.g., 'select option 2')"
-        
-        # Game engine commands
-        elif "start engine" in instruction_lower:
-            self.last_command = ""
-            if self.game_engine_agent:
-                return "✅ Game engine is managed automatically by the agent framework"
-            else:
-                return "❌ Game engine not available"
-        
-        elif "stop engine" in instruction_lower:
-            self.last_command = ""
-            return "ℹ️ Game engine lifecycle is managed by the agent framework"
-        
-        elif "engine status" in instruction_lower or "agent status" in instruction_lower:
-            self.last_command = ""
-            return self._get_system_status()
-        
-        # Game state commands
-        elif "game state" in instruction_lower or "show state" in instruction_lower:
-            self.last_command = ""
-            if self.game_engine_agent:
-                response = self._send_message_and_wait("game_engine", "get_game_state", {})
-                if response and response.get("game_state"):
-                    return f"📊 GAME STATE:\n{json.dumps(response['game_state'], indent=2)}"
-            return "❌ Game state not available"
-        
-        # Game save/load commands
-        elif "save game" in instruction_lower:
-            self.last_command = ""
-            # Extract save name
-            words = instruction.split()
-            save_name = "Quick Save"
-            
-            # Look for save name after "save game"
-            for i, word in enumerate(words):
-                if word.lower() == "game" and i + 1 < len(words):
-                    save_name = " ".join(words[i + 1:])
-                    break
-            
-            if self._save_game(save_name):
-                return f"💾 Game saved successfully as: {save_name}"
-            else:
-                return "❌ Failed to save game"
-        
-        elif "load game" in instruction_lower or "list saves" in instruction_lower:
-            self.last_command = ""
-            saves = self._list_game_saves()
-            if not saves:
-                return "❌ No game saves found in ./game_saves directory"
-            
-            output = "💾 AVAILABLE GAME SAVES:\n\n"
-            for i, save in enumerate(saves, 1):
-                output += f"  {i}. **{save['save_name']}**\n"
-                output += f"     Campaign: {save['campaign']}\n"
-                output += f"     Last Modified: {save['last_modified']}\n"
-                output += f"     Progress: {save['scenario_count']} scenarios, {save['story_progression']} story events\n"
-                output += f"     Players: {save['players']}\n\n"
-            
-            output += "💡 *Type 'load save [number]' to load a specific save*"
-            return output
-        
-        elif "load save" in instruction_lower:
-            self.last_command = ""
-            # Extract save number
-            words = instruction.split()
-            save_number = None
-            
-            for word in words:
-                if word.isdigit():
-                    save_number = int(word)
-                    break
-            
-            if save_number is None:
-                return "❌ Please specify save number (e.g., 'load save 1')"
-            
-            saves = self._list_game_saves()
-            if save_number < 1 or save_number > len(saves):
-                return f"❌ Invalid save number. Available saves: 1-{len(saves)}"
-            
-            selected_save = saves[save_number - 1]
-            if self._load_game_save(selected_save['filename']):
-                return f"✅ Successfully loaded: {selected_save['save_name']}"
-            else:
-                return f"❌ Failed to load save: {selected_save['save_name']}"
-        
-        elif "update save" in instruction_lower:
-            self.last_command = ""
-            if not self.current_save_file:
-                return "❌ No current save file to update. Use 'save game [name]' to create a new save."
-            
-            save_name = self.game_save_data.get('save_name', 'Updated Save')
-            if self._save_game(save_name, update_existing=True):
-                return f"💾 Successfully updated current save: {save_name}"
-            else:
-                return "❌ Failed to update current save"
-        
-        # General queries - use RAG
-        else:
-            self.last_command = ""
-            return self._handle_general_query(instruction)
     
-    def _send_message_and_wait(self, agent_id: str, action: str, data: Dict[str, Any], timeout: float = 5.0) -> Optional[Dict[str, Any]]:
-        """Send a message to an agent and wait for response with enhanced intelligent caching"""
-        try:
-            # Enhanced caching with query pattern recognition
-            if self.pipeline_manager and self.enable_caching:
-                cache_key, query_type = self._get_enhanced_cache_key_with_pattern(agent_id, action, data)
+    def _handle_campaign_info(self, instruction: str, params: dict) -> str:
+        """Handle campaign info command"""
+        response = self._send_message_and_wait("campaign_manager", "get_campaign_info", {})
+        if response and response.get("success"):
+            return self._format_campaign_info(response["campaign"])
+        else:
+            return f"❌ {response.get('error', 'No campaign selected')}"
+    
+    def _handle_list_players(self, instruction: str, params: dict) -> str:
+        """Handle list players command"""
+        response = self._send_message_and_wait("campaign_manager", "list_players", {})
+        if response:
+            return self._format_player_list(response.get("players", []))
+        return "❌ Failed to retrieve players"
+    
+    def _handle_player_info(self, instruction: str, params: dict) -> str:
+        """Handle player info command"""
+        player_name = params.get('param_1', '').strip()
+        
+        if player_name:
+            response = self._send_message_and_wait("campaign_manager", "get_player_info", {"name": player_name})
+            if response and response.get("success"):
+                return self._format_player_info(response["player"])
+            else:
+                return f"❌ {response.get('error', 'Player not found')}"
+        else:
+            return "❌ Please specify player name. Usage: player info [name]"
+    
+    def _handle_roll_dice(self, instruction: str, params: dict) -> str:
+        """Handle dice rolling command"""
+        return self._handle_dice_roll(instruction)
+    
+    def _handle_start_combat(self, instruction: str, params: dict) -> str:
+        """Handle start combat command"""
+        return self._handle_combat_command(instruction)
+    
+    def _handle_combat_status(self, instruction: str, params: dict) -> str:
+        """Handle combat status command"""
+        return self._handle_combat_command(instruction)
+    
+    def _handle_next_turn(self, instruction: str, params: dict) -> str:
+        """Handle next turn command"""
+        return self._handle_combat_command(instruction)
+    
+    def _handle_end_combat(self, instruction: str, params: dict) -> str:
+        """Handle end combat command"""
+        return self._handle_combat_command(instruction)
+    
+    def _handle_check_rule(self, instruction: str, params: dict) -> str:
+        """Handle rule checking command"""
+        return self._handle_rule_query(instruction)
+    
+    def _handle_generate_scenario(self, instruction: str, params: dict) -> str:
+        """Handle scenario generation command"""
+        return self._generate_scenario(instruction)
+    
+    def _handle_select_option(self, instruction: str, params: dict) -> str:
+        """Handle option selection command"""
+        option_num = None
+        if 'param_1' in params and params['param_1'].isdigit():
+            option_num = int(params['param_1'])
+        
+        if option_num:
+            return self._select_player_option(option_num)
+        else:
+            return "❌ Please specify option number (e.g., 'select option 2')"
+    
+    def _handle_save_game(self, instruction: str, params: dict) -> str:
+        """Handle save game command"""
+        save_name = params.get('param_1', 'Quick Save').strip()
+        if not save_name:
+            save_name = "Quick Save"
+        
+        if self._save_game(save_name):
+            return f"💾 Game saved successfully as: {save_name}"
+        else:
+            return "❌ Failed to save game"
+    
+    def _handle_load_game(self, instruction: str, params: dict) -> str:
+        """Handle load game command - just shows help"""
+        return "💡 Use 'list saves' to see available saves, or 'load save [number]' to load a specific save"
+    
+    def _handle_list_saves(self, instruction: str, params: dict) -> str:
+        """Handle list saves command"""
+        saves = self._list_game_saves()
+        if not saves:
+            return "❌ No game saves found in ./game_saves directory"
+        
+        output = "💾 AVAILABLE GAME SAVES:\n\n"
+        for i, save in enumerate(saves, 1):
+            output += f"  {i}. **{save['save_name']}**\n"
+            output += f"     Campaign: {save['campaign']}\n"
+            output += f"     Last Modified: {save['last_modified']}\n"
+            output += f"     Progress: {save['scenario_count']} scenarios, {save['story_progression']} story events\n"
+            output += f"     Players: {save['players']}\n\n"
+        
+        output += "💡 *Type 'load save [number]' to load a specific save*"
+        return output
+    
+    def _handle_load_save(self, instruction: str, params: dict) -> str:
+        """Handle load save command"""
+        save_number = None
+        if 'param_1' in params and params['param_1'].isdigit():
+            save_number = int(params['param_1'])
+        
+        if save_number is None:
+            return "❌ Please specify save number (e.g., 'load save 1')"
+        
+        saves = self._list_game_saves()
+        if save_number < 1 or save_number > len(saves):
+            return f"❌ Invalid save number. Available saves: 1-{len(saves)}"
+        
+        selected_save = saves[save_number - 1]
+        if self._load_game_save(selected_save['filename']):
+            return f"✅ Successfully loaded: {selected_save['save_name']}"
+        else:
+            return f"❌ Failed to load save: {selected_save['save_name']}"
+    
+    def _handle_game_state(self, instruction: str, params: dict) -> str:
+        """Handle game state command"""
+        if self.game_engine_agent:
+            response = self._send_message_and_wait("game_engine", "get_game_state", {})
+            if response and response.get("game_state"):
+                return f"📊 GAME STATE:\n{json.dumps(response['game_state'], indent=2)}"
+        return "❌ Game state not available"
+    
+    def _handle_system_status(self, instruction: str, params: dict) -> str:
+        """Handle system status command"""
+        return self._get_system_status()
+    
+    def _handle_create_character(self, instruction: str, params: dict) -> str:
+        """Handle create character command"""
+        character_name = params.get('param_1', '').strip()
+        if not character_name:
+            return "❌ Please specify character name. Usage: create character [name]"
+        
+        # Basic character creation - could be enhanced with prompts for race, class, etc.
+        response = self._send_message_and_wait("character_manager", "create_character", {
+            "name": character_name,
+            "race": "Human",  # Default values - could be made interactive
+            "character_class": "Fighter",
+            "level": 1
+        })
+        
+        if response and response.get("success"):
+            return f"🎭 **CHARACTER CREATED!**\n{response['message']}\n\n📊 **Stats:**\n{response.get('character_summary', 'Character created successfully')}"
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to create character: {error_msg}"
+    
+    def _handle_level_up(self, instruction: str, params: dict) -> str:
+        """Handle level up command"""
+        character_name = params.get('param_1', '').strip()
+        if not character_name:
+            return "❌ Please specify character name. Usage: level up [name]"
+        
+        # Level up character using experience manager
+        response = self._send_message_and_wait("experience_manager", "level_up", {
+            "character": character_name
+        })
+        
+        if response and response.get("success"):
+            return f"⬆️ **LEVEL UP!**\n{response['message']}\n\n🎉 **Level Benefits:**\n{self._format_level_benefits(response.get('level_benefits', {}))}"
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to level up: {error_msg}"
+    
+    def _handle_short_rest(self, instruction: str, params: dict) -> str:
+        """Handle short rest command"""
+        response = self._send_message_and_wait("session_manager", "take_short_rest", {})
+        
+        if response and response.get("success"):
+            benefits = response.get("benefits", {})
+            output = f"😴 **SHORT REST COMPLETED!**\n{response['message']}\n\n"
+            
+            if benefits.get("hit_dice_recovered"):
+                output += f"💚 Hit Dice Available: {benefits['hit_dice_recovered']}\n"
+            if benefits.get("abilities_recharged"):
+                output += f"⚡ Abilities Recharged: {', '.join(benefits['abilities_recharged'])}\n"
+            
+            return output
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to take short rest: {error_msg}"
+    
+    def _handle_long_rest(self, instruction: str, params: dict) -> str:
+        """Handle long rest command"""
+        response = self._send_message_and_wait("session_manager", "take_long_rest", {})
+        
+        if response and response.get("success"):
+            benefits = response.get("benefits", {})
+            output = f"🛌 **LONG REST COMPLETED!**\n{response['message']}\n\n"
+            
+            if benefits.get("hp_restored"):
+                output += f"💚 HP Fully Restored\n"
+            if benefits.get("spell_slots_restored"):
+                output += f"✨ All Spell Slots Restored\n"
+            if benefits.get("abilities_recharged"):
+                output += f"⚡ All Abilities Recharged\n"
+            
+            return output
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to take long rest: {error_msg}"
+    
+    def _handle_add_item(self, instruction: str, params: dict) -> str:
+        """Handle add item command"""
+        item_name = params.get('param_1', '').strip()
+        if not item_name:
+            return "❌ Please specify item name. Usage: add item [name]"
+        
+        # Extract character name if provided, otherwise use default
+        character_name = params.get('param_2', 'party').strip()
+        
+        response = self._send_message_and_wait("inventory_manager", "add_item", {
+            "character": character_name,
+            "item_name": item_name,
+            "quantity": 1
+        })
+        
+        if response and response.get("success"):
+            return f"🎒 **ITEM ADDED!**\n{response['message']}"
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to add item: {error_msg}"
+    
+    def _handle_remove_item(self, instruction: str, params: dict) -> str:
+        """Handle remove item command"""
+        item_name = params.get('param_1', '').strip()
+        if not item_name:
+            return "❌ Please specify item name. Usage: remove item [name]"
+        
+        character_name = params.get('param_2', 'party').strip()
+        
+        response = self._send_message_and_wait("inventory_manager", "remove_item", {
+            "character": character_name,
+            "item_name": item_name,
+            "quantity": 1
+        })
+        
+        if response and response.get("success"):
+            return f"🗑️ **ITEM REMOVED!**\n{response['message']}"
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to remove item: {error_msg}"
+    
+    def _handle_show_inventory(self, instruction: str, params: dict) -> str:
+        """Handle show inventory command"""
+        character_name = params.get('param_1', 'party').strip()
+        
+        response = self._send_message_and_wait("inventory_manager", "get_inventory", {
+            "character": character_name
+        })
+        
+        if response and response.get("success"):
+            inventory = response.get("inventory", {})
+            output = f"🎒 **INVENTORY ({character_name})**\n\n"
+            
+            items = inventory.get("items", [])
+            if items:
+                for item in items:
+                    output += f"• {item['name']} (x{item['quantity']})"
+                    if item.get('weight'):
+                        output += f" - {item['weight']} lbs"
+                    output += "\n"
                 
-                if self._should_cache_query(agent_id, action, data, query_type):
-                    cached_result = self.pipeline_manager.cache.get_cached_result(cache_key, {})
-                    if cached_result and 'result' in cached_result:
-                        if self.verbose:
-                            print(f"📦 Enhanced cache hit for {agent_id}:{action} ({query_type})")
-                        return cached_result['result']
+                carry_info = inventory.get("carrying_capacity", {})
+                if carry_info:
+                    output += f"\n📊 **Carrying Capacity:** {carry_info.get('current_weight', 0)}/{carry_info.get('max_capacity', 'Unknown')} lbs"
+            else:
+                output += "No items in inventory."
             
-            # Start performance monitoring
-            op_id = None
-            if self.pipeline_manager:
-                op_id = self.pipeline_manager.monitor.start_operation(f"{agent_id}_{action}")
+            return output
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to show inventory: {error_msg}"
+    
+    def _handle_cast_spell(self, instruction: str, params: dict) -> str:
+        """Handle cast spell command"""
+        spell_name = params.get('param_1', '').strip()
+        if not spell_name:
+            return "❌ Please specify spell name. Usage: cast [spell name]"
+        
+        character_name = params.get('param_2', 'caster').strip()
+        
+        response = self._send_message_and_wait("spell_manager", "cast_spell", {
+            "character": character_name,
+            "spell": spell_name
+        })
+        
+        if response and response.get("success"):
+            output = f"✨ **SPELL CAST!**\n{response['message']}\n\n"
             
-            # Send message through orchestrator
-            message_id = self.orchestrator.send_message_to_agent(agent_id, action, data)
+            spell_info = response.get("spell", {})
+            if spell_info:
+                output += f"📖 **{spell_info.get('name', spell_name)}**\n"
+                output += f"Level: {spell_info.get('level', 'Unknown')}\n"
+                output += f"Range: {spell_info.get('range', 'Unknown')}\n"
+                output += f"Duration: {spell_info.get('duration', 'Unknown')}\n"
             
-            # Wait for response in message history
+            if response.get("spell_slot_used"):
+                output += f"\n🔮 Used Level {response['spell_slot_used']} Spell Slot"
+            
+            return output
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to cast spell: {error_msg}"
+    
+    def _handle_prepare_spells(self, instruction: str, params: dict) -> str:
+        """Handle prepare spells command"""
+        character_name = params.get('param_1', 'caster').strip()
+        
+        response = self._send_message_and_wait("spell_manager", "get_prepared_spells", {
+            "character": character_name
+        })
+        
+        if response and response.get("success"):
+            prepared = response.get("prepared_spells", [])
+            cantrips = response.get("cantrips", [])
+            
+            output = f"📚 **PREPARED SPELLS ({character_name})**\n\n"
+            
+            if cantrips:
+                output += "**Cantrips:**\n"
+                for cantrip in cantrips:
+                    output += f"• {cantrip}\n"
+                output += "\n"
+            
+            if prepared:
+                output += "**Prepared Spells:**\n"
+                for spell in prepared:
+                    output += f"• {spell}\n"
+            else:
+                output += "No spells currently prepared."
+            
+            return output
+        else:
+            error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
+            return f"❌ Failed to show prepared spells: {error_msg}"
+    
+    def _format_level_benefits(self, level_benefits: dict) -> str:
+        """Format level benefits for display"""
+        if not level_benefits:
+            return "Level benefits information not available"
+        
+        output = ""
+        level = level_benefits.get("level", "Unknown")
+        prof_bonus = level_benefits.get("proficiency_bonus", "Unknown")
+        asi = level_benefits.get("ability_score_improvement", False)
+        general_benefits = level_benefits.get("general_benefits", [])
+        
+        output += f"**Level:** {level}\n"
+        output += f"**Proficiency Bonus:** +{prof_bonus}\n"
+        
+        if asi:
+            output += "🎯 **Ability Score Improvement Available!**\n"
+        
+        if general_benefits:
+            output += "**General Benefits:**\n"
+            for benefit in general_benefits:
+                output += f"• {benefit}\n"
+        
+        return output
+
+    def _send_message_and_wait(self, agent_id: str, action: str, data: Dict[str, Any], timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+        """Send a message to an agent and wait for response with simple caching and timeout handling"""
+        try:
+            # Check if agent is registered and has handlers before attempting communication
+            if not self._check_agent_availability(agent_id, action):
+                if self.verbose:
+                    print(f"⚠️ Agent {agent_id} not available or missing handler for {action}")
+                return {"success": False, "error": f"Agent {agent_id} not available"}
+
+            # Simple caching for cacheable queries
+            cache_key = None
+            if self.enable_caching and self.inline_cache and self._should_cache_simple(agent_id, action, data):
+                cache_key = f"{agent_id}_{action}_{json.dumps(data, sort_keys=True)}"
+                cached_result = self.inline_cache.get(cache_key)
+                if cached_result:
+                    if self.verbose:
+                        print(f"📦 Cache hit for {agent_id}:{action}")
+                    return cached_result
+            
+            # Send message through orchestrator with retry mechanism
+            message_id = None
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    message_id = self.orchestrator.send_message_to_agent(agent_id, action, data)
+                    if message_id:
+                        break
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Message send attempt {attempt + 1} failed: {e}")
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(0.2)  # Brief pause between retries
+            
+            if not message_id:
+                if self.verbose:
+                    print(f"❌ Failed to send message to {agent_id} after {max_retries} attempts")
+                return {"success": False, "error": "Failed to send message"}
+            
+            # Wait for response in message history with improved polling
             start_time = time.time()
             result = None
+            poll_interval = 0.1
+            last_poll_time = 0
+            
             while time.time() - start_time < timeout:
-                history = self.orchestrator.message_bus.get_message_history(limit=50)
-                for msg in reversed(history):
-                    if (msg.get("response_to") == message_id and
-                        msg.get("message_type") == "response"):
-                        result = msg.get("data", {})
-                        break
-                if result:
-                    break
-                time.sleep(0.1)
-            
-            # End performance monitoring
-            if op_id and self.pipeline_manager:
-                self.pipeline_manager.monitor.end_operation(op_id, success=(result is not None))
-            
-            # Enhanced caching of successful results with smart TTL
-            if result and self.pipeline_manager and self.enable_caching:
-                cache_key, query_type = self._get_enhanced_cache_key_with_pattern(agent_id, action, data)
+                current_time = time.time()
                 
-                if self._should_cache_query(agent_id, action, data, query_type):
-                    # Set TTL based on query type
-                    ttl_hours = self._get_cache_ttl_for_query_type(query_type)
-                    self.pipeline_manager.cache.cache_result(cache_key, {}, result, ttl_hours=ttl_hours)
-                    
-                    if self.verbose:
-                        print(f"💾 Cached result for {query_type} (TTL: {ttl_hours}h)")
+                # Adaptive polling - increase interval slightly over time to reduce CPU usage
+                if current_time - last_poll_time >= poll_interval:
+                    try:
+                        history = self.orchestrator.message_bus.get_message_history(limit=50)
+                        for msg in reversed(history):
+                            if (msg.get("response_to") == message_id and
+                                msg.get("message_type") == "response"):
+                                result = msg.get("data", {})
+                                break
+                        
+                        if result:
+                            break
+                        
+                        last_poll_time = current_time
+                        # Gradually increase poll interval to reduce CPU usage
+                        poll_interval = min(0.3, poll_interval * 1.05)
+                        
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"⚠️ Error checking message history: {e}")
+                        
+                time.sleep(0.05)  # Small sleep to prevent busy waiting
             
-            if not result and self.verbose:
-                print(f"⚠️ Timeout waiting for response from {agent_id}")
+            # Simple caching of successful results
+            if result and cache_key and self.inline_cache:
+                # Set appropriate TTL based on query type
+                ttl_hours = self._get_simple_cache_ttl(agent_id, action)
+                self.inline_cache.set(cache_key, result, ttl_hours)
+                
+                if self.verbose:
+                    print(f"💾 Cached result for {agent_id}:{action} (TTL: {ttl_hours}h)")
+            
+            # Enhanced timeout handling with detailed error reporting
+            if not result:
+                elapsed_time = time.time() - start_time
+                if self.verbose:
+                    print(f"⚠️ Timeout waiting for response from {agent_id}:{action} (waited {elapsed_time:.2f}s)")
+                    print(f"📊 Agent status: {self._get_agent_quick_status(agent_id)}")
+                
+                # Return a structured timeout error instead of None
+                return {
+                    "success": False,
+                    "error": f"Agent communication timeout after {elapsed_time:.2f}s",
+                    "agent_id": agent_id,
+                    "action": action,
+                    "timeout_duration": elapsed_time
+                }
             
             return result
             
         except Exception as e:
             if self.verbose:
-                print(f"❌ Error sending message to {agent_id}: {e}")
-            return None
+                print(f"❌ Error sending message to {agent_id}:{action}: {e}")
+                import traceback
+                print(f"🔍 Stack trace: {traceback.format_exc()}")
+            
+            # Return a structured error instead of None
+            return {
+                "success": False,
+                "error": f"Communication error: {str(e)}",
+                "agent_id": agent_id,
+                "action": action
+            }
     
-    def _get_enhanced_cache_key_with_pattern(self, agent_id: str, action: str, data: Dict[str, Any]) -> tuple[str, str]:
-        """Generate cache key and identify query pattern for enhanced caching"""
-        import re
+    def _should_cache_simple(self, agent_id: str, action: str, data: Dict[str, Any]) -> bool:
+        """Determine if a query should be cached using simple rules"""
+        # Don't cache dice rolls or random content
+        if agent_id == 'dice_system':
+            return False
         
-        # Query pattern recognition
-        query_patterns = {
-            'scenario_generation': r'generate|scenario|story|continue',
-            'rule_queries': r'rule|how does|what happens|mechanics',
-            'dice_rolls': r'roll|dice|d\d+',
-            'campaign_info': r'campaign|setting|location|npc'
-        }
-        
-        # Determine query type based on agent and action
-        query_type = 'general'
-        query_text = json.dumps(data).lower()
-        
+        # Don't cache scenario generation (creative content)
         if agent_id == 'haystack_pipeline' and action == 'query_scenario':
-            query_type = 'scenario_generation'
-        elif agent_id == 'rule_enforcement':
-            query_type = 'rule_queries'
-        elif agent_id == 'dice_system':
-            query_type = 'dice_rolls'
-        elif agent_id == 'campaign_manager':
-            query_type = 'campaign_info'
-        else:
-            # Pattern-based detection for other cases
-            for pattern_name, pattern in query_patterns.items():
-                if re.search(pattern, query_text):
-                    query_type = pattern_name
-                    break
+            return False
         
-        # Generate cache key based on pattern
-        if query_type == 'scenario_generation':
-            # Include less context for creative queries to improve hit rate
-            minimal_data = {k: v for k, v in data.items() if k in ['query', 'campaign_context']}
-            cache_key = f"{agent_id}_{action}_{json.dumps(minimal_data, sort_keys=True)}"
-        else:
-            cache_key = f"{agent_id}_{action}_{json.dumps(data, sort_keys=True)}"
-        
-        return cache_key, query_type
-    
-    def _should_cache_query(self, agent_id: str, action: str, data: Dict[str, Any], query_type: str) -> bool:
-        """Determine if a query should be cached based on type and content"""
-        # Cache configuration per pattern type
-        cache_config = {
-            'scenario_generation': {'priority': 'low', 'should_cache': False},   # Don't cache creative content
-            'rule_queries': {'priority': 'high', 'should_cache': True},         # Always cache static rules
-            'dice_rolls': {'priority': 'none', 'should_cache': False},          # Never cache random results
-            'campaign_info': {'priority': 'medium', 'should_cache': True},      # Cache campaign data
-            'general': {'priority': 'medium', 'should_cache': True}
-        }
-        
-        config = cache_config.get(query_type, {'should_cache': True})
-        
-        # Don't cache random elements or user-specific content
+        # Don't cache if data contains random/time-sensitive elements
         query_text = json.dumps(data).lower()
-        if any(keyword in query_text for keyword in ['roll', 'random', 'dice']):
+        if any(keyword in query_text for keyword in ['roll', 'random', 'dice', 'turn', 'timestamp']):
             return False
         
-        # Don't cache scenario generation with timestamps or turn-specific data
-        if query_type == 'scenario_generation' and ('turn' in query_text or 'timestamp' in query_text):
-            return False
-        
-        return config['should_cache']
+        # Cache rule queries, campaign info, and other static content
+        return True
     
-    def _get_cache_ttl_for_query_type(self, query_type: str) -> float:
-        """Get cache TTL (time-to-live) in hours for different query types"""
-        ttl_config = {
-            'scenario_generation': 1,     # Short TTL for creative content
-            'rule_queries': 24,           # Long TTL for static rules
-            'dice_rolls': 0,              # No caching for random results
-            'campaign_info': 12,          # Medium TTL for campaign data
-            'general': 6                  # Default TTL
-        }
+    def _get_simple_cache_ttl(self, agent_id: str, action: str) -> float:
+        """Get cache TTL (time-to-live) in hours for different agent/action combinations"""
+        # Rule queries can be cached longer since they're static
+        if agent_id == 'rule_enforcement':
+            return 24.0
         
-        return ttl_config.get(query_type, 6)
+        # Campaign info can be cached for medium duration
+        if agent_id == 'campaign_manager':
+            return 12.0
+        
+        # General queries use shorter TTL
+        return 6.0
+    
+    def _check_agent_availability(self, agent_id: str, action: str) -> bool:
+        """Check if agent is registered and has the required handler"""
+        try:
+            # Check if agent is registered with orchestrator
+            agent_status = self.orchestrator.get_agent_status()
+            if agent_id not in agent_status:
+                if self.verbose:
+                    print(f"🔍 Agent {agent_id} not found in registered agents: {list(agent_status.keys())}")
+                return False
+            
+            # Check if agent is running
+            if not agent_status[agent_id].get("running", False):
+                if self.verbose:
+                    print(f"🔍 Agent {agent_id} is not running")
+                return False
+            
+            # Check if agent has the required handler
+            handlers = agent_status[agent_id].get("handlers", [])
+            if action not in handlers:
+                if self.verbose:
+                    print(f"🔍 Agent {agent_id} missing handler '{action}'. Available: {handlers}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Error checking agent availability: {e}")
+            return False
+    
+    def _get_agent_quick_status(self, agent_id: str) -> str:
+        """Get quick status information about an agent"""
+        try:
+            agent_status = self.orchestrator.get_agent_status()
+            if agent_id not in agent_status:
+                return "Not registered"
+            
+            info = agent_status[agent_id]
+            running = "Running" if info.get("running", False) else "Stopped"
+            handler_count = len(info.get("handlers", []))
+            
+            return f"{running}, {handler_count} handlers"
+            
+        except Exception as e:
+            return f"Status check failed: {e}"
     
     def _format_campaign_info(self, campaign: Dict[str, Any]) -> str:
         """Format campaign information for display"""
@@ -1171,7 +1482,21 @@ class ModularDMAssistant:
             if self.verbose:
                 print("🚀 Used optimized scenario generation with parallel context gathering")
             
-            return f"🎭 SCENARIO (Optimized Generation):\n{scenario_text}\n\n⚡ Generated using enhanced performance pipeline\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+            # Check if scenario generation actually failed due to no connection
+            if "Pipeline not available" in scenario_text or "not connected" in scenario_text:
+                # Provide fallback scenario with proper numbered options when RAG is not available
+                fallback_scenario = """The party finds themselves at a crossroads where four paths diverge into the unknown.
+
+**1. Take the North Path** - Follow the well-worn trail toward distant mountains
+**2. Take the East Path** - Head through the dense forest where strange sounds echo
+**3. Take the West Path** - Follow the river downstream toward civilization
+**4. Make Camp Here** - Rest and prepare before choosing a direction"""
+                
+                # Extract and store the fallback options
+                self._extract_and_store_options(fallback_scenario)
+                return f"🎭 SCENARIO (Fallback - RAG Offline):\n{fallback_scenario}\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+            else:
+                return f"🎭 SCENARIO (Optimized Generation):\n{scenario_text}\n\n⚡ Generated using enhanced performance pipeline\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
         else:
             error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
             return f"❌ Failed to generate scenario: {error_msg}"
@@ -1261,7 +1586,7 @@ class ModularDMAssistant:
         enhanced_query += (
             "Generate an engaging scene continuation (2-3 sentences) and provide 3-4 numbered options for the players.\n\n"
             "IMPORTANT: Include these types of options:\n"
-            "- At least 1-2 options that require SKILL CHECKS (Stealth, Perception, Athletics, Persuasion, Investigation, etc.) with clear success/failure consequences\n"
+            "- If appropriate to the scene, include 1-2 options that require SKILL CHECKS (Stealth, Perception, Athletics, Persuasion, Investigation, etc.) with clear success/failure consequences\n"
             "- If appropriate to the scene, include potential COMBAT scenarios with specific enemies/monsters\n"
             "- Mix of direct action, social interaction, and problem-solving options\n\n"
             "For skill check options, format like: '1. **Stealth Check (DC 15)** - Sneak past the guards to avoid confrontation'\n"
@@ -1274,17 +1599,56 @@ class ModularDMAssistant:
     def _update_game_state_async(self, user_query: str, scenario_text: str, game_state_dict: dict):
         """Update game state asynchronously to not block response"""
         try:
+            # Ensure we have a valid game state dictionary with required fields
+            if not game_state_dict:
+                game_state_dict = {}
+            
+            # Initialize required fields if missing
+            if "story_progression" not in game_state_dict:
+                game_state_dict["story_progression"] = []
+            if "scenario_count" not in game_state_dict:
+                game_state_dict["scenario_count"] = 0
+            if "location" not in game_state_dict:
+                game_state_dict["location"] = "Unknown Location"
+            
+            # Update with new scenario information
             game_state_dict["last_scenario_query"] = user_query
             game_state_dict["last_scenario_text"] = scenario_text
             game_state_dict["scenario_count"] = game_state_dict.get("scenario_count", 0) + 1
+            game_state_dict["last_updated"] = __import__('time').time()
             
-            # Use shorter timeout for non-blocking update
-            self._send_message_and_wait("game_engine", "update_game_state", {
-                "game_state": game_state_dict
-            }, timeout=3.0)
+            # Validate that we have meaningful updates to send
+            required_updates = ["last_scenario_query", "last_scenario_text", "scenario_count"]
+            has_updates = any(game_state_dict.get(key) for key in required_updates)
+            
+            if not has_updates:
+                if self.verbose:
+                    print("⚠️ Async game state update skipped: No meaningful updates to send")
+                # Still try to send basic update to prevent "No updates provided" error
+                game_state_dict["last_updated"] = __import__('time').time()
+                game_state_dict["status"] = "active"
+            
+            # Use adequate timeout for non-blocking update
+            response = self._send_message_and_wait("game_engine", "update_game_state", {
+                "updates": game_state_dict,
+                "async_update": True  # Flag to indicate this is an async update
+            }, timeout=15.0)  # Increased timeout for reliability
+            
+            if response and response.get("success"):
+                if self.verbose:
+                    print(f"✅ Async game state updated successfully (scenario #{game_state_dict['scenario_count']})")
+            else:
+                error_msg = response.get('error', 'Unknown error') if response else 'Timeout'
+                if self.verbose:
+                    print(f"⚠️ Async game state update failed: {error_msg}")
+                    print(f"🔍 Game state dict keys: {list(game_state_dict.keys())}")
+                    print(f"🔍 Scenario count: {game_state_dict.get('scenario_count', 0)}")
+                    
         except Exception as e:
             if self.verbose:
                 print(f"⚠️ Async game state update failed: {e}")
+                import traceback
+                print(f"🔍 Stack trace: {traceback.format_exc()}")
     
     def _generate_scenario_standard(self, user_query: str) -> str:
         """Standard scenario generation (fallback method)"""
@@ -1331,29 +1695,67 @@ class ModularDMAssistant:
             result = response["result"]
             scenario_text = result.get("answer", "Failed to generate scenario")
             
-            # Extract and store options for later use
-            self._extract_and_store_options(scenario_text)
-            
-            # Update game state to track scenario generation
-            if self.game_engine_agent and game_state_dict:
-                game_state_dict["last_scenario_query"] = user_query
-                game_state_dict["last_scenario_text"] = scenario_text
-                game_state_dict["scenario_count"] = game_state_dict.get("scenario_count", 0) + 1
+            # Check if scenario generation actually failed due to no connection
+            if "Pipeline not available" in scenario_text or "not connected" in scenario_text:
+                # Provide fallback scenario with proper numbered options when RAG is not available
+                fallback_scenario = """The party finds themselves at a crossroads where four paths diverge into the unknown.
+
+**1. Take the North Path** - Follow the well-worn trail toward distant mountains
+**2. Take the East Path** - Head through the dense forest where strange sounds echo
+**3. Take the West Path** - Follow the river downstream toward civilization
+**4. Make Camp Here** - Rest and prepare before choosing a direction"""
                 
-                self._send_message_and_wait("game_engine", "update_game_state", {
-                    "game_state": game_state_dict
-                })
-            
-            return f"🎭 SCENARIO (Agent-Generated):\n{scenario_text}\n\n🤖 Generated using modular agent architecture\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+                # Extract and store the fallback options
+                self._extract_and_store_options(fallback_scenario)
+                return f"🎭 SCENARIO (Fallback - RAG Offline):\n{fallback_scenario}\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+            else:
+                # Extract and store options for later use
+                self._extract_and_store_options(scenario_text)
+                
+                # Update game state to track scenario generation
+                if self.game_engine_agent and game_state_dict:
+                    game_state_dict["last_scenario_query"] = user_query
+                    game_state_dict["last_scenario_text"] = scenario_text
+                    game_state_dict["scenario_count"] = game_state_dict.get("scenario_count", 0) + 1
+                    
+                    response = self._send_message_and_wait("game_engine", "update_game_state", {
+                        "updates": game_state_dict
+                    }, timeout=15.0)  # Increased timeout for better reliability
+                    
+                    if not (response and response.get("success")) and self.verbose:
+                        error_msg = response.get('error', 'Unknown error') if response else 'Timeout'
+                        print(f"⚠️ Standard scenario game state update failed: {error_msg}")
+                
+                return f"🎭 SCENARIO (Agent-Generated):\n{scenario_text}\n\n🤖 Generated using modular agent architecture\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
         else:
             error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
-            return f"❌ Failed to generate scenario: {error_msg}"
+            # Provide fallback scenario when RAG is not available
+            if "not connected" in error_msg or "not available" in error_msg:
+                fallback_scenario = """The party finds themselves at a crossroads where four paths diverge into the unknown.
+
+**1. Take the North Path** - Follow the well-worn trail toward distant mountains
+**2. Take the East Path** - Head through the dense forest where strange sounds echo
+**3. Take the West Path** - Follow the river downstream toward civilization
+**4. Make Camp Here** - Rest and prepare before choosing a direction"""
+                
+                # Extract and store the fallback options
+                self._extract_and_store_options(fallback_scenario)
+                return f"🎭 SCENARIO (Fallback - RAG Offline):\n{fallback_scenario}\n\n📝 *DM: Type 'select option [number]' to choose a player option and continue the story.*"
+            else:
+                return f"❌ Failed to generate scenario: {error_msg}"
     
     def _select_player_option(self, option_number: int) -> str:
         """Handle player option selection with skill checks, combat detection, and automatic subsequent scene generation"""
         # Check if we have stored options
         if not self.last_scenario_options:
-            return "❌ No scenario options available. Please generate a scenario first."
+            # If no options available, generate a quick scenario first
+            if self.verbose:
+                print("⚠️ No options available, generating scenario first...")
+            scenario_response = self._generate_scenario("The party finds themselves in a new situation")
+            
+            # Check if we now have options after generating scenario
+            if not self.last_scenario_options:
+                return "❌ Unable to generate scenario options. Please try 'generate scenario' first."
         
         # Validate option number
         if option_number < 1 or option_number > len(self.last_scenario_options):
@@ -1392,106 +1794,70 @@ class ModularDMAssistant:
             continuation += "Combat has been automatically set up with all players and enemies.\n"
             continuation += "Use combat commands: 'combat status', 'next turn', 'end combat'\n\n"
         
-        try:
-            # Use enhanced creative consequence pipeline with skill/combat context
-            if self.creative_consequence_pipeline:
-                enhanced_choice = selected_option
-                if skill_check_result:
-                    enhanced_choice += f" [Skill Check: {skill_check_result['skill']} {skill_check_result['roll_total']} vs DC {skill_check_result['dc']} - {'Success' if skill_check_result['success'] else 'Failure'}]"
-                if combat_result:
-                    enhanced_choice += f" [Combat Started with {len(combat_result['enemies'])} enemies]"
-                
-                story_continuation = self.creative_consequence_pipeline.generate_consequence(
-                    choice=enhanced_choice,
-                    game_state=game_state,
-                    player="DM"
-                )
-                
-                # Combine skill/combat results with story continuation
-                if continuation:
-                    continuation += f"**Story Continues:**\n{story_continuation}"
-                else:
-                    continuation = story_continuation
-                
-                # UPDATE GAME STATE WITH CHOICE AND CONSEQUENCE
-                updated_game_state = game_state.copy()
-                updated_game_state["last_player_choice"] = selected_option
-                updated_game_state["last_consequence"] = continuation
-                updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
-                
-                # Add skill check and combat results to progression
-                progression_entry = {
-                    "choice": selected_option,
-                    "consequence": continuation,
-                    "timestamp": __import__('time').time()
-                }
-                if skill_check_result:
-                    progression_entry["skill_check"] = skill_check_result
-                if combat_result:
-                    progression_entry["combat_started"] = True
-                    progression_entry["enemies"] = combat_result["enemies"]
-                
-                updated_game_state["story_progression"].append(progression_entry)
-                
-                # Update game engine with new state
-                if self.game_engine_agent:
-                    self._send_message_and_wait("game_engine", "update_game_state", {
-                        "game_state": updated_game_state
-                    })
-                
-                if self.verbose:
-                    print("✅ Used enhanced creative consequence pipeline with skill/combat integration")
-                    print("📝 Updated game state with player choice progression")
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"⚠️ Enhanced pipeline failed, falling back to agent: {e}")
-            
-            # Fallback to original agent-based approach with game state updates
-            game_state["current_options"] = "\n".join(self.last_scenario_options)
-            
-            response = self._send_message_and_wait("scenario_generator", "apply_player_choice", {
-                "game_state": game_state,
-                "player": "DM",
-                "choice": option_number
-            }, timeout=30.0)
-            
-            if response and response.get("success"):
-                continuation = response.get("continuation", "Option processed")
-                
-                # Update game state even in fallback
-                updated_game_state = game_state.copy()
-                updated_game_state["last_player_choice"] = selected_option
-                updated_game_state["last_consequence"] = continuation
-                updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
-                updated_game_state["story_progression"].append({
-                    "choice": selected_option,
-                    "consequence": continuation,
-                    "timestamp": __import__('time').time()
-                })
-                
-                if self.game_engine_agent:
-                    self._send_message_and_wait("game_engine", "update_game_state", {
-                        "game_state": updated_game_state
-                    })
-            else:
-                error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
-                return f"❌ Failed to process option: {error_msg}"
+        # Use scenario generator agent to process the choice
+        game_state["current_options"] = "\n".join(self.last_scenario_options)
         
-        # Clear cached scenario data to force new generation
-        if self.pipeline_manager and self.enable_caching:
-            # Clear scenario-related cache entries
-            cache_keys_to_clear = [
-                "haystack_pipeline_query_scenario",
-                "campaign_manager_get_campaign_context",
-                "game_engine_get_game_state"
-            ]
-            for key_pattern in cache_keys_to_clear:
-                try:
-                    # This will be handled by the cache implementation
-                    pass
-                except:
-                    pass
+        response = self._send_message_and_wait("scenario_generator", "apply_player_choice", {
+            "game_state": game_state,
+            "player": "DM",
+            "choice": option_number
+        }, timeout=30.0)
+        
+        if response and response.get("success"):
+            agent_continuation = response.get("continuation", "Option processed")
+            
+            # Combine skill/combat results with agent continuation
+            if continuation:
+                continuation += f"**Story Continues:**\n{agent_continuation}"
+            else:
+                continuation = agent_continuation
+        else:
+            # If agent fails, create a basic continuation
+            if not continuation:
+                continuation = f"You chose: {selected_option}\n\nThe party proceeds with their chosen action..."
+        
+        # UPDATE GAME STATE WITH CHOICE AND CONSEQUENCE
+        updated_game_state = game_state.copy()
+        updated_game_state["last_player_choice"] = selected_option
+        updated_game_state["last_consequence"] = continuation
+        updated_game_state["story_progression"] = updated_game_state.get("story_progression", [])
+        
+        # Add skill check and combat results to progression
+        progression_entry = {
+            "choice": selected_option,
+            "consequence": continuation,
+            "timestamp": __import__('time').time()
+        }
+        if skill_check_result:
+            progression_entry["skill_check"] = skill_check_result
+        if combat_result:
+            progression_entry["combat_started"] = True
+            progression_entry["enemies"] = combat_result["enemies"]
+        
+        updated_game_state["story_progression"].append(progression_entry)
+        
+        # Update game engine with new state (with longer timeout and error handling)
+        if self.game_engine_agent:
+            try:
+                update_response = self._send_message_and_wait("game_engine", "update_game_state", {
+                    "updates": updated_game_state
+                }, timeout=15.0)  # Increased timeout and fixed key name
+                
+                if not (update_response and update_response.get("success")):
+                    if self.verbose:
+                        error_msg = update_response.get('error', 'Unknown error') if update_response else 'Timeout'
+                        print(f"⚠️ Game state update failed: {error_msg}")
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Exception during game state update: {e}")
+        
+        if self.verbose:
+            print("📝 Updated game state with player choice progression")
+        
+        # Clear simple cache entries related to scenarios to force new generation
+        if self.enable_caching and self.inline_cache:
+            # Clean up expired entries to keep cache fresh
+            self.inline_cache.cleanup_expired()
         
         # Clear stored options to prevent re-selection
         self.last_scenario_options = []
@@ -1566,9 +1932,13 @@ class ModularDMAssistant:
                     game_state["last_scenario_text"] = scenario_text
                     game_state["scenario_count"] = game_state.get("scenario_count", 0) + 1
                     
-                    self._send_message_and_wait("game_engine", "update_game_state", {
-                        "game_state": game_state
-                    })
+                    response = self._send_message_and_wait("game_engine", "update_game_state", {
+                        "updates": game_state
+                    }, timeout=15.0)  # Increased timeout for reliability
+                    
+                    if not (response and response.get("success")) and self.verbose:
+                        error_msg = response.get('error', 'Unknown error') if response else 'Timeout'
+                        print(f"⚠️ Scenario after choice game state update failed: {error_msg}")
                 
                 if self.verbose:
                     print("🔄 Generated subsequent scenario automatically")
@@ -1714,35 +2084,45 @@ class ModularDMAssistant:
     def _setup_combat_with_players_and_enemies(self, enemies: List[Dict], game_state: dict):
         """Setup combat by adding all players and enemies to the combat engine"""
         try:
-            # First, start combat
-            start_response = self._send_message_and_wait("combat_engine", "start_combat", {})
-            if not (start_response and start_response.get("success")):
-                if self.verbose:
-                    print("⚠️ Failed to start combat engine")
-                return
+            # Clear any cached combat failures to ensure fresh start
+            if self.enable_caching and self.inline_cache:
+                self.inline_cache.delete("combat_engine_start_combat_{}")
             
-            # Add all players from campaign
+            # FIRST: Add all players from campaign
             players_response = self._send_message_and_wait("campaign_manager", "list_players", {})
             if players_response and players_response.get("players"):
                 for player in players_response["players"]:
-                    self._send_message_and_wait("combat_engine", "add_combatant", {
+                    add_response = self._send_message_and_wait("combat_engine", "add_combatant", {
                         "name": player["name"],
                         "max_hp": player.get("hp", 20),
                         "armor_class": player.get("combat_stats", {}).get("armor_class", 12),
                         "is_player": True
                     })
+                    if self.verbose and add_response and add_response.get("success"):
+                        print(f"📝 Added player {player['name']} to combat")
             
-            # Add all enemies
+            # SECOND: Add all enemies
             for enemy in enemies:
-                self._send_message_and_wait("combat_engine", "add_combatant", {
+                add_response = self._send_message_and_wait("combat_engine", "add_combatant", {
                     "name": enemy["name"],
                     "max_hp": enemy["max_hp"],
                     "armor_class": enemy["armor_class"],
                     "is_player": False
                 })
+                if self.verbose and add_response and add_response.get("success"):
+                    print(f"📝 Added enemy {enemy['name']} to combat")
+            
+            # THIRD: Now start combat (after combatants are added)
+            start_response = self._send_message_and_wait("combat_engine", "start_combat", {})
+            if not (start_response and start_response.get("success")):
+                if self.verbose:
+                    error_msg = start_response.get('error', 'Unknown error') if start_response else 'Timeout'
+                    print(f"⚠️ Failed to start combat engine: {error_msg}")
+                return
             
             if self.verbose:
-                print(f"⚔️ Combat initialized with {len(enemies)} enemies and players")
+                player_count = len(players_response.get("players", [])) if players_response else 0
+                print(f"⚔️ Combat successfully initialized with {player_count} players and {len(enemies)} enemies")
                 
         except Exception as e:
             if self.verbose:
@@ -1783,22 +2163,79 @@ class ModularDMAssistant:
                         options.append(f"{num}. {description.strip()}")
                     break
         
+        # If no options found, provide fallback options for continued gameplay
+        if not options:
+            if self.verbose:
+                print(f"⚠️ No options extracted from scenario text, providing fallback options")
+            
+            # Create generic fallback options based on common D&D actions
+            options = [
+                "1. Investigate the area more carefully",
+                "2. Move forward cautiously",
+                "3. Try a different approach",
+                "4. Ask your companions for advice"
+            ]
+        
         self.last_scenario_options = options
-        if self.verbose and options:
-            print(f"📝 Stored {len(options)} scenario options for selection")
-        elif self.verbose:
-            print(f"⚠️ No options extracted from scenario text")
+        if self.verbose:
+            if len(options) <= 4 and all("investigate" in opt.lower() or "move forward" in opt.lower() or "different approach" in opt.lower() or "ask" in opt.lower() for opt in options):
+                print(f"📝 Using {len(options)} fallback scenario options")
+            else:
+                print(f"📝 Stored {len(options)} scenario options for selection")
+    
+    def _is_condition_query(self, instruction_lower: str) -> bool:
+        """Determine if the instruction is asking about D&D conditions"""
+        conditions = ["blinded", "charmed", "deafened", "frightened", "grappled", "incapacitated",
+                     "invisible", "paralyzed", "poisoned", "prone", "restrained", "stunned", "unconscious"]
+        
+        # Check for condition queries
+        for condition in conditions:
+            if (f"{condition} condition" in instruction_lower or
+                f"what happens when {condition}" in instruction_lower or
+                f"happens when {condition}" in instruction_lower or
+                (condition in instruction_lower and "condition" in instruction_lower)):
+                return True
+        
+        return False
+    
+    def _is_scenario_request(self, instruction_lower: str) -> bool:
+        """Determine if the instruction is requesting scenario generation"""
+        scenario_keywords = [
+            'generate', 'scenario', 'create', 'encounter', 'adventure',
+            'story', 'quest', 'mission', 'situation', 'scene',
+            'tavern', 'dungeon', 'forest', 'cave', 'castle',
+            'bandits', 'goblins', 'dragon', 'combat', 'fight',
+            'mysterious', 'ancient', 'dark', 'haunted',
+            'village', 'town', 'city', 'crossroads'
+        ]
+        
+        # Check if any scenario keywords are present
+        if any(keyword in instruction_lower for keyword in scenario_keywords):
+            # But exclude if it's clearly a rule query or other command
+            exclude_patterns = [
+                'rule', 'how does', 'what happens when', 'explain',
+                'roll', 'dice', 'save game', 'load game', 'status'
+            ]
+            if not any(pattern in instruction_lower for pattern in exclude_patterns):
+                return True
+        
+        return False
     
     def _get_system_status(self) -> str:
         """Get comprehensive system status"""
         status = "🤖 MODULAR DM ASSISTANT STATUS:\n\n"
         
-        # Agent status
+        # Agent status - using consistent format from test expectations
         agent_status = self.orchestrator.get_agent_status()
-        status += "🎭 AGENTS:\n"
+        status += "🎭 AGENT STATUS:\n"
         for agent_id, info in agent_status.items():
-            running = "🟢" if info["running"] else "🔴"
-            status += f"  {running} {agent_id} ({info['agent_type']})\n"
+            running_status = "🟢 Running" if info["running"] else "🔴 Stopped"
+            status += f"  • {agent_id} ({info['agent_type']}): {running_status}\n"
+            if info["handlers"]:
+                handlers_display = ', '.join(info['handlers'][:3])
+                if len(info['handlers']) > 3:
+                    handlers_display += f"... (+{len(info['handlers']) - 3} more)"
+                status += f"    Handlers: {handlers_display}\n"
         
         # Message bus statistics
         stats = self.orchestrator.get_message_statistics()
@@ -1846,37 +2283,14 @@ class ModularDMAssistant:
         
         return status
     
-    def _handle_general_query(self, query: str) -> str:
+    def _handle_general_query(self, instruction: str, params: dict = None) -> str:
         """Handle general queries using RAG with performance optimization"""
-        # Try smart router first for better performance
-        try:
-            if self.smart_router:
-                context = {"type": "general_query"}
-                result = self.smart_router.route_query(query, context)
-                
-                if result and "answer" in result:
-                    answer = result["answer"]
-                    
-                    # Condense the answer if it's too long
-                    if len(answer) > 800:
-                        # Find a good break point - preferably end of a sentence or paragraph
-                        break_point = 800
-                        for i in range(700, min(800, len(answer))):
-                            if answer[i] in '.!?':
-                                break_point = i + 1
-                                break
-                        answer = answer[:break_point].strip() + "..."
-                    
-                    pipeline_used = result.get('pipeline_used', 'smart_router')
-                    if self.verbose and pipeline_used != 'fallback':
-                        print(f"🚀 Used {pipeline_used} pipeline for faster response")
-                    
-                    return f"💡 {answer}"
-        except Exception as e:
-            if self.verbose:
-                print(f"⚠️ Smart router failed, falling back to direct RAG: {e}")
+        # Extract query from instruction or params
+        query = instruction
+        if params and 'query' in params:
+            query = params['query']
         
-        # Fallback to direct RAG with reduced timeout for better performance
+        # Use direct RAG for general queries
         response = self._send_message_and_wait("haystack_pipeline", "query_rag", {"query": query}, timeout=15.0)
         
         if response and response.get("success"):
@@ -2007,8 +2421,37 @@ class ModularDMAssistant:
         """Handle combat-related commands"""
         instruction_lower = instruction.lower()
         
-        # Start combat
+        # Start combat with auto-populated combatants
         if "start combat" in instruction_lower or "begin combat" in instruction_lower:
+            # First, try to add players as combatants
+            players_response = self._send_message_and_wait("campaign_manager", "list_players", {})
+            if players_response and players_response.get("players"):
+                for player in players_response["players"]:
+                    # Ensure numeric values are integers, not strings
+                    max_hp = int(player.get("hp", 20)) if str(player.get("hp", 20)).isdigit() else 20
+                    armor_class = int(player.get("combat_stats", {}).get("armor_class", 12)) if str(player.get("combat_stats", {}).get("armor_class", 12)).isdigit() else 12
+                    
+                    self._send_message_and_wait("combat_engine", "add_combatant", {
+                        "name": player["name"],
+                        "max_hp": max_hp,
+                        "armor_class": armor_class,
+                        "is_player": True
+                    })
+                    if self.verbose:
+                        print(f"📝 Added {player['name']} to combat (HP: {max_hp}, AC: {armor_class})")
+            
+            # Add some default enemies if no players available
+            else:
+                default_combatants = [
+                    {"name": "Bandit", "max_hp": 11, "armor_class": 12, "is_player": False},
+                    {"name": "Guard", "max_hp": 11, "armor_class": 16, "is_player": False}
+                ]
+                for combatant in default_combatants:
+                    self._send_message_and_wait("combat_engine", "add_combatant", combatant)
+                    if self.verbose:
+                        print(f"📝 Added {combatant['name']} to combat")
+            
+            # Now start combat
             response = self._send_message_and_wait("combat_engine", "start_combat", {})
             if response and response.get("success"):
                 output = "⚔️ **COMBAT STARTED!**\n\n"
@@ -2038,7 +2481,7 @@ class ModularDMAssistant:
                 
                 return output
             else:
-                return f"❌ Failed to start combat: {response.get('error', 'No combatants added')}"
+                return f"❌ Failed to start combat: {response.get('error', 'Combat initialization failed')}"
         
         # Add combatant
         elif "add combatant" in instruction_lower or "add to combat" in instruction_lower:
@@ -2082,7 +2525,7 @@ class ModularDMAssistant:
             else:
                 return f"❌ Failed to get combat status: {response.get('error', 'Unknown error')}"
         
-        # Next turn - Enhanced with better error handling and retry mechanism
+        # Next turn - Enhanced with improved error handling
         elif "next turn" in instruction_lower or "end turn" in instruction_lower:
             # Enhanced combat turn management with better error handling
             max_retries = 3
@@ -2098,7 +2541,7 @@ class ModularDMAssistant:
                         # Broadcast turn change to maintain agent synchronization
                         if current and self.orchestrator:
                             try:
-                                self.orchestrator.broadcast_message("combat_turn_changed", {
+                                self.orchestrator.broadcast_event("combat_turn_changed", {
                                     "current_combatant": current,
                                     "round": response.get("round", 1)
                                 })
@@ -2111,9 +2554,19 @@ class ModularDMAssistant:
                         return output
                     else:
                         error_msg = response.get('error', 'Turn management failed') if response else 'Agent communication timeout'
-                        if attempt == max_retries - 1:
-                            return f"❌ Failed to advance turn after {max_retries} attempts: {error_msg}"
-                        elif self.verbose:
+                        
+                        # Provide more helpful error messages
+                        if "not active" in error_msg.lower():
+                            if attempt == max_retries - 1:
+                                return f"❌ Combat is not active. Use 'start combat' to begin a new encounter."
+                        elif "no combatants" in error_msg.lower():
+                            if attempt == max_retries - 1:
+                                return f"❌ No combatants in combat. Use 'start combat' to add combatants automatically."
+                        else:
+                            if attempt == max_retries - 1:
+                                return f"❌ Failed to advance turn: {error_msg}"
+                        
+                        if self.verbose:
                             print(f"⚠️ Turn management attempt {attempt + 1} failed: {error_msg}, retrying...")
                         
                 except Exception as e:
@@ -2180,13 +2633,17 @@ class ModularDMAssistant:
         elif any(word in query for word in ["condition", "poisoned", "charmed", "stunned", "prone"]):
             category = "conditions"
         
-        # Quick condition lookup first (most efficient)
+        # Enhanced condition lookup with better pattern matching
         conditions = ["blinded", "charmed", "deafened", "frightened", "grappled", "incapacitated",
                      "invisible", "paralyzed", "poisoned", "prone", "restrained", "stunned", "unconscious"]
         
         condition_found = None
+        # Check for direct condition mentions or "what happens when X" patterns
         for condition in conditions:
-            if condition in query:
+            if (condition in query or
+                f"when {condition}" in query or
+                f"{condition} condition" in query or
+                f"happens when {condition}" in query):
                 condition_found = condition
                 break
         
@@ -2229,34 +2686,7 @@ class ModularDMAssistant:
             
             return output
         
-        # Only use enhanced error recovery as final fallback (instead of primary method)
-        try:
-            if self.error_recovery:
-                context = {"category": category, "type": "rule_query"}
-                result = self.error_recovery.process_with_recovery(query, context)
-                
-                if "error" not in result:
-                    if "rule_text" in result:
-                        output = f"📖 **{category.upper()} RULE**\n\n"
-                        output += f"**Rule:** {result['rule_text']}\n\n"
-                        
-                        if result.get("sources"):
-                            output += f"**Sources:** {result['sources']}\n"
-                        
-                        confidence = result.get("confidence", "medium")
-                        confidence_emoji = {"high": "🔍", "medium": "📚", "low": "❓"}
-                        output += f"**Confidence:** {confidence_emoji.get(confidence, '📚')} {confidence}\n"
-                        
-                        output += f"\n*Used enhanced error recovery*"
-                        return output
-                    elif "answer" in result:
-                        return f"📖 {result['answer']}"
-        
-        except Exception as e:
-            if self.verbose:
-                print(f"⚠️ Enhanced rule processing failed: {e}")
-        
-        # Final fallback
+        # Fallback if rule query fails
         error_msg = response.get('error', 'Unknown error') if response else 'Agent communication timeout'
         return f"❌ Failed to find rule: {error_msg}"
     
@@ -2317,9 +2747,13 @@ class ModularDMAssistant:
             
             # Restore game state to game engine
             if self.game_engine_agent and self.game_save_data.get('game_state'):
-                self._send_message_and_wait("game_engine", "update_game_state", {
-                    "game_state": self.game_save_data['game_state']
-                })
+                response = self._send_message_and_wait("game_engine", "update_game_state", {
+                    "updates": self.game_save_data['game_state']
+                }, timeout=20.0)  # Even longer timeout for loading game saves
+                
+                if not (response and response.get("success")) and self.verbose:
+                    error_msg = response.get('error', 'Unknown error') if response else 'Timeout'
+                    print(f"⚠️ Game save restore failed: {error_msg}")
             
             # Restore last scenario options
             if self.game_save_data.get('last_scenario_options'):
@@ -2416,6 +2850,17 @@ class ModularDMAssistant:
                 print(f"❌ Error saving game: {e}")
             return False
     
+    def _extract_params(self, instruction: str) -> dict:
+        """Extract parameters from instruction for save/load commands"""
+        words = instruction.split()
+        params = {}
+        
+        # For commands like "save game MyGame" or "load save 1"
+        if len(words) >= 3:
+            params['param_1'] = words[2]
+        
+        return params
+
     def run_interactive(self):
         """Run the interactive DM assistant"""
         print("=== Modular RAG-Powered Dungeon Master Assistant ===")
@@ -2434,18 +2879,7 @@ class ModularDMAssistant:
                     if dm_input.lower() in ["quit", "exit", "q"]:
                         break
                     
-                    if dm_input.lower() == "help":
-                        print("🎮 COMMANDS:")
-                        print("  📚 Campaign: list campaigns, select campaign [n], campaign info")
-                        print("  👥 Players: list players, player info [name]")
-                        print("  🎭 Scenario: introduce scenario, generate [description], select option [n]")
-                        print("  🎲 Dice: roll [dice expression], roll 1d20, roll 3d6+2")
-                        print("  ⚔️  Combat: start combat, add combatant [name], combat status, next turn, end combat")
-                        print("  📖 Rules: check rule [query], rule [topic], how does [mechanic] work")
-                        print("  💾 Save/Load: save game [name], list saves, load save [n], update save")
-                        print("  🖥️  System: agent status, game state")
-                        print("  💬 General: Ask any D&D question for RAG-powered answers")
-                        continue
+                    # Remove hardcoded help - let it go through normal command processing
                     
                     if not dm_input:
                         continue

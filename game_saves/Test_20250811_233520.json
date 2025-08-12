@@ -1,0 +1,114 @@
+{
+  "save_name": "Test",
+  "save_date": "2025-08-11T23:35:20.199524",
+  "version": "1.0",
+  "game_state": {
+    "players": {},
+    "npcs": {},
+    "world": {
+      "locations": []
+    },
+    "story_arc": "",
+    "scene_history": [
+      "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}"
+    ],
+    "current_scenario": "{\n  \"scene_text\": \"You are at unknown. Recent events: .\",\n  \"seed\": {\n    \"location\": \"unknown\",\n    \"recent\": [],\n    \"party\": [],\n    \"story_arc\": \"\"\n  },\n  \"options\": [\n    \"4. Leave and gather more information.\",\n    \"2. Approach openly and ask questions.\",\n    \"3. Set up an ambush and wait.\",\n    \"1. Investigate the suspicious noise.\"\n  ]\n}",
+    "current_options": "1. Stealth Check (DC 16) - Sneak closer to the obelisk to examine the runes and overhear the chanting without alerting the spectral figures\n2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes\n3. Combat - Launch a surprise attack on the ghostly figures before they complete whatever ritual they're performing (3 Specters)\n4. Call out to the spectral figures and attempt to communicate, risking interrupting their ritual but potentially gaining valuable information about this place",
+    "session": {
+      "location": "unknown",
+      "time": "",
+      "events": [
+        "New scene generated"
+      ]
+    },
+    "action_queue": [],
+    "story_progression": [
+      {
+        "choice": "1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "consequence": "\ud83c\udfb2 **STEALTH CHECK (DC 14)**\n**Roll:** 1d20 \u2192 [19] = 19 = **19** - SUCCESS!\n\n**Story Continues:**\nDM chose: 1. Stealth Check (DC 14) - Carefully sneak across the bridge and around the tower to avoid whatever lurks within, using the crumbling stonework as cover",
+        "timestamp": 1754979915.400506,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "stealth",
+          "dc": 14,
+          "roll_total": 19,
+          "success": true,
+          "roll_description": "1d20 \u2192 [19] = 19",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+        "timestamp": 1754979976.46099,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "investigation",
+          "dc": 15,
+          "roll_total": 14,
+          "success": false,
+          "roll_description": "1d20 \u2192 [14] = 14",
+          "expression": "1d20"
+        }
+      },
+      {
+        "choice": "1. Athletics Check (DC 16) - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded",
+        "consequence": "\ud83c\udfb2 **ATHLETICS CHECK (DC 16)**\n**Roll:** 1d20 \u2192 [6] = 6 = **6** - FAILURE!\n\n**Story Continues:**\nDM chose: 1. Athletics Check (DC 16) - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded",
+        "timestamp": 1754980501.791772,
+        "skill_check": {
+          "type": "skill_check",
+          "skill": "athletics",
+          "dc": 16,
+          "roll_total": 6,
+          "success": false,
+          "roll_description": "1d20 \u2192 [6] = 6",
+          "expression": "1d20"
+        }
+      }
+    ],
+    "scenario_count": 8,
+    "location": "Unknown Location",
+    "last_scenario_query": "generate scenario with combat options",
+    "last_scenario_text": "As you creep closer to get a better view of the ritual, your foot dislodges a loose stone that clatters down into the courtyard below. The hooded figures immediately cease their chanting and turn toward your position, their glowing red eyes piercing the darkness as they spot your silhouette against the crumbling wall. Three of the cultists begin moving toward the stairs leading to your level while their leader raises a twisted staff, dark energy crackling around its tip as he begins weaving a spell.\n\n**Choose your action:**\n\n1. **Athletics Check (DC 16)** - Leap across a gap to the adjacent tower's balcony to gain higher ground and avoid being surrounded\n\n2. **Combat** - Stand your ground and fight the approaching enemies (3 Cultists, 1 Cult Fanatic leader)\n\n3. **Stealth Check (DC 17)** - Attempt to slip away in the shadows and circle around to ambush the cult leader while he's distracted with spellcasting\n\n4. **Intimidation Check (DC 15)** - Reveal yourself boldly and attempt to frighten the cultists by shouting threats about bringing reinforcements, hoping they'll flee rather than fight",
+    "last_updated": 1754980500.41009,
+    "last_player_choice": "2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes",
+    "last_consequence": "\ud83c\udfb2 **INVESTIGATION CHECK (DC 15)**\n**Roll:** 1d20 \u2192 [14] = 14 = **14** - FAILURE!\n\n**Story Continues:**\nDM chose: 2. Investigation Check (DC 15) - Study the courtyard from your current position to identify the nature of the ritual and any potential dangers or escape routes"
+  },
+  "campaign_info": {},
+  "players": [
+    {
+      "name": "kali",
+      "race": "Azish",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "11/11"
+    },
+    {
+      "name": "Aggi",
+      "race": "Alethi",
+      "character_class": "Radiant",
+      "level": 1,
+      "hp": "8/8"
+    }
+  ],
+  "combat_state": {
+    "state": "inactive",
+    "round": 0,
+    "combatants": [],
+    "current_combatant": null
+  },
+  "last_scenario_options": [
+    "1. Acrobatics Check (DC 14) - Roll between the legs of the nearest cultist and sprint toward the ritual altar to disrupt the leader's spellcasting before he can complete it",
+    "2. Combat - Draw your weapon and fight desperately against the encircling enemies (3 Cultists surrounding you, 1 Cult Fanatic leader casting from above)",
+    "3. Deception Check (DC 13) - Pretend to be more injured than you are and beg for mercy, hoping to catch them off guard when they move closer to capture you",
+    "4. Perception Check (DC 12) - Quickly scan the courtyard for any environmental advantages\u2014loose stones, ritual components, or structural weaknesses you could exploit"
+  ],
+  "assistant_config": {
+    "collection_name": "dnd_documents",
+    "campaigns_dir": "docs/current_campaign",
+    "players_dir": "docs/players",
+    "enable_game_engine": true,
+    "enable_caching": true,
+    "enable_async": true
+  }
+}

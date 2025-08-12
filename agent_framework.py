@@ -193,6 +193,8 @@ class MessageBus:
     
     def send_message(self, message: AgentMessage):
         """Send a message through the bus"""
+        # Store message immediately for synchronous access
+        self._store_message(message)
         self.message_queue.put(message)
     
     def start(self):

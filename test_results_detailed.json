@@ -1,0 +1,412 @@
+{
+  "test_summary": {
+    "total_tests": 44,
+    "passed_tests": 43,
+    "failed_tests": 1,
+    "duration_seconds": 200.9742820262909,
+    "test_date": "2025-08-11T23:58:16.058253"
+  },
+  "test_results": [
+    {
+      "test_name": "Environment Setup",
+      "success": true,
+      "message": "Test directories and files created",
+      "error": null,
+      "timestamp": "2025-08-11T23:54:55.084513",
+      "round": 0
+    },
+    {
+      "test_name": "Assistant Initialization",
+      "success": true,
+      "message": "ModularDMAssistant initialized and started",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:02.396158",
+      "round": 0
+    },
+    {
+      "test_name": "Help Command",
+      "success": true,
+      "message": "Help command returned command list",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:02.396397",
+      "round": 0
+    },
+    {
+      "test_name": "Agent Status",
+      "success": true,
+      "message": "Agent status command working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:02.725284",
+      "round": 0
+    },
+    {
+      "test_name": "List Campaigns",
+      "success": true,
+      "message": "Campaign listing working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:02.834746",
+      "round": 0
+    },
+    {
+      "test_name": "Campaign Info",
+      "success": true,
+      "message": "Campaign info command working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:02.944929",
+      "round": 0
+    },
+    {
+      "test_name": "List Players",
+      "success": true,
+      "message": "Player listing working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.055173",
+      "round": 0
+    },
+    {
+      "test_name": "Dice: Basic d20 roll",
+      "success": true,
+      "message": "'roll 1d20' working correctly",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.165608",
+      "round": 0
+    },
+    {
+      "test_name": "Dice: Multiple dice roll",
+      "success": true,
+      "message": "'roll 3d6' working correctly",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.275344",
+      "round": 0
+    },
+    {
+      "test_name": "Dice: Roll with modifier",
+      "success": true,
+      "message": "'roll 1d20+5' working correctly",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.385617",
+      "round": 0
+    },
+    {
+      "test_name": "Dice: Skill check roll",
+      "success": true,
+      "message": "'roll stealth' working correctly",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.492474",
+      "round": 0
+    },
+    {
+      "test_name": "Dice: Perception check",
+      "success": true,
+      "message": "'roll perception' working correctly",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.599788",
+      "round": 0
+    },
+    {
+      "test_name": "Dice: Damage roll",
+      "success": true,
+      "message": "'roll damage' working correctly",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:03.759293",
+      "round": 0
+    },
+    {
+      "test_name": "Scenario Generation",
+      "success": true,
+      "message": "Basic scenario generation working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:09.526097",
+      "round": 0
+    },
+    {
+      "test_name": "Option Extraction",
+      "success": true,
+      "message": "Extracted 4 options",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:09.526124",
+      "round": 0
+    },
+    {
+      "test_name": "Contextual Scenario",
+      "success": true,
+      "message": "Contextual scenario generation working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:18.788958",
+      "round": 0
+    },
+    {
+      "test_name": "Option Selection",
+      "success": true,
+      "message": "Player choice system working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.125752",
+      "round": 0
+    },
+    {
+      "test_name": "Start Combat",
+      "success": true,
+      "message": "Combat initialization working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.452462",
+      "round": 0
+    },
+    {
+      "test_name": "Combat Status",
+      "success": true,
+      "message": "Combat status working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.452537",
+      "round": 0
+    },
+    {
+      "test_name": "Next Turn",
+      "success": true,
+      "message": "Turn advancement working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.562845",
+      "round": 0
+    },
+    {
+      "test_name": "End Combat",
+      "success": true,
+      "message": "Combat ending working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.670351",
+      "round": 0
+    },
+    {
+      "test_name": "Rule: Stealth rules",
+      "success": true,
+      "message": "'rule stealth' working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.775731",
+      "round": 0
+    },
+    {
+      "test_name": "Rule: Combat rules",
+      "success": true,
+      "message": "'how does combat work' working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.885985",
+      "round": 0
+    },
+    {
+      "test_name": "Rule: Advantage rules",
+      "success": true,
+      "message": "'check rule advantage' working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:47.993109",
+      "round": 0
+    },
+    {
+      "test_name": "Rule: Condition rules",
+      "success": false,
+      "message": "'what happens when poisoned' unexpected format",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:48.102718",
+      "round": 0
+    },
+    {
+      "test_name": "Game State",
+      "success": true,
+      "message": "Game state retrieval working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:48.103114",
+      "round": 0
+    },
+    {
+      "test_name": "Save Game",
+      "success": true,
+      "message": "Game save working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:48.104538",
+      "round": 0
+    },
+    {
+      "test_name": "List Saves",
+      "success": true,
+      "message": "Save listing working",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:48.105315",
+      "round": 0
+    },
+    {
+      "test_name": "Round 1 Scenario",
+      "success": true,
+      "message": "Scenario generated successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:55:55.417691",
+      "round": 1
+    },
+    {
+      "test_name": "Round 1 Choice",
+      "success": true,
+      "message": "Option 2 selected successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:56:16.215065",
+      "round": 1
+    },
+    {
+      "test_name": "Round 1 Dice",
+      "success": true,
+      "message": "Dice roll successful",
+      "error": null,
+      "timestamp": "2025-08-11T23:56:16.371257",
+      "round": 1
+    },
+    {
+      "test_name": "Round 2 Scenario",
+      "success": true,
+      "message": "Scenario generated successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:56:24.727576",
+      "round": 2
+    },
+    {
+      "test_name": "Round 2 Choice",
+      "success": true,
+      "message": "Option 2 selected successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:56:41.418716",
+      "round": 2
+    },
+    {
+      "test_name": "Round 2 Dice",
+      "success": true,
+      "message": "Dice roll successful",
+      "error": null,
+      "timestamp": "2025-08-11T23:56:41.524232",
+      "round": 2
+    },
+    {
+      "test_name": "Round 3 Scenario",
+      "success": true,
+      "message": "Scenario generated successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:56:51.431942",
+      "round": 3
+    },
+    {
+      "test_name": "Round 3 Choice",
+      "success": true,
+      "message": "Option 2 selected successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:57:12.940999",
+      "round": 3
+    },
+    {
+      "test_name": "Round 3 Dice",
+      "success": true,
+      "message": "Dice roll successful",
+      "error": null,
+      "timestamp": "2025-08-11T23:57:13.051338",
+      "round": 3
+    },
+    {
+      "test_name": "Round 4 Scenario",
+      "success": true,
+      "message": "Scenario generated successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:57:22.714005",
+      "round": 4
+    },
+    {
+      "test_name": "Round 4 Choice",
+      "success": true,
+      "message": "Option 2 selected successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:57:44.814781",
+      "round": 4
+    },
+    {
+      "test_name": "Round 4 Dice",
+      "success": true,
+      "message": "Dice roll successful",
+      "error": null,
+      "timestamp": "2025-08-11T23:57:44.923838",
+      "round": 4
+    },
+    {
+      "test_name": "Round 5 Scenario",
+      "success": true,
+      "message": "Scenario generated successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:57:54.317286",
+      "round": 5
+    },
+    {
+      "test_name": "Round 5 Choice",
+      "success": true,
+      "message": "Option 2 selected successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:58:14.850849",
+      "round": 5
+    },
+    {
+      "test_name": "Round 5 Dice",
+      "success": true,
+      "message": "Dice roll successful",
+      "error": null,
+      "timestamp": "2025-08-11T23:58:14.961278",
+      "round": 5
+    },
+    {
+      "test_name": "Cleanup",
+      "success": true,
+      "message": "Assistant stopped successfully",
+      "error": null,
+      "timestamp": "2025-08-11T23:58:16.058067",
+      "round": 5
+    }
+  ],
+  "issues_found": [
+    "**Rule: Condition rules**: 'what happens when poisoned' unexpected format"
+  ],
+  "test_log": [
+    "\u2705 Environment Setup: Test directories and files created",
+    "\u2705 Assistant Initialization: ModularDMAssistant initialized and started",
+    "\u2705 Help Command: Help command returned command list",
+    "\u2705 Agent Status: Agent status command working",
+    "\u2705 List Campaigns: Campaign listing working",
+    "\u2705 Campaign Info: Campaign info command working",
+    "\u2705 List Players: Player listing working",
+    "\u2705 Dice: Basic d20 roll: 'roll 1d20' working correctly",
+    "\u2705 Dice: Multiple dice roll: 'roll 3d6' working correctly",
+    "\u2705 Dice: Roll with modifier: 'roll 1d20+5' working correctly",
+    "\u2705 Dice: Skill check roll: 'roll stealth' working correctly",
+    "\u2705 Dice: Perception check: 'roll perception' working correctly",
+    "\u2705 Dice: Damage roll: 'roll damage' working correctly",
+    "\u2705 Scenario Generation: Basic scenario generation working",
+    "\u2705 Option Extraction: Extracted 4 options",
+    "\u2705 Contextual Scenario: Contextual scenario generation working",
+    "\u2705 Option Selection: Player choice system working",
+    "\u2705 Start Combat: Combat initialization working",
+    "\u2705 Combat Status: Combat status working",
+    "\u2705 Next Turn: Turn advancement working",
+    "\u2705 End Combat: Combat ending working",
+    "\u2705 Rule: Stealth rules: 'rule stealth' working",
+    "\u2705 Rule: Combat rules: 'how does combat work' working",
+    "\u2705 Rule: Advantage rules: 'check rule advantage' working",
+    "\u274c Rule: Condition rules: 'what happens when poisoned' unexpected format",
+    "\u2705 Game State: Game state retrieval working",
+    "\u2705 Save Game: Game save working",
+    "\u2705 List Saves: Save listing working",
+    "\u2705 Round 1 Scenario: Scenario generated successfully",
+    "\u2705 Round 1 Choice: Option 2 selected successfully",
+    "\u2705 Round 1 Dice: Dice roll successful",
+    "\u2705 Round 2 Scenario: Scenario generated successfully",
+    "\u2705 Round 2 Choice: Option 2 selected successfully",
+    "\u2705 Round 2 Dice: Dice roll successful",
+    "\u2705 Round 3 Scenario: Scenario generated successfully",
+    "\u2705 Round 3 Choice: Option 2 selected successfully",
+    "\u2705 Round 3 Dice: Dice roll successful",
+    "\u2705 Round 4 Scenario: Scenario generated successfully",
+    "\u2705 Round 4 Choice: Option 2 selected successfully",
+    "\u2705 Round 4 Dice: Dice roll successful",
+    "\u2705 Round 5 Scenario: Scenario generated successfully",
+    "\u2705 Round 5 Choice: Option 2 selected successfully",
+    "\u2705 Round 5 Dice: Dice roll successful",
+    "\u2705 Cleanup: Assistant stopped successfully"
+  ]
+}

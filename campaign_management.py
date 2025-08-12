@@ -486,6 +486,9 @@ class CampaignManagerAgent(BaseAgent):
         # Load data
         self._load_campaigns()
         self._load_players()
+        
+        # CRITICAL FIX: Setup message handlers
+        self._setup_handlers()
     
     def _setup_handlers(self):
         """Setup message handlers for campaign manager"""

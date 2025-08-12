@@ -171,31 +171,30 @@ def check_prerequisites():
     print("=== Prerequisites Check ===")
     
     try:
-        from rag_agent import RAGAgent, CLAUDE_AVAILABLE
+        from haystack_pipeline_agent import HaystackPipelineAgent
         
-        if not CLAUDE_AVAILABLE:
-            print("❌ Claude integration not available")
-            print("   Campaign generation requires Claude for LLM functionality")
-            return False
-        else:
-            print("✓ Claude integration available")
-        
-        # Try to initialize RAG agent
+        # Check Claude availability from campaign_generator
         try:
-            agent = RAGAgent(collection_name="dnd_documents", verbose=False)
-            print("✓ RAG agent initialization successful")
-            
-            # Check collection info
-            info = agent.get_collection_info()
-            if "error" not in info:
-                print(f"✓ Document collection ready: {info['total_documents']} documents")
+            from campaign_generator import CLAUDE_AVAILABLE
+            if not CLAUDE_AVAILABLE:
+                print("❌ Claude integration not available")
+                print("   Campaign generation requires Claude for LLM functionality")
+                return False
             else:
-                print(f"⚠️  Collection issue: {info['error']}")
+                print("✓ Claude integration available")
+        except ImportError:
+            print("⚠️  Could not check Claude availability")
+        
+        # Try to initialize Haystack agent
+        try:
+            agent = HaystackPipelineAgent(collection_name="dnd_documents", verbose=False)
+            print("✓ Haystack agent initialization successful")
+            print("✓ Document collection ready for campaign generation")
             
             return True
             
         except Exception as e:
-            print(f"❌ RAG agent initialization failed: {e}")
+            print(f"❌ Haystack agent initialization failed: {e}")
             print("   Make sure Qdrant is running: docker run -p 6333:6333 qdrant/qdrant")
             return False
             
