@@ -26,13 +26,13 @@ DEFAULT_RANKER_TOP_K = 5
 DEFAULT_EMBEDDING_DIM = 384
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
-
+RANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 # Claude-specific imports
 try:
-    from XXXgenielib import component
-    from XXXgenielib.components.generators.chat import XXXGenAIChatGenerator
-    from XXXgenielib.dataclasses import ChatMessage
+    from hwtgenielib import component
+    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+    from hwtgenielib.dataclasses import ChatMessage
     CLAUDE_AVAILABLE = True
 except ImportError:
     CLAUDE_AVAILABLE = False
@@ -74,10 +74,9 @@ class HaystackPipelineAgent(BaseAgent):
         self.document_store = None
         self.pipeline = None
         
-        # Pipeline variants for different use cases
-        self.scenario_pipeline = None
-        self.npc_pipeline = None
+        # Pipeline variants for different use cases (scenario and NPC pipelines removed)
         self.rules_pipeline = None
+        self.retrieval_pipeline = None  # Pure retrieval without LLM
         
         # Initialize components
         self._setup_document_store()
@@ -87,10 +86,9 @@ class HaystackPipelineAgent(BaseAgent):
         self._setup_handlers()
     
     def _setup_handlers(self):
-        """Setup message handlers for Haystack pipeline agent"""
+        """Setup message handlers for pure RAG functionality"""
         self.register_handler("query_rag", self._handle_query_rag)
-        self.register_handler("query_scenario", self._handle_query_scenario)
-        self.register_handler("query_npc", self._handle_query_npc)
+        self.register_handler("retrieve_documents", self._handle_retrieve_documents)
         self.register_handler("query_rules", self._handle_query_rules)
         self.register_handler("get_pipeline_status", self._handle_get_pipeline_status)
         self.register_handler("get_collection_info", self._handle_get_collection_info)
@@ -132,7 +130,7 @@ class HaystackPipelineAgent(BaseAgent):
     def _create_ranker(self) -> SentenceTransformersSimilarityRanker:
         """Create document ranker"""
         ranker = SentenceTransformersSimilarityRanker(
-            model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            model= RANKER_MODEL,
             top_k=DEFAULT_RANKER_TOP_K
         )
         ranker.warm_up()
@@ -140,7 +138,8 @@ class HaystackPipelineAgent(BaseAgent):
     
     def _create_general_prompt_builder(self) -> PromptBuilder:
         """Create general RAG prompt builder"""
-        template = """You are a helpful D&D assistant. Answer based on the provided context.
+        template = """You are a helpful D&D assistant that is specialized as a RAG data retrieval agent. Answer based on the provided context and relying solely on the retrieved information instead of your inner knowledge.
+Your audience is an AI agent looking for retrieved data information, so answer accordingly. When the retrieved information is directly irrelevant, do not guess. You should output "No response generated".
 
 Retrieved information:
 {% for document in documents %}
@@ -155,48 +154,12 @@ Query: {{ query }}
 Answer:"""
         return PromptBuilder(template=template)
     
-    def _create_scenario_prompt_builder(self) -> PromptBuilder:
-        """Create scenario-specific prompt builder"""
-        template = """You are an expert Dungeon Master creating engaging scenarios.
-
-{% if documents %}
-Context from D&D materials:
-{% for document in documents %}
-  {{ document.content }}
-  ---
-{% endfor %}
-{% endif %}
-
-Current situation: {{ query }}
-Campaign info: {{ campaign_context }}
-Game state: {{ game_state }}
-
-{% if documents %}
-Generate a compelling scenario based on the provided context (2-3 sentences) and 3-4 numbered player options.
-{% else %}
-You are continuing an ongoing D&D story. Based on the current situation, campaign info, and game state provided, create a compelling narrative continuation. Use your creativity to advance the story in an engaging way that makes sense for a D&D adventure. Provide 2-3 sentences describing what happens next, followed by 3-4 numbered options for the players to choose from.
-{% endif %}"""
-        return PromptBuilder(template=template)
     
-    def _create_npc_prompt_builder(self) -> PromptBuilder:
-        """Create NPC-specific prompt builder"""
-        template = """You are an NPC behavior specialist. Use D&D context to determine NPC actions.
-
-D&D Context:
-{% for document in documents %}
-  {{ document.content }}
-  ---
-{% endfor %}
-
-NPC situation: {{ query }}
-Game context: {{ game_state }}
-
-Provide a brief action plan for this NPC (JSON format with 'action' and 'reasoning'):"""
-        return PromptBuilder(template=template)
     
     def _create_rules_prompt_builder(self) -> PromptBuilder:
         """Create rules-specific prompt builder"""
-        template = """You are a D&D rules expert. Provide accurate rule explanations.
+        template = """You are a D&D rules expert. Provide accurate rule explanations. Answer relying solely on the retrieved information instead of your inner knowledge.
+Your audience is an AI agent looking for retrieved data information, so answer accordingly. When the retrieved information is directly irrelevant, do not guess. You should output "No response generated".
 
 Relevant rules:
 {% for document in documents %}
@@ -221,9 +184,8 @@ Provide a clear, accurate answer with rule citations:"""
             if self.verbose:
                 print("⚠️ Document store not available, pipelines disabled")
             self.pipeline = None
-            self.scenario_pipeline = None
-            self.npc_pipeline = None
             self.rules_pipeline = None
+            self.retrieval_pipeline = None
             return
         
         ranker = self._create_ranker()
@@ -242,7 +204,7 @@ Provide a clear, accurate answer with rule citations:"""
             prompt_builder = self._create_general_prompt_builder()
             string_to_chat = StringToChatMessages()
             answer_builder = AnswerBuilder()
-            chat_generator = XXXGenAIChatGenerator(
+            chat_generator = AppleGenAIChatGenerator(
                 model= LLM_MODEL
             )
             
@@ -257,7 +219,16 @@ Provide a clear, accurate answer with rule citations:"""
             self.pipeline.connect("ranker.documents", "answer_builder.documents")
             self.pipeline.connect("chat_generator.replies", "answer_builder.replies")
         
-        # Create specialized pipelines
+        # Create pure retrieval pipeline
+        self.retrieval_pipeline = Pipeline()
+        self.retrieval_pipeline.add_component("text_embedder", self._create_embedder())
+        self.retrieval_pipeline.add_component("retriever", self._create_retriever())
+        self.retrieval_pipeline.add_component("ranker", self._create_ranker())
+        
+        self.retrieval_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
+        self.retrieval_pipeline.connect("retriever.documents", "ranker.documents")
+        
+        # Create specialized pipelines (Rules only)
         self._setup_specialized_pipelines()
         
         if self.verbose:
@@ -265,40 +236,10 @@ Provide a clear, accurate answer with rule citations:"""
             print(f"✓ Haystack pipelines initialized in {mode} mode")
     
     def _setup_specialized_pipelines(self):
-        """Setup specialized pipelines for different agent types"""
+        """Setup specialized pipelines for Rules queries only"""
         if not self.has_llm:
             return
             
-        # Creative scenario generation pipeline (no document retrieval)
-        self.scenario_pipeline = Pipeline()
-        self.scenario_pipeline.add_component("prompt_builder", self._create_creative_scenario_prompt_builder())
-        self.scenario_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.scenario_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
-            model= LLM_MODEL
-        ))
-        
-        # Connect creative scenario pipeline (no retrieval)
-        self.scenario_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
-        self.scenario_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
-        
-        # NPC pipeline
-        self.npc_pipeline = Pipeline()
-        self.npc_pipeline.add_component("text_embedder", self._create_embedder())
-        self.npc_pipeline.add_component("retriever", self._create_retriever())
-        self.npc_pipeline.add_component("ranker", self._create_ranker())
-        self.npc_pipeline.add_component("prompt_builder", self._create_npc_prompt_builder())
-        self.npc_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.npc_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
-            model= LLM_MODEL
-        ))
-        
-        # Connect NPC pipeline
-        self.npc_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-        self.npc_pipeline.connect("retriever.documents", "ranker.documents")
-        self.npc_pipeline.connect("ranker.documents", "prompt_builder.documents")
-        self.npc_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
-        self.npc_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
-        
         # Rules pipeline
         self.rules_pipeline = Pipeline()
         self.rules_pipeline.add_component("text_embedder", self._create_embedder())
@@ -306,7 +247,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.add_component("ranker", self._create_ranker())
         self.rules_pipeline.add_component("prompt_builder", self._create_rules_prompt_builder())
         self.rules_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.rules_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.rules_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
@@ -317,22 +258,6 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
         self.rules_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
     
-    def _create_creative_scenario_prompt_builder(self) -> PromptBuilder:
-        """Create creative scenario prompt builder for story generation"""
-        template = """You are an expert Dungeon Master continuing an ongoing D&D adventure.
-
-Current situation: {{ query }}
-Campaign info: {{ campaign_context }}
-Game state: {{ game_state }}
-
-Based on the player's choice and current situation, create an engaging continuation of the story. Use your creativity and D&D knowledge to:
-
-1. Describe what happens as a result of the player's choice (2-3 sentences)
-2. Advance the story in an interesting direction
-3. Present 3-4 numbered options for what the players can do next
-
-Make it engaging, appropriate for D&D, and keep the story moving forward naturally."""
-        return PromptBuilder(template=template)
     
     def _handle_query_rag(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle general RAG query"""
@@ -355,40 +280,21 @@ Make it engaging, appropriate for D&D, and keep the story moving forward natural
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    def _handle_query_scenario(self, message: AgentMessage) -> Dict[str, Any]:
-        """Handle scenario-specific query"""
+    def _handle_retrieve_documents(self, message: AgentMessage) -> Dict[str, Any]:
+        """Handle pure document retrieval without LLM processing"""
         query = message.data.get("query")
-        campaign_context = message.data.get("campaign_context", "")
-        game_state = message.data.get("game_state", "")
+        max_docs = message.data.get("max_docs", 5)
         
         if not query:
             return {"success": False, "error": "No query provided"}
         
         try:
-            if self.scenario_pipeline:
-                result = self._run_scenario_pipeline(query, campaign_context, game_state)
-            else:
-                result = self._run_pipeline(self.pipeline, query)
-            return {"success": True, "result": result}
+            # Run retrieval pipeline without LLM
+            result = self._run_pure_retrieval(query, max_docs)
+            return {"success": True, "documents": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    def _handle_query_npc(self, message: AgentMessage) -> Dict[str, Any]:
-        """Handle NPC-specific query"""
-        query = message.data.get("query")
-        game_state = message.data.get("game_state", "")
-        
-        if not query:
-            return {"success": False, "error": "No query provided"}
-        
-        try:
-            if self.npc_pipeline:
-                result = self._run_npc_pipeline(query, game_state)
-            else:
-                result = self._run_pipeline(self.pipeline, query)
-            return {"success": True, "result": result}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
     
     def _handle_query_rules(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle rules-specific query"""
@@ -412,8 +318,7 @@ Make it engaging, appropriate for D&D, and keep the story moving forward natural
             "collection": self.collection_name,
             "pipelines": {
                 "general": self.pipeline is not None,
-                "scenario": self.scenario_pipeline is not None,
-                "npc": self.npc_pipeline is not None,
+                "retrieval": self.retrieval_pipeline is not None,
                 "rules": self.rules_pipeline is not None
             }
         }
@@ -475,40 +380,38 @@ Make it engaging, appropriate for D&D, and keep the story moving forward natural
                 "sources": self._format_sources(documents)
             }
     
-    def _run_scenario_pipeline(self, query: str, campaign_context: str, game_state: str) -> Dict[str, Any]:
-        """Run creative scenario-specific pipeline"""
-        result = self.scenario_pipeline.run({
-            "prompt_builder": {
-                "query": query,
-                "campaign_context": campaign_context,
-                "game_state": game_state
-            }
-        })
+    def _run_pure_retrieval(self, query: str, max_docs: int = 5) -> List[Dict[str, Any]]:
+        """Run pure document retrieval without LLM processing"""
+        if self.retrieval_pipeline is None:
+            return []
         
-        if "chat_generator" in result and "replies" in result["chat_generator"]:
-            answer = result["chat_generator"]["replies"][0].text
-        else:
-            answer = "No scenario generated"
+        # Override top_k for this specific query
+        original_top_k = self.retrieval_pipeline.get_component("ranker").top_k
+        self.retrieval_pipeline.get_component("ranker").top_k = max_docs
         
-        return {"answer": answer}
+        try:
+            result = self.retrieval_pipeline.run({
+                "text_embedder": {"text": query},
+                "ranker": {"query": query}
+            })
+            
+            documents = result.get("ranker", {}).get("documents", [])
+            
+            # Format documents for return
+            formatted_docs = []
+            for doc in documents:
+                formatted_docs.append({
+                    "content": doc.content,
+                    "meta": doc.meta,
+                    "score": getattr(doc, 'score', 0.0)
+                })
+            
+            return formatted_docs
+            
+        finally:
+            # Restore original top_k
+            self.retrieval_pipeline.get_component("ranker").top_k = original_top_k
     
-    def _run_npc_pipeline(self, query: str, game_state: str) -> Dict[str, Any]:
-        """Run NPC-specific pipeline"""
-        result = self.npc_pipeline.run({
-            "text_embedder": {"text": query},
-            "ranker": {"query": query},
-            "prompt_builder": {
-                "query": query,
-                "game_state": game_state
-            }
-        })
-        
-        if "chat_generator" in result and "replies" in result["chat_generator"]:
-            answer = result["chat_generator"]["replies"][0].text
-        else:
-            answer = "No NPC action generated"
-        
-        return {"answer": answer}
     
     def _format_sources(self, documents: List[Document]) -> List[Dict[str, Any]]:
         """Format source documents"""
