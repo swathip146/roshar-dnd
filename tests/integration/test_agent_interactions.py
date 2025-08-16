@@ -14,11 +14,11 @@ from unittest.mock import MagicMock, patch
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
 
-from character_manager_agent import CharacterManagerAgent
-from session_manager_agent import SessionManagerAgent
-from inventory_manager_agent import InventoryManagerAgent
-from spell_manager_agent import SpellManagerAgent
-from experience_manager_agent import ExperienceManagerAgent
+from agents.character_manager_agent import CharacterManagerAgent
+from agents.session_manager_agent import SessionManagerAgent
+from agents.inventory_manager_agent import InventoryManagerAgent
+from agents.spell_manager_agent import SpellManagerAgent
+from agents.experience_manager_agent import ExperienceManagerAgent
 from agent_framework import AgentOrchestrator
 
 

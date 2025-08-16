@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-from dice_system import DiceRoller, quick_roll
+from agents.dice_system import DiceRoller, quick_roll
 
 
 class CombatState(Enum):

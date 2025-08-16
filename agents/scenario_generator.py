@@ -7,7 +7,7 @@ import random
 from typing import Dict, List, Any, Optional, Tuple
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-from haystack_pipeline_agent import HaystackPipelineAgent
+from agents.haystack_pipeline_agent import HaystackPipelineAgent
 
 # Claude-specific imports
 CLAUDE_AVAILABLE = True

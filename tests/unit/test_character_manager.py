@@ -12,7 +12,7 @@ import shutil
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
 
-from character_manager_agent import CharacterManagerAgent
+from agents.character_manager_agent import CharacterManagerAgent
 
 class TestCharacterManager:
     """Test CharacterManager functionality"""

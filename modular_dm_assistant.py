@@ -12,22 +12,22 @@ from pathlib import Path
 from datetime import datetime
 
 from agent_framework import AgentOrchestrator, MessageType
-from game_engine import GameEngineAgent, JSONPersister
-from npc_controller import NPCControllerAgent
-from scenario_generator import ScenarioGeneratorAgent
-from campaign_management import CampaignManagerAgent
-from haystack_pipeline_agent import HaystackPipelineAgent
+from agents.game_engine import GameEngineAgent, JSONPersister
+from agents.npc_controller import NPCControllerAgent
+from agents.scenario_generator import ScenarioGeneratorAgent
+from agents.campaign_management import CampaignManagerAgent
+from agents.haystack_pipeline_agent import HaystackPipelineAgent
 # Removed redundant RAG imports - using HaystackPipelineAgent only
-from dice_system import DiceSystemAgent, DiceRoller
-from combat_engine import CombatEngineAgent, CombatEngine
-from rule_enforcement_agent import RuleEnforcementAgent
+from agents.dice_system import DiceSystemAgent, DiceRoller
+from agents.combat_engine import CombatEngineAgent, CombatEngine
+from agents.rule_enforcement_agent import RuleEnforcementAgent
 
 # New D&D-specific agents
-from character_manager_agent import CharacterManagerAgent
-from session_manager_agent import SessionManagerAgent
-from inventory_manager_agent import InventoryManagerAgent
-from spell_manager_agent import SpellManagerAgent
-from experience_manager_agent import ExperienceManagerAgent
+from agents.character_manager_agent import CharacterManagerAgent
+from agents.session_manager_agent import SessionManagerAgent
+from agents.inventory_manager_agent import InventoryManagerAgent
+from agents.spell_manager_agent import SpellManagerAgent
+from agents.experience_manager_agent import ExperienceManagerAgent
 
 # Removed over-engineered pipeline components - using simple inline methods instead
 

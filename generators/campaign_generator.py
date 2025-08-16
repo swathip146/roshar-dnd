@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 # Import Haystack pipeline agent functionality
-from haystack_pipeline_agent import HaystackPipelineAgent
+from agents.haystack_pipeline_agent import HaystackPipelineAgent
 
 # Claude-specific imports
 try:

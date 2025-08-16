@@ -6,7 +6,7 @@ import random
 from typing import Dict, List, Any, Optional
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-from haystack_pipeline_agent import HaystackPipelineAgent
+from agents.haystack_pipeline_agent import HaystackPipelineAgent
 
 
 class NPCControllerAgent(BaseAgent):
