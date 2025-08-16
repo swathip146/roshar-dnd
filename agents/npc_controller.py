@@ -22,11 +22,9 @@ except ImportError:
     def component(cls):
         return cls
 
-# Haystack components for RAG integration
+# Haystack components for NPC-specific processing only (no RAG duplication)
 from haystack import Pipeline
-from haystack.components.embedders import SentenceTransformersTextEmbedder
 from haystack.components.builders import PromptBuilder
-from haystack.components.rankers import SentenceTransformersSimilarityRanker
 
 # Configuration constants
 LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
@@ -83,9 +81,8 @@ class NPCState:
 class NPCControllerAgent(BaseAgent):
     """Enhanced NPC Controller with direct LLM integration, dialogue generation, and stat management"""
     
-    def __init__(self, haystack_agent=None, verbose: bool = False):
+    def __init__(self, verbose: bool = False):
         super().__init__("npc_controller", "NPCController")
-        self.haystack_agent = haystack_agent
         self.verbose = verbose
         
         # Direct LLM integration
@@ -132,41 +129,15 @@ class NPCControllerAgent(BaseAgent):
             self.has_llm = False
     
     def _setup_npc_pipeline(self):
-        """Initialize dedicated NPC pipeline with LLM integration"""
+        """Initialize simplified NPC pipeline with local LLM only"""
         if not self.has_llm:
             return
         
         try:
-            # Create NPC-specific pipeline
+            # Create NPC-specific pipeline (NO RAG components)
             self.npc_pipeline = Pipeline()
             
-            # Add components for RAG-enhanced NPC behavior
-            if self.haystack_agent and hasattr(self.haystack_agent, 'document_store') and self.haystack_agent.document_store:
-                # Only add retrieval components if document store is available
-                embedder = SentenceTransformersTextEmbedder(model=EMBEDDING_MODEL)
-                embedder.warm_up()
-                
-                from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
-                retriever = QdrantEmbeddingRetriever(
-                    document_store=self.haystack_agent.document_store,
-                    top_k=DEFAULT_TOP_K
-                )
-                
-                ranker = SentenceTransformersSimilarityRanker(
-                    model=RANKER_MODEL,
-                    top_k=DEFAULT_RANKER_TOP_K
-                )
-                ranker.warm_up()
-                
-                self.npc_pipeline.add_component("text_embedder", embedder)
-                self.npc_pipeline.add_component("retriever", retriever)
-                self.npc_pipeline.add_component("ranker", ranker)
-                
-                # Connect retrieval components
-                self.npc_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-                self.npc_pipeline.connect("retriever.documents", "ranker.documents")
-            
-            # Add NPC-specific prompt builder and LLM
+            # Add ONLY NPC-specific prompt builder and LLM
             prompt_builder = self._create_npc_prompt_builder()
             string_to_chat = StringToChatMessages()
             
@@ -174,14 +145,12 @@ class NPCControllerAgent(BaseAgent):
             self.npc_pipeline.add_component("string_to_chat", string_to_chat)
             self.npc_pipeline.add_component("chat_generator", self.chat_generator)
             
-            # Connect prompt and LLM components
-            if "ranker" in self.npc_pipeline.get_component_names():
-                self.npc_pipeline.connect("ranker.documents", "prompt_builder.documents")
+            # Connect ONLY prompt and LLM components (NO retrieval)
             self.npc_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
             self.npc_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
             
             if self.verbose:
-                print("✅ NPC pipeline initialized with RAG and LLM integration")
+                print("✅ NPC pipeline initialized with local LLM only")
                 
         except Exception as e:
             if self.verbose:
@@ -189,15 +158,19 @@ class NPCControllerAgent(BaseAgent):
             self.npc_pipeline = None
     
     def _create_npc_prompt_builder(self) -> PromptBuilder:
-        """Create NPC-specific prompt builder (moved from HaystackPipelineAgent)"""
+        """Create NPC-specific prompt builder"""
         template = """You are an advanced NPC behavior and dialogue specialist. Generate authentic, contextual responses for D&D NPCs with distinct personalities.
 
-{% if documents %}
-D&D Context:
-{% for document in documents %}
-  {{ document.content }}
-  ---
-{% endfor %}
+{% if rag_context %}
+Background Context from Knowledge Base:
+{{ rag_context }}
+---
+{% endif %}
+
+{% if behavioral_context %}
+Behavioral Guidance:
+{{ behavioral_context }}
+---
 {% endif %}
 
 NPC Profile:
@@ -265,7 +238,6 @@ Respond in JSON format:
         return {
             "has_llm": self.has_llm,
             "pipeline_available": self.npc_pipeline is not None,
-            "haystack_available": self.haystack_agent is not None,
             "npc_states_count": len(self.npc_states),
             "agent_type": self.agent_type
         }
@@ -469,26 +441,35 @@ Respond in JSON format:
     
     # Core NPC Generation Methods
     def _generate_npc_behavior(self, npc_id: str, context: str, game_state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Generate NPC behavior using LLM pipeline"""
+        """Generate NPC behavior using local LLM + orchestrator RAG"""
         if not self.npc_pipeline or not self.has_llm:
             return None
         
         try:
-            # Gather context from RAG if available
-            rag_context = self._gather_npc_context_from_rag(npc_id, context)
+            # Step 1: Get RAG context if needed
+            rag_context = {}
+            behavioral_context = {}
             
-            # Build enhanced prompt
+            if self._needs_rag_context(context):
+                rag_context = self._gather_npc_context_from_rag(npc_id, context)
+            
+            if self._needs_behavioral_guidance(context):
+                behavioral_context = self._get_behavioral_context_from_rag(npc_id, context)
+            
+            # Step 2: Build enhanced prompt with contexts
             npc_state = self.npc_states[npc_id]
             
-            # Run NPC pipeline
-            result = self._run_npc_pipeline(
+            # Step 3: Run local NPC pipeline (LLM only)
+            result = self._run_simplified_npc_pipeline(
                 query=context,
                 npc_name=npc_state.name,
                 personality=npc_state.personality,
                 location=npc_state.location,
-                current_state=f"HP: {npc_state.stats.get('hp', '?')}, Status: {', '.join(npc_state.status_effects) if npc_state.status_effects else 'Normal'}",
-                dialogue_history=self.dialogue_history.get(npc_id, [])[-3:],  # Last 3 exchanges
-                game_state=str(game_state)
+                current_state=f"HP: {npc_state.stats.get('hp', '?')}",
+                dialogue_history=self.dialogue_history.get(npc_id, [])[-3:],
+                game_state=str(game_state),
+                rag_context=rag_context,
+                behavioral_context=behavioral_context
             )
             
             if result and result.get("success"):
@@ -499,29 +480,50 @@ Respond in JSON format:
                 print(f"⚠️ NPC behavior generation failed: {e}")
         
         return None
+
+    def _needs_rag_context(self, context: str) -> bool:
+        """Determine if RAG context retrieval is needed"""
+        rag_triggers = ["talk", "conversation", "history", "relationship", "background"]
+        return any(trigger in context.lower() for trigger in rag_triggers)
+
+    def _needs_behavioral_guidance(self, context: str) -> bool:
+        """Determine if behavioral guidance from RAG is needed"""
+        behavior_triggers = ["decision", "choose", "react", "respond", "behavior"]
+        return any(trigger in context.lower() for trigger in behavior_triggers)
     
     def _generate_npc_dialogue(self, npc_id: str, context: str, player_input: str = None) -> Optional[Dict[str, Any]]:
-        """Generate contextually appropriate NPC dialogue"""
+        """Generate contextually appropriate NPC dialogue with enhanced RAG integration"""
         if not self.has_llm:
             return None
         
         try:
-            # Build dialogue context
+            # Build comprehensive dialogue context
             dialogue_context = self._build_dialogue_context(npc_id, context)
             
-            # Create dialogue-specific prompt
-            prompt_data = {
-                "query": f"Player says: '{player_input}'. Generate appropriate response." if player_input else context,
-                "npc_name": self.npc_states[npc_id].name,
-                "personality": dialogue_context.get('npc_personality', {}),
-                "location": dialogue_context.get('current_location', ''),
-                "current_state": f"Status: {', '.join(self.npc_states[npc_id].status_effects) if self.npc_states[npc_id].status_effects else 'Normal'}",
-                "dialogue_history": dialogue_context.get('dialogue_history', []),
-                "game_state": ""
-            }
+            # Get RAG context for enhanced dialogue
+            rag_context = {}
+            if player_input and len(player_input) > 5:  # Only for substantial input
+                rag_context = self._gather_npc_context_from_rag(npc_id, f"dialogue {player_input}")
             
-            # Run pipeline for dialogue generation
-            result = self._run_npc_pipeline(**prompt_data)
+            # Get rules context for social interactions
+            rules_context = {}
+            if any(word in (player_input or context).lower() for word in ["persuade", "intimidate", "deceive", "insight"]):
+                rules_context = self._get_npc_rules_context("social interaction", f"NPC {self.npc_states[npc_id].name}")
+            
+            # Create enhanced dialogue prompt
+            query_text = f"Player says: '{player_input}'. Generate appropriate response." if player_input else context
+            
+            result = self._run_simplified_npc_pipeline(
+                query=query_text,
+                npc_name=self.npc_states[npc_id].name,
+                personality=dialogue_context.get('npc_personality', {}),
+                location=dialogue_context.get('current_location', ''),
+                current_state=f"Status: {', '.join(self.npc_states[npc_id].status_effects) if self.npc_states[npc_id].status_effects else 'Normal'}",
+                dialogue_history=dialogue_context.get('dialogue_history', []),
+                game_state="",
+                rag_context=rag_context,
+                behavioral_context=rules_context
+            )
             
             if result and result.get("success"):
                 return self._parse_npc_response(result.get("response", ""))
@@ -532,14 +534,16 @@ Respond in JSON format:
         
         return None
     
-    def _run_npc_pipeline(self, query: str, npc_name: str, personality: Dict, location: str,
-                         current_state: str, dialogue_history: List, game_state: str) -> Dict[str, Any]:
-        """Execute NPC pipeline for behavior/dialogue generation"""
+    def _run_simplified_npc_pipeline(self, query: str, npc_name: str, personality: Dict,
+                                    location: str, current_state: str, dialogue_history: List,
+                                    game_state: str, rag_context: Dict = None,
+                                    behavioral_context: Dict = None) -> Dict[str, Any]:
+        """Execute simplified NPC pipeline for behavior/dialogue generation"""
         if not self.npc_pipeline:
             return {"success": False, "error": "NPC pipeline not available"}
         
         try:
-            # Prepare pipeline inputs
+            # Prepare pipeline inputs (NO retrieval components)
             pipeline_inputs = {
                 "prompt_builder": {
                     "query": query,
@@ -548,18 +552,13 @@ Respond in JSON format:
                     "location": location,
                     "current_state": current_state,
                     "dialogue_history": dialogue_history,
-                    "game_state": game_state
+                    "game_state": game_state,
+                    "rag_context": str(rag_context) if rag_context else "",
+                    "behavioral_context": str(behavioral_context) if behavioral_context else ""
                 }
             }
             
-            # Add retrieval inputs if pipeline has retrieval components
-            if "text_embedder" in self.npc_pipeline.get_component_names():
-                pipeline_inputs.update({
-                    "text_embedder": {"text": f"{npc_name} {query}"},
-                    "ranker": {"query": f"{npc_name} {query}"}
-                })
-            
-            # Run pipeline
+            # Run simplified pipeline (LLM only)
             result = self.npc_pipeline.run(pipeline_inputs)
             
             # Extract response
@@ -571,6 +570,14 @@ Respond in JSON format:
                 
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _run_npc_pipeline(self, query: str, npc_name: str, personality: Dict, location: str,
+                         current_state: str, dialogue_history: List, game_state: str) -> Dict[str, Any]:
+        """Legacy method - redirects to simplified pipeline"""
+        return self._run_simplified_npc_pipeline(
+            query=query, npc_name=npc_name, personality=personality, location=location,
+            current_state=current_state, dialogue_history=dialogue_history, game_state=game_state
+        )
     
     # State Management Methods
     def _get_npc_id(self, npc_name: str) -> str:
@@ -578,7 +585,7 @@ Respond in JSON format:
         return npc_name.lower().replace(" ", "_")
     
     def _initialize_npc_state(self, npc_id: str, npc_name: str):
-        """Initialize NPC state with default values"""
+        """Initialize NPC state with enhanced default values"""
         if npc_id not in self.npc_states:
             self.npc_states[npc_id] = NPCState(
                 npc_id=npc_id,
@@ -587,83 +594,236 @@ Respond in JSON format:
                     "hp": 15,
                     "max_hp": 15,
                     "ac": 12,
-                    "initiative": 10
+                    "initiative": 10,
+                    "str": 10,
+                    "dex": 10,
+                    "con": 10,
+                    "int": 10,
+                    "wis": 10,
+                    "cha": 10
                 },
                 personality={
                     "traits": ["curious", "helpful"],
                     "motivation": "assist travelers",
-                    "speech_pattern": "friendly and direct"
+                    "speech_pattern": "friendly and direct",
+                    "combat_traits": [],
+                    "relationship_preferences": "neutral"
+                },
+                relationships={
+                    "players": {"general": 0},
+                    "reputation": "unknown"
                 }
             )
             
+            # Add initialization memory
+            self.npc_states[npc_id].memory.append({
+                "type": "initialization",
+                "content": f"NPC {npc_name} initialized in the world",
+                "timestamp": time.time()
+            })
+            
             if self.verbose:
-                print(f"📝 Initialized NPC state for {npc_name}")
+                print(f"📝 Initialized enhanced NPC state for {npc_name}")
     
     def _update_npc_stats(self, npc_id: str, stat_updates: Dict[str, Any]) -> bool:
-        """Update NPC statistics and handle status effects"""
+        """Enhanced NPC statistics management with combat integration"""
         if npc_id not in self.npc_states:
             return False
         
         npc = self.npc_states[npc_id]
+        old_stats = npc.stats.copy()
         
-        # Update basic stats
+        # Update basic stats with validation
         for stat, value in stat_updates.items():
-            if stat in ['hp', 'max_hp', 'ac', 'initiative']:
-                npc.stats[stat] = value
+            if stat in ['hp', 'max_hp', 'ac', 'initiative', 'str', 'dex', 'con', 'int', 'wis', 'cha']:
+                # Validate stat ranges
+                if stat == 'hp':
+                    npc.stats[stat] = max(0, min(value, npc.stats.get('max_hp', 100)))
+                elif stat in ['str', 'dex', 'con', 'int', 'wis', 'cha']:
+                    npc.stats[stat] = max(1, min(30, value))  # D&D stat range
+                else:
+                    npc.stats[stat] = value
+                    
             elif stat == 'conditions' or stat == 'status_effects':
-                npc.status_effects = value if isinstance(value, list) else [value]
+                self._apply_status_effects(npc_id, value if isinstance(value, list) else [value])
             elif stat == 'location':
+                old_location = npc.location
                 npc.location = value
+                if old_location != value:
+                    npc.memory.append({
+                        "type": "movement",
+                        "content": f"Moved from {old_location} to {value}",
+                        "timestamp": time.time()
+                    })
             elif stat in ['personality', 'traits', 'motivation']:
                 if 'personality' not in npc.personality:
                     npc.personality = {}
                 npc.personality[stat] = value
+            elif stat == 'combat_state':
+                npc.current_action = {"type": "combat", "state": value, "timestamp": time.time()}
         
-        # Handle HP changes and unconscious/death conditions
+        # Handle HP changes with enhanced logic
         if 'hp' in stat_updates:
-            self._handle_hp_change(npc_id, stat_updates['hp'])
+            old_hp = old_stats.get('hp', 0)
+            self._handle_hp_change(npc_id, stat_updates['hp'], old_hp)
+        
+        # Handle status effect interactions
+        self._process_status_interactions(npc_id)
         
         npc.last_updated = time.time()
         
         if self.verbose:
-            print(f"📊 Updated stats for {npc.name}: {stat_updates}")
+            changes = {k: v for k, v in stat_updates.items() if old_stats.get(k) != v}
+            if changes:
+                print(f"📊 Updated stats for {npc.name}: {changes}")
         
         return True
-    
-    def _handle_hp_change(self, npc_id: str, new_hp: int):
-        """Handle NPC HP changes and status effects"""
+
+    def _apply_status_effects(self, npc_id: str, effects: List[str]):
+        """Apply status effects with proper stacking rules"""
         npc = self.npc_states[npc_id]
-        old_hp = npc.stats.get('hp', 0)
+        old_effects = npc.status_effects.copy()
         
-        # Add unconscious condition if HP drops to 0
+        # Status effects that don't stack
+        exclusive_effects = {
+            'conscious': ['unconscious', 'dead'],
+            'unconscious': ['conscious', 'dead'],
+            'dead': ['conscious', 'unconscious'],
+            'calm': ['frightened', 'charmed'],
+            'frightened': ['calm'],
+            'charmed': ['calm', 'frightened']
+        }
+        
+        for effect in effects:
+            if effect not in npc.status_effects:
+                # Remove conflicting effects
+                if effect in exclusive_effects:
+                    for conflicting in exclusive_effects[effect]:
+                        if conflicting in npc.status_effects:
+                            npc.status_effects.remove(conflicting)
+                
+                npc.status_effects.append(effect)
+                
+                # Log status change
+                npc.memory.append({
+                    "type": "status_change",
+                    "content": f"Gained {effect} condition",
+                    "timestamp": time.time()
+                })
+        
+        # Remove effects if explicitly set to empty
+        if not effects:
+            npc.status_effects.clear()
+
+    def _process_status_interactions(self, npc_id: str):
+        """Process interactions between different status effects"""
+        npc = self.npc_states[npc_id]
+        
+        # Unconscious NPCs can't take actions
+        if 'unconscious' in npc.status_effects:
+            npc.current_action = None
+            
+        # Frightened NPCs have reduced effectiveness
+        if 'frightened' in npc.status_effects:
+            # Could modify stats temporarily
+            pass
+            
+        # Charmed NPCs might have altered behavior
+        if 'charmed' in npc.status_effects:
+            # Could influence dialogue generation
+            pass
+    
+    def _handle_hp_change(self, npc_id: str, new_hp: int, old_hp: int = 0):
+        """Enhanced HP change handling with death saves and combat states"""
+        npc = self.npc_states[npc_id]
+        max_hp = npc.stats.get('max_hp', 20)
+        
+        # Calculate damage/healing amount
+        change = new_hp - old_hp
+        
+        # Handle different HP thresholds
         if new_hp <= 0 and old_hp > 0:
+            # Dropping to 0 HP
             if 'unconscious' not in npc.status_effects:
-                npc.status_effects.append('unconscious')
+                self._apply_status_effects(npc_id, ['unconscious'])
+            
+            # Check for massive damage (instant death)
+            if abs(change) >= max_hp:
+                self._apply_status_effects(npc_id, ['dead'])
+                npc.memory.append({
+                    "type": "combat_event",
+                    "content": f"Died from massive damage ({abs(change)} damage)",
+                    "timestamp": time.time()
+                })
+            else:
+                npc.memory.append({
+                    "type": "combat_event",
+                    "content": f"Dropped to 0 HP (took {abs(change)} damage)",
+                    "timestamp": time.time()
+                })
+                
+        elif new_hp > 0 and old_hp <= 0:
+            # Recovering from unconsciousness
+            if 'unconscious' in npc.status_effects:
+                npc.status_effects.remove('unconscious')
+            if 'dead' in npc.status_effects:
+                npc.status_effects.remove('dead')
+                
             npc.memory.append({
-                "type": "status_change",
-                "content": "Became unconscious",
+                "type": "combat_event",
+                "content": f"Regained consciousness (healed {change} HP)",
                 "timestamp": time.time()
             })
-        elif new_hp > 0 and 'unconscious' in npc.status_effects:
-            npc.status_effects.remove('unconscious')
+            
+        elif change < 0:
+            # Taking damage while conscious
+            damage_severity = abs(change) / max_hp
+            
+            if damage_severity >= 0.5:  # Massive damage
+                npc.memory.append({
+                    "type": "combat_event",
+                    "content": f"Took severe damage ({abs(change)} HP)",
+                    "timestamp": time.time()
+                })
+                # Might trigger fear or desperation
+                if random.random() < 0.3:  # 30% chance
+                    self._trigger_combat_behavior_change(npc_id, "desperate")
+                    
+        elif change > 0:
+            # Being healed
             npc.memory.append({
-                "type": "status_change",
-                "content": "Regained consciousness",
+                "type": "combat_event",
+                "content": f"Healed for {change} HP",
+                "timestamp": time.time()
+            })
+
+    def _trigger_combat_behavior_change(self, npc_id: str, behavior_type: str):
+        """Trigger behavioral changes based on combat events"""
+        npc = self.npc_states[npc_id]
+        
+        if behavior_type == "desperate":
+            # Add desperate fighting behavior
+            if "desperate" not in npc.personality.get("combat_traits", []):
+                if "combat_traits" not in npc.personality:
+                    npc.personality["combat_traits"] = []
+                npc.personality["combat_traits"].append("desperate")
+                
+            npc.memory.append({
+                "type": "behavior_change",
+                "content": "Became desperate in combat",
                 "timestamp": time.time()
             })
     
     # RAG Integration Methods
     def _gather_npc_context_from_rag(self, npc_id: str, query_context: str) -> Dict[str, Any]:
-        """Query RAG system for relevant NPC background information"""
-        if not self.haystack_agent:
-            return {}
-        
+        """Query RAG system via orchestrator for NPC background information"""
         try:
             npc_name = self.npc_states[npc_id].name
             
             # Build focused query for NPC-specific information
-            rag_query = f"NPC {npc_name} background, personality, history, relationships context: {query_context}"
+            rag_query = f"NPC {npc_name} background personality history relationships {query_context}"
             
+            # GOOD: Use agent framework messaging
             response = self.send_message("haystack_pipeline", "retrieve_documents", {
                 "query": rag_query,
                 "max_docs": 3
@@ -677,20 +837,67 @@ Respond in JSON format:
         
         return {}
     
+    def _get_behavioral_context_from_rag(self, npc_id: str, situation: str) -> Dict[str, Any]:
+        """Get behavioral guidance via orchestrator"""
+        try:
+            npc_name = self.npc_states[npc_id].name
+            rag_query = f"NPC behavior {npc_name} {situation} actions dialogue personality"
+            
+            response = self.send_message("haystack_pipeline", "query_rag", {
+                "query": rag_query
+            })
+            
+            if response and response.get("success"):
+                result = response.get("result", {})
+                return {
+                    "behavioral_guidance": result.get("answer", ""),
+                    "sources": result.get("sources", [])
+                }
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Behavioral context retrieval failed: {e}")
+        return {}
+
+    def _get_npc_rules_context(self, interaction_type: str, npc_context: str) -> Dict[str, Any]:
+        """Get D&D rules context for NPC interactions"""
+        try:
+            rules_query = f"D&D rules {interaction_type} NPC {npc_context} social interaction skills"
+            
+            response = self.send_message("haystack_pipeline", "query_rules", {
+                "query": rules_query
+            })
+            
+            if response and response.get("success"):
+                result = response.get("result", {})
+                return {
+                    "rules_guidance": result.get("answer", ""),
+                    "rule_sources": result.get("sources", [])
+                }
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Rules context retrieval failed: {e}")
+        return {}
+    
     def _build_dialogue_context(self, npc_id: str, situation: str) -> Dict[str, Any]:
-        """Build comprehensive context for dialogue generation"""
+        """Build comprehensive context for dialogue generation with enhanced memory"""
         if npc_id not in self.npc_states:
             return {}
         
         npc_state = self.npc_states[npc_id]
         
+        # Filter recent dialogue-specific memories
+        dialogue_memories = [
+            mem for mem in npc_state.memory[-10:]
+            if mem.get("type") in ["dialogue", "social_interaction", "relationship_change"]
+        ]
+        
         context = {
             'npc_personality': npc_state.personality,
             'current_location': npc_state.location,
             'relationship_with_players': npc_state.relationships,
-            'recent_events': npc_state.memory[-5:],  # Last 5 memories
+            'recent_events': dialogue_memories,  # Dialogue-relevant memories
             'current_situation': situation,
-            'dialogue_history': self.dialogue_history.get(npc_id, [])
+            'dialogue_history': self.dialogue_history.get(npc_id, [])[-5:]  # Last 5 exchanges
         }
         
         return context
@@ -751,76 +958,213 @@ Respond in JSON format:
     
     def _handle_social_interaction(self, npc_id: str, interaction_type: str,
                                  player_action: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle complex social interactions with NPCs"""
+        """Handle complex social interactions with NPCs using RAG-enhanced responses"""
         npc_state = self.npc_states[npc_id]
         
-        # Generate interaction response based on type
+        # Get rules context for this type of interaction
+        rules_context = self._get_npc_rules_context(interaction_type, f"NPC {npc_state.name} {player_action}")
+        
+        # Generate interaction response based on type with RAG enhancement
         if interaction_type == "persuasion":
-            return self._handle_persuasion_attempt(npc_id, player_action, context)
+            return self._handle_persuasion_attempt(npc_id, player_action, context, rules_context)
         elif interaction_type == "intimidation":
-            return self._handle_intimidation_attempt(npc_id, player_action, context)
+            return self._handle_intimidation_attempt(npc_id, player_action, context, rules_context)
         elif interaction_type == "deception":
-            return self._handle_deception_attempt(npc_id, player_action, context)
+            return self._handle_deception_attempt(npc_id, player_action, context, rules_context)
         else:
-            # Default conversation
+            # Enhanced default conversation with context
             dialogue_result = self._generate_npc_dialogue(npc_id, f"Social interaction: {player_action}", player_action)
+            
+            # Update relationship based on interaction quality
+            relationship_change = self._calculate_relationship_change(npc_id, player_action, dialogue_result)
+            
             return {
                 "response": dialogue_result.get("dialogue", "...") if dialogue_result else "...",
-                "relationship_change": 0,
-                "mood_change": "neutral"
+                "relationship_change": relationship_change,
+                "mood_change": dialogue_result.get("mood", "neutral") if dialogue_result else "neutral"
             }
+
+    def _calculate_relationship_change(self, npc_id: str, player_action: str, dialogue_result: Dict[str, Any]) -> int:
+        """Calculate relationship change based on interaction quality"""
+        if not dialogue_result:
+            return 0
+        
+        mood = dialogue_result.get("mood", "neutral")
+        action = dialogue_result.get("action", "")
+        
+        # Positive interactions
+        if mood in ["friendly", "happy", "pleased", "amused"]:
+            return 1
+        elif mood in ["grateful", "impressed", "trusting"]:
+            return 2
+        # Negative interactions
+        elif mood in ["annoyed", "skeptical", "wary"]:
+            return -1
+        elif mood in ["angry", "hostile", "distrustful", "fearful"]:
+            return -2
+        
+        return 0
     
-    def _handle_persuasion_attempt(self, npc_id: str, player_action: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle persuasion social interaction"""
-        # Simplified persuasion logic - could be expanded with skill checks
-        success = random.choice([True, False])  # 50/50 for now
+    def _handle_persuasion_attempt(self, npc_id: str, player_action: str, context: Dict[str, Any],
+                                 rules_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Handle persuasion social interaction with enhanced context"""
+        npc_state = self.npc_states[npc_id]
+        
+        # Enhanced persuasion logic considering personality and rules
+        base_chance = 0.5  # 50% base chance
+        
+        # Modify based on personality
+        if "trusting" in npc_state.personality.get("traits", []):
+            base_chance += 0.2
+        elif "skeptical" in npc_state.personality.get("traits", []):
+            base_chance -= 0.2
+            
+        # Consider relationship history
+        relationship_level = npc_state.relationships.get("players", {}).get("general", 0)
+        base_chance += relationship_level * 0.1
+        
+        success = random.random() < base_chance
+        
+        # Generate contextual response using dialogue system
+        dialogue_result = self._generate_npc_dialogue(
+            npc_id,
+            f"Player attempts persuasion: {player_action}. Success: {success}",
+            player_action
+        )
         
         if success:
+            # Update relationship and memory
+            self._update_relationship(npc_id, "players", 1)
+            npc_state.memory.append({
+                "type": "social_interaction",
+                "content": f"Persuaded by player: {player_action}",
+                "timestamp": time.time(),
+                "success": True
+            })
+            
             return {
-                "response": f"*{self.npc_states[npc_id].name} seems convinced by your words*",
+                "response": dialogue_result.get("dialogue", f"*{npc_state.name} seems convinced by your words*") if dialogue_result else f"*{npc_state.name} seems convinced by your words*",
                 "relationship_change": 1,
-                "mood_change": "friendly"
+                "mood_change": dialogue_result.get("mood", "friendly") if dialogue_result else "friendly"
             }
         else:
+            npc_state.memory.append({
+                "type": "social_interaction",
+                "content": f"Resisted persuasion attempt: {player_action}",
+                "timestamp": time.time(),
+                "success": False
+            })
+            
             return {
-                "response": f"*{self.npc_states[npc_id].name} remains unconvinced*",
+                "response": dialogue_result.get("dialogue", f"*{npc_state.name} remains unconvinced*") if dialogue_result else f"*{npc_state.name} remains unconvinced*",
                 "relationship_change": 0,
-                "mood_change": "skeptical"
+                "mood_change": dialogue_result.get("mood", "skeptical") if dialogue_result else "skeptical"
             }
     
-    def _handle_intimidation_attempt(self, npc_id: str, player_action: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle intimidation social interaction"""
-        success = random.choice([True, False])
+    def _handle_intimidation_attempt(self, npc_id: str, player_action: str, context: Dict[str, Any],
+                                   rules_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Handle intimidation social interaction with personality consideration"""
+        npc_state = self.npc_states[npc_id]
+        
+        # Enhanced intimidation logic
+        base_chance = 0.4  # Lower base chance than persuasion
+        
+        if "brave" in npc_state.personality.get("traits", []):
+            base_chance -= 0.3
+        elif "cowardly" in npc_state.personality.get("traits", []):
+            base_chance += 0.3
+            
+        success = random.random() < base_chance
+        
+        # Always causes relationship damage
+        self._update_relationship(npc_id, "players", -1)
+        
+        dialogue_result = self._generate_npc_dialogue(
+            npc_id,
+            f"Player attempts intimidation: {player_action}. Success: {success}",
+            player_action
+        )
+        
+        npc_state.memory.append({
+            "type": "social_interaction",
+            "content": f"Intimidation attempt: {player_action}",
+            "timestamp": time.time(),
+            "success": success
+        })
         
         if success:
             return {
-                "response": f"*{self.npc_states[npc_id].name} backs away nervously*",
+                "response": dialogue_result.get("dialogue", f"*{npc_state.name} backs away nervously*") if dialogue_result else f"*{npc_state.name} backs away nervously*",
                 "relationship_change": -1,
-                "mood_change": "fearful"
+                "mood_change": dialogue_result.get("mood", "fearful") if dialogue_result else "fearful"
             }
         else:
             return {
-                "response": f"*{self.npc_states[npc_id].name} stands their ground defiantly*",
+                "response": dialogue_result.get("dialogue", f"*{npc_state.name} stands their ground defiantly*") if dialogue_result else f"*{npc_state.name} stands their ground defiantly*",
                 "relationship_change": -1,
-                "mood_change": "hostile"
+                "mood_change": dialogue_result.get("mood", "hostile") if dialogue_result else "hostile"
             }
     
-    def _handle_deception_attempt(self, npc_id: str, player_action: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle deception social interaction"""
-        success = random.choice([True, False])
+    def _handle_deception_attempt(self, npc_id: str, player_action: str, context: Dict[str, Any],
+                                rules_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Handle deception social interaction with insight consideration"""
+        npc_state = self.npc_states[npc_id]
+        
+        # Enhanced deception logic
+        base_chance = 0.5
+        
+        if "perceptive" in npc_state.personality.get("traits", []):
+            base_chance -= 0.2
+        elif "gullible" in npc_state.personality.get("traits", []):
+            base_chance += 0.2
+            
+        success = random.random() < base_chance
+        
+        dialogue_result = self._generate_npc_dialogue(
+            npc_id,
+            f"Player attempts deception: {player_action}. Success: {success}",
+            player_action
+        )
+        
+        npc_state.memory.append({
+            "type": "social_interaction",
+            "content": f"Deception attempt: {player_action}",
+            "timestamp": time.time(),
+            "success": success
+        })
         
         if success:
             return {
-                "response": f"*{self.npc_states[npc_id].name} believes your story*",
+                "response": dialogue_result.get("dialogue", f"*{npc_state.name} believes your story*") if dialogue_result else f"*{npc_state.name} believes your story*",
                 "relationship_change": 0,
-                "mood_change": "trusting"
+                "mood_change": dialogue_result.get("mood", "trusting") if dialogue_result else "trusting"
             }
         else:
+            # Caught lying damages relationship significantly
+            self._update_relationship(npc_id, "players", -2)
             return {
-                "response": f"*{self.npc_states[npc_id].name} sees through your deception*",
+                "response": dialogue_result.get("dialogue", f"*{npc_state.name} sees through your deception*") if dialogue_result else f"*{npc_state.name} sees through your deception*",
                 "relationship_change": -2,
-                "mood_change": "distrustful"
+                "mood_change": dialogue_result.get("mood", "distrustful") if dialogue_result else "distrustful"
             }
+
+    def _update_relationship(self, npc_id: str, target: str, change: int):
+        """Update relationship values with tracking"""
+        npc_state = self.npc_states[npc_id]
+        if "relationships" not in npc_state.relationships:
+            npc_state.relationships = {}
+        if target not in npc_state.relationships:
+            npc_state.relationships[target] = {}
+        
+        current = npc_state.relationships[target].get("general", 0)
+        npc_state.relationships[target]["general"] = max(-10, min(10, current + change))
+        
+        # Log relationship change
+        npc_state.memory.append({
+            "type": "relationship_change",
+            "content": f"Relationship with {target} changed by {change} (now {npc_state.relationships[target]['general']})",
+            "timestamp": time.time()
+        })
     
     def _make_npc_decision(self, npc: Dict[str, Any], game_state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Make a decision for a single NPC"""
@@ -829,7 +1173,7 @@ Respond in JSON format:
             return self._rule_based_decision(npc, game_state)
         
         # Use hybrid approach: try enhanced NPC generation first, fall back to rule-based
-        if self.haystack_agent and self.has_llm:
+        if self.has_llm:
             # Try enhanced NPC behavior generation
             npc_id = self._get_npc_id(npc.get("name", "unknown"))
             if npc_id not in self.npc_states:
@@ -864,11 +1208,9 @@ Respond in JSON format:
         prompt = self._build_prompt_for_npc(npc, game_state)
         
         try:
-            response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
-                "query": prompt,
-                "npc_context": str(npc),
-                "game_state": str(game_state)
-            }, timeout=15.0)
+            response = self.send_message("haystack_pipeline", "query_rag", {
+                "query": prompt
+            })
             
             if not response or not response.get("success"):
                 return None
@@ -978,107 +1320,17 @@ Respond in JSON format:
         return "\n".join(prompt_parts)
     
     def process_tick(self):
-        """Process NPC controller tick - mostly reactive, no regular processing needed"""
-        pass
-
-
-# class NPCController:
-    """Traditional NPCController class for backward compatibility"""
-    
-    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, mode: str = "hybrid"):
-        self.haystack_agent = haystack_agent
-        self.mode = mode
-    
-    def decide(self, game_state: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Make decisions for all NPCs"""
-        actions = []
+        """Enhanced process tick with memory cleanup and state maintenance"""
+        current_time = time.time()
         
-        for npc_name, npc in game_state.get("npcs", {}).items():
-            # Normalize NPC structure
-            npc_obj = npc if isinstance(npc, dict) else {"name": npc}
+        # Clean up memories for NPCs that have too many
+        for npc_id, npc_state in self.npc_states.items():
+            if len(npc_state.memory) > 50:
+                self._cleanup_old_memories(npc_id)
             
-            if npc_obj.get("type") == "simple":
-                action = self._rule_based(npc_obj, game_state)
-                if action:
-                    actions.append(action)
-            else:
-                if self.mode in ("haystack", "hybrid") and self.haystack_agent:
-                    prompt = self._build_prompt_for_npc(npc_obj, game_state)
-                    try:
-                        response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
-                            "query": prompt,
-                            "npc_context": str(npc_obj),
-                            "game_state": str(game_state)
-                        }, timeout=15.0)
-                        
-                        if response and response.get("success"):
-                            result = response.get("result", {})
-                            answer = result.get("answer", "")
-                            
-                            # Try to parse the response
-                            if "to " in answer:
-                                to_idx = answer.index("to ")
-                                dest = answer[to_idx + 3:].split()[0]
-                                actions.append({
-                                    "actor": npc_name,
-                                    "type": "move",
-                                    "args": {"to": dest}
-                                })
-                        else:
-                            # Fallback to rule-based
-                            action = self._rule_based(npc_obj, game_state)
-                            if action:
-                                actions.append(action)
-                    except Exception:
-                        # Degrade to rule-based
-                        action = self._rule_based(npc_obj, game_state)
-                        if action:
-                            actions.append(action)
-        
-        return actions
-    
-    def _rule_based(self, npc: Dict[str, Any], game_state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Rule-based NPC decision making"""
-        # Example priorities: flee if HP low, attack or patrol
-        hp = npc.get("hp", 9999)
-        max_hp = npc.get("max_hp", hp)
-        
-        if max_hp and hp < max(1, max_hp * 0.25):
-            return {
-                "actor": npc.get("name"),
-                "type": "move",
-                "args": {"to": npc.get("flee_to", "safe_spot")}
-            }
-        
-        # If player in same location, choose to approach
-        players = game_state.get("players", {})
-        for player_name, player_data in players.items():
-            if player_data.get("location") == npc.get("location"):
-                return {
-                    "actor": npc.get("name"),
-                    "type": "raw_event",
-                    "args": {"text": f"{npc.get('name')} engages {player_name}."}
-                }
-        
-        # Else random patrol
-        locations = game_state.get("world", {}).get("locations", [])
-        if locations:
-            return {
-                "actor": npc.get("name"),
-                "type": "move",
-                "args": {"to": random.choice(locations)}
-            }
-        
-        return None
-    
-    def _build_prompt_for_npc(self, npc: Dict[str, Any], game_state: Dict[str, Any]) -> str:
-        """Build prompt for NPC decision making"""
-        parts = [
-            f"NPC: {npc.get('name')}",
-            f"Role: {npc.get('role', 'unknown')}",
-            f"HP: {npc.get('hp', '?')}"
-        ]
-        parts.append(f"Location: {npc.get('location', '?')}")
-        parts.append("Recent events: " + ", ".join(game_state.get('session', {}).get('events', [])[-4:]))
-        parts.append("What should this NPC do next? Be concise and return a tiny JSON-like answer with move_to if moving.")
-        return "\n".join(parts)
+            # Update last_updated if NPC hasn't been active
+            if current_time - npc_state.last_updated > 3600:  # 1 hour
+                npc_state.last_updated = current_time
+
+
+# Deprecated NPCController class removed - use NPCControllerAgent instead

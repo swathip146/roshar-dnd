@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This plan details the separation of NPC-specific functionality from the `HaystackPipelineAgent` into the `NPCControllerAgent`, creating a dedicated and enhanced NPC management system that can independently generate NPC behavior, create appropriate dialogues, manage NPC stats, and leverage RAG data retrieval when needed.
+This plan details the refactoring of NPC-specific functionality to eliminate RAG component duplication in the `NPCControllerAgent`. Instead of creating independent RAG pipelines, the NPC Controller will use the existing `HaystackPipelineAgent` through the agent orchestrator framework, maintaining NPC-specific capabilities while ensuring proper separation of concerns.
 
 ## Current State Analysis
 
@@ -26,57 +26,73 @@ Query → Text Embedder → Retriever → Ranker → NPC Prompt Builder → LLM 
 - Simple NPC action generation
 
 **Current Limitations:**
-- No direct LLM integration for creative dialogue
-- Limited to basic movement/engagement actions
-- No stat tracking or persistent NPC state
-- No dialogue generation capabilities
-- Relies entirely on HaystackPipelineAgent for advanced behavior
+- **CRITICAL**: Duplicates RAG components (embedders, retrievers, rankers) from HaystackPipelineAgent
+- Creates separate document store connections instead of using agent messaging
+- Uses non-existent "query_npc" handler in HaystackPipelineAgent
+- Direct agent coupling instead of proper orchestrator communication
+- Inefficient resource usage with duplicate pipeline components
 
 ## Implementation Plan
 
-### Phase 1: NPC Pipeline Migration (Priority: High)
+### Phase 1: Remove RAG Duplication (Priority: High)
 
-#### 1.1 Move Core NPC Pipeline Components
-**Target: NPCControllerAgent Enhancement**
-
-**New Methods to Add:**
-```python
-def _setup_npc_pipeline(self):
-    """Initialize dedicated NPC pipeline with LLM integration"""
-    
-def _create_npc_prompt_builder(self):
-    """Create NPC-specific prompt builder (moved from HaystackPipelineAgent)"""
-    
-def _run_npc_pipeline(self, query: str, npc_context: dict, game_state: dict):
-    """Execute NPC pipeline for behavior generation"""
-    
-def _handle_generate_npc_behavior(self, message: AgentMessage):
-    """New handler for NPC behavior generation requests"""
-```
-
-**Dependencies to Add:**
-```python
-# Direct LLM integration (similar to ScenarioGeneratorAgent)
-from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
-from hwtgenielib.dataclasses import ChatMessage
-
-# Haystack components for RAG integration
-from haystack.components.embedders import SentenceTransformersTextEmbedder
-from haystack.components.builders import PromptBuilder
-```
-
-#### 1.2 Remove NPC Components from HaystackPipelineAgent
+#### 1.1 Remove Duplicate RAG Components from NPCControllerAgent
 **Components to Remove:**
-- `_create_npc_prompt_builder()` method
-- `npc_pipeline` initialization
-- `_handle_query_npc()` method  
-- `_run_npc_pipeline()` method
-- NPC pipeline setup in `_setup_specialized_pipelines()`
-
-**Handler Registration Update:**
 ```python
-# Remove from HaystackPipelineAgent._setup_handlers():
-# self.register_handler("query_npc", self._handle_query_npc)
+# REMOVE: Direct Haystack imports that duplicate functionality
+from haystack import Pipeline
+from haystack.components.embedders import SentenceTransformersTextEmbedder
+from haystack.components.rankers import SentenceTransformersSimilarityRanker
+
+# REMOVE: _setup_npc_pipeline() RAG components (lines 134-189)
+- SentenceTransformersTextEmbedder initialization
+- QdrantEmbeddingRetriever setup
+- SentenceTransformersSimilarityRanker setup
+- Pipeline component connections for retrieval
+- Direct document_store access
+
+# REMOVE: Direct document store access (lines 144-152)
+if self.haystack_agent and hasattr(self.haystack_agent, 'document_store'):
+    # This bypasses the agent framework
+
+# REMOVE: Pipeline retrieval execution (lines 555-573)
+if "text_embedder" in self.npc_pipeline.get_component_names():
+    # Direct pipeline component access
+```
+
+#### 1.2 Replace with Agent Framework Communication
+**New Communication Pattern:**
+```python
+def _gather_npc_context_from_rag(self, npc_id: str, query_context: str) -> Dict[str, Any]:
+    """Query RAG system via orchestrator instead of direct access"""
+    npc_name = self.npc_states[npc_id].name
+    rag_query = f"NPC {npc_name} background personality history {query_context}"
+    
+    # GOOD: Use agent framework messaging
+    response = self.send_message("haystack_pipeline", "retrieve_documents", {
+        "query": rag_query,
+        "max_docs": 3
+    })
+    
+    if response and response.get("success"):
+        return self._process_rag_context(response.get("documents", []))
+    return {}
+```
+
+#### 1.3 Fix Non-Existent Handler Usage
+**Replace Broken Calls:**
+```python
+# REMOVE: Uses non-existent "query_npc" handler
+response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
+    "query": prompt,
+    "npc_context": str(npc),
+    "game_state": str(game_state)
+})
+
+# REPLACE: Use existing handlers
+response = self.send_message("haystack_pipeline", "query_rag", {
+    "query": behavioral_query
+})
 ```
 
 ### Phase 2: Enhanced NPC Architecture (Priority: High)
@@ -87,24 +103,25 @@ from haystack.components.builders import PromptBuilder
 NPC Request → Context Gathering → [Optional RAG Query] → LLM Generation → Response Parsing → Action/Dialogue Output
 ```
 
-**Enhanced Initialization:**
+**Simplified Initialization:**
 ```python
-def __init__(self, haystack_agent=None, verbose=False):
+def __init__(self, verbose=False):
     super().__init__("npc_controller", "NPCController")
-    self.haystack_agent = haystack_agent
+    # REMOVE: haystack_agent parameter - use orchestrator instead
     self.verbose = verbose
     
-    # Direct LLM integration
+    # Direct LLM integration (KEEP)
     self.has_llm = CLAUDE_AVAILABLE
     self.chat_generator = None
+    self.npc_pipeline = None  # Simplified - LLM only
     
-    # NPC state management
+    # NPC state management (KEEP)
     self.npc_states = {}  # Persistent NPC data
     self.dialogue_history = {}  # Conversation tracking
     
-    # Initialize LLM and pipeline
+    # Initialize LLM and simplified pipeline
     self._setup_llm_integration()
-    self._setup_npc_pipeline()
+    self._setup_npc_pipeline()  # Simplified version - NO RAG components
 ```
 
 #### 2.2 NPC State Management System
@@ -173,17 +190,15 @@ def _build_dialogue_context(self, npc_id: str, situation: str):
     return context
 ```
 
-#### 3.2 RAG-Enhanced Context Retrieval
-**Intelligent Context Gathering:**
+#### 3.2 RAG Integration Through Orchestrator
+**Multi-Type Context Gathering:**
 ```python
 def _gather_npc_context_from_rag(self, npc_id: str, query_context: str):
-    """Query RAG system for relevant NPC background information"""
-    if not self.haystack_agent:
-        return {}
+    """Query RAG system via orchestrator for NPC background information"""
+    npc_name = self.npc_states[npc_id].name
+    rag_query = f"NPC {npc_name} background personality history relationships {query_context}"
     
-    # Build focused query for NPC-specific information
-    rag_query = f"NPC {self.npc_states[npc_id].name} background, personality, history, relationships context: {query_context}"
-    
+    # Route through orchestrator to HaystackPipelineAgent
     response = self.send_message("haystack_pipeline", "retrieve_documents", {
         "query": rag_query,
         "max_docs": 3
@@ -191,6 +206,41 @@ def _gather_npc_context_from_rag(self, npc_id: str, query_context: str):
     
     if response and response.get("success"):
         return self._process_rag_context(response.get("documents", []))
+    return {}
+
+def _get_behavioral_context_from_rag(self, npc_id: str, situation: str):
+    """Get behavioral guidance via orchestrator"""
+    npc_name = self.npc_states[npc_id].name
+    rag_query = f"NPC behavior {npc_name} {situation} actions dialogue"
+    
+    # Use query_rag for LLM-processed behavioral guidance
+    response = self.send_message("haystack_pipeline", "query_rag", {
+        "query": rag_query
+    })
+    
+    if response and response.get("success"):
+        result = response.get("result", {})
+        return {
+            "behavioral_guidance": result.get("answer", ""),
+            "sources": result.get("sources", [])
+        }
+    return {}
+
+def _get_npc_rules_context(self, interaction_type: str, npc_context: str):
+    """Get D&D rules context for NPC interactions"""
+    rules_query = f"D&D rules {interaction_type} NPC {npc_context} social interaction"
+    
+    # Use query_rules for rules-specific guidance
+    response = self.send_message("haystack_pipeline", "query_rules", {
+        "query": rules_query
+    })
+    
+    if response and response.get("success"):
+        result = response.get("result", {})
+        return {
+            "rules_guidance": result.get("answer", ""),
+            "rule_sources": result.get("sources", [])
+        }
     return {}
 ```
 
@@ -410,3 +460,333 @@ def test_enhanced_npc_capabilities():
 - **Command Routing:** Ensure all existing commands continue to work
 
 This implementation plan provides a comprehensive roadmap for separating NPC functionality into a dedicated, enhanced system while maintaining compatibility and improving capabilities.
+
+## Detailed Refactoring Steps
+
+### Step 1: Remove Duplicate RAG Components (Priority: Critical)
+
+#### 1.1 Clean Up Imports in `npc_controller.py`
+```python
+# REMOVE these duplicate imports:
+from haystack import Pipeline
+from haystack.components.embedders import SentenceTransformersTextEmbedder
+from haystack.components.rankers import SentenceTransformersSimilarityRanker
+
+# KEEP these NPC-specific imports:
+from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+from hwtgenielib.dataclasses import ChatMessage
+from haystack.components.builders import PromptBuilder  # For local prompt building only
+```
+
+#### 1.2 Simplify Constructor
+```python
+# CHANGE from:
+def __init__(self, haystack_agent=None, verbose: bool = False):
+    self.haystack_agent = haystack_agent
+
+# TO:
+def __init__(self, verbose: bool = False):
+    # Remove haystack_agent parameter - use orchestrator messaging instead
+```
+
+#### 1.3 Replace `_setup_npc_pipeline()` Method
+```python
+# REPLACE entire method (lines 134-189) with simplified version:
+def _setup_npc_pipeline(self):
+    """Initialize simplified NPC pipeline with local LLM only"""
+    if not self.has_llm:
+        return
+    
+    try:
+        # Create NPC-specific pipeline (NO RAG components)
+        self.npc_pipeline = Pipeline()
+        
+        # Add ONLY NPC-specific prompt builder and LLM
+        prompt_builder = self._create_npc_prompt_builder()
+        string_to_chat = StringToChatMessages()
+        
+        self.npc_pipeline.add_component("prompt_builder", prompt_builder)
+        self.npc_pipeline.add_component("string_to_chat", string_to_chat)  
+        self.npc_pipeline.add_component("chat_generator", self.chat_generator)
+        
+        # Connect ONLY prompt and LLM components (NO retrieval)
+        self.npc_pipeline.connect("prompt_builder.prompt", "string_to_chat.prompt")
+        self.npc_pipeline.connect("string_to_chat.messages", "chat_generator.messages")
+        
+        if self.verbose:
+            print("✅ NPC pipeline initialized with local LLM only")
+            
+    except Exception as e:
+        if self.verbose:
+            print(f"⚠️ Failed to initialize NPC pipeline: {e}")
+        self.npc_pipeline = None
+```
+
+### Step 2: Replace Direct RAG Access with Agent Messaging
+
+#### 2.1 Update `_gather_npc_context_from_rag()` Method
+```python
+# REPLACE lines 656-678 with:
+def _gather_npc_context_from_rag(self, npc_id: str, query_context: str) -> Dict[str, Any]:
+    """Query RAG system via orchestrator for NPC background information"""
+    npc_name = self.npc_states[npc_id].name
+    
+    # Build focused query for NPC-specific information
+    rag_query = f"NPC {npc_name} background personality history relationships {query_context}"
+    
+    # GOOD: Use agent framework messaging
+    response = self.send_message("haystack_pipeline", "retrieve_documents", {
+        "query": rag_query,
+        "max_docs": 3
+    })
+    
+    if response and response.get("success"):
+        return self._process_rag_context(response.get("documents", []))
+    return {}
+```
+
+#### 2.2 Add New RAG Query Methods
+```python
+# ADD these new methods after _gather_npc_context_from_rag():
+def _get_behavioral_context_from_rag(self, npc_id: str, situation: str) -> Dict[str, Any]:
+    """Get behavioral guidance via orchestrator"""
+    npc_name = self.npc_states[npc_id].name
+    rag_query = f"NPC behavior {npc_name} {situation} actions dialogue personality"
+    
+    response = self.send_message("haystack_pipeline", "query_rag", {
+        "query": rag_query
+    })
+    
+    if response and response.get("success"):
+        result = response.get("result", {})
+        return {
+            "behavioral_guidance": result.get("answer", ""),
+            "sources": result.get("sources", [])
+        }
+    return {}
+
+def _get_npc_rules_context(self, interaction_type: str, npc_context: str) -> Dict[str, Any]:
+    """Get D&D rules context for NPC interactions"""
+    rules_query = f"D&D rules {interaction_type} NPC {npc_context} social interaction skills"
+    
+    response = self.send_message("haystack_pipeline", "query_rules", {
+        "query": rules_query
+    })
+    
+    if response and response.get("success"):
+        result = response.get("result", {})
+        return {
+            "rules_guidance": result.get("answer", ""),
+            "rule_sources": result.get("sources", [])
+        }
+    return {}
+```
+
+### Step 3: Fix Broken Handler References
+
+#### 3.1 Replace Non-Existent `query_npc` Calls
+```python
+# FIND and REPLACE in _haystack_based_decision() (lines 867-868):
+# REMOVE:
+response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
+    "query": prompt,
+    "npc_context": str(npc),
+    "game_state": str(game_state)
+})
+
+# REPLACE with:
+response = self.send_message("haystack_pipeline", "query_rag", {
+    "query": prompt
+})
+```
+
+#### 3.2 Update Deprecated NPCController Class
+```python
+# FIND and REPLACE in lines 1008-1009:
+# REMOVE:
+response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_npc", {
+    "query": prompt,
+    "npc_context": str(npc_obj),
+    "game_state": str(game_state)
+})
+
+# REPLACE with:
+response = self.send_message("haystack_pipeline", "query_rag", {
+    "query": prompt
+})
+```
+
+### Step 4: Enhanced Behavior Generation
+
+#### 4.1 Update `_generate_npc_behavior()` Method
+```python
+# REPLACE method (lines 471-501) with enhanced version:
+def _generate_npc_behavior(self, npc_id: str, context: str, game_state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Generate NPC behavior using local LLM + orchestrator RAG"""
+    if not self.npc_pipeline or not self.has_llm:
+        return None
+    
+    try:
+        # Step 1: Get RAG context if needed
+        rag_context = {}
+        behavioral_context = {}
+        
+        if self._needs_rag_context(context):
+            rag_context = self._gather_npc_context_from_rag(npc_id, context)
+        
+        if self._needs_behavioral_guidance(context):
+            behavioral_context = self._get_behavioral_context_from_rag(npc_id, context)
+        
+        # Step 2: Build enhanced prompt with contexts
+        npc_state = self.npc_states[npc_id]
+        
+        # Step 3: Run local NPC pipeline (LLM only)
+        result = self._run_simplified_npc_pipeline(
+            query=context,
+            npc_name=npc_state.name,
+            personality=npc_state.personality,
+            location=npc_state.location,
+            current_state=f"HP: {npc_state.stats.get('hp', '?')}",
+            dialogue_history=self.dialogue_history.get(npc_id, [])[-3:],
+            game_state=str(game_state),
+            rag_context=rag_context,
+            behavioral_context=behavioral_context
+        )
+        
+        if result and result.get("success"):
+            return self._parse_npc_response(result.get("response", ""))
+        
+    except Exception as e:
+        if self.verbose:
+            print(f"⚠️ NPC behavior generation failed: {e}")
+    
+    return None
+
+# ADD helper methods:
+def _needs_rag_context(self, context: str) -> bool:
+    """Determine if RAG context retrieval is needed"""
+    rag_triggers = ["talk", "conversation", "history", "relationship", "background"]
+    return any(trigger in context.lower() for trigger in rag_triggers)
+
+def _needs_behavioral_guidance(self, context: str) -> bool:
+    """Determine if behavioral guidance from RAG is needed"""
+    behavior_triggers = ["decision", "choose", "react", "respond", "behavior"]
+    return any(trigger in context.lower() for trigger in behavior_triggers)
+```
+
+#### 4.2 Replace `_run_npc_pipeline()` Method
+```python
+# REPLACE method (lines 535-573) with simplified version:
+def _run_simplified_npc_pipeline(self, query: str, npc_name: str, personality: Dict, 
+                                location: str, current_state: str, dialogue_history: List, 
+                                game_state: str, rag_context: Dict = None, 
+                                behavioral_context: Dict = None) -> Dict[str, Any]:
+    """Execute simplified NPC pipeline for behavior/dialogue generation"""
+    if not self.npc_pipeline:
+        return {"success": False, "error": "NPC pipeline not available"}
+    
+    try:
+        # Prepare pipeline inputs (NO retrieval components)
+        pipeline_inputs = {
+            "prompt_builder": {
+                "query": query,
+                "npc_name": npc_name,
+                "personality": str(personality),
+                "location": location,
+                "current_state": current_state,
+                "dialogue_history": dialogue_history,
+                "game_state": game_state,
+                "rag_context": str(rag_context) if rag_context else "",
+                "behavioral_context": str(behavioral_context) if behavioral_context else ""
+            }
+        }
+        
+        # Run simplified pipeline (LLM only)
+        result = self.npc_pipeline.run(pipeline_inputs)
+        
+        # Extract response
+        if "chat_generator" in result and "replies" in result["chat_generator"]:
+            response = result["chat_generator"]["replies"][0].text
+            return {"success": True, "response": response}
+        else:
+            return {"success": False, "error": "No response generated"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+### Step 5: Update Prompt Template
+
+#### 5.1 Enhance `_create_npc_prompt_builder()` Template
+```python
+# UPDATE template in lines 193-231 to include RAG contexts:
+def _create_npc_prompt_builder(self) -> PromptBuilder:
+    """Create NPC-specific prompt builder"""
+    template = """You are an advanced NPC behavior and dialogue specialist. Generate authentic, contextual responses for D&D NPCs with distinct personalities.
+
+{% if rag_context %}
+Background Context from Knowledge Base:
+{{ rag_context }}
+---
+{% endif %}
+
+{% if behavioral_context %}
+Behavioral Guidance:
+{{ behavioral_context }}
+---
+{% endif %}
+
+NPC Profile:
+Name: {{ npc_name }}
+Personality: {{ personality }}
+Location: {{ location }}
+Current State: {{ current_state }}
+
+{% if dialogue_history %}
+Recent Conversation:
+{% for exchange in dialogue_history %}
+  {{ exchange.speaker }}: {{ exchange.content }}
+{% endfor %}
+{% endif %}
+
+Situation: {{ query }}
+{% if game_state %}Game Context: {{ game_state }}{% endif %}
+
+Generate an appropriate response as this NPC. Include:
+1. Dialogue (what the NPC says)
+2. Action (what the NPC does)
+3. Mood (current emotional state)
+4. Memory (what to remember about this interaction)
+
+Respond in JSON format:
+{
+  "dialogue": "NPC's spoken words",
+  "action": "NPC's physical action or behavior",
+  "mood": "emotional state",
+  "memory": "key information to remember"
+}"""
+    return PromptBuilder(template=template)
+```
+
+## Migration Checklist
+
+### Pre-Migration Verification
+- [ ] Backup current `npc_controller.py`
+- [ ] Test current NPC functionality works
+- [ ] Verify HaystackPipelineAgent handlers exist (`retrieve_documents`, `query_rag`, `query_rules`)
+
+### Migration Steps (Execute in Order)
+- [ ] **Step 1:** Remove duplicate RAG imports and components
+- [ ] **Step 2:** Replace direct RAG access with agent messaging  
+- [ ] **Step 3:** Fix broken handler references
+- [ ] **Step 4:** Implement enhanced behavior generation
+- [ ] **Step 5:** Update prompt template with context support
+
+### Post-Migration Testing
+- [ ] Test NPC dialogue generation
+- [ ] Test NPC behavior generation
+- [ ] Test RAG context retrieval through orchestrator
+- [ ] Verify no duplicate components exist
+- [ ] Performance testing (should be faster)
+
+This comprehensive refactoring plan eliminates RAG duplication while maintaining enhanced NPC capabilities through proper agent orchestration.

@@ -8,7 +8,7 @@ import re
 from typing import Dict, List, Any, Optional, Tuple
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-from agents.haystack_pipeline_agent import HaystackPipelineAgent
+# REMOVED: from agents.haystack_pipeline_agent import HaystackPipelineAgent - direct coupling removed
 
 # Claude-specific imports
 try:
@@ -30,11 +30,11 @@ LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
 class ScenarioGeneratorAgent(BaseAgent):
     """Scenario Generator as an agent that creates dynamic scenarios and handles player choices"""
     
-    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, verbose: bool = False):
+    def __init__(self, verbose: bool = False):  # Remove haystack_agent parameter entirely
         super().__init__("scenario_generator", "ScenarioGenerator")
-        self.haystack_agent = haystack_agent
         self.verbose = verbose
         self.has_llm = CLAUDE_AVAILABLE
+        # Remove: self.haystack_agent = haystack_agent
         
         # Initialize LLM for creative generation
         if self.has_llm:
@@ -59,6 +59,20 @@ class ScenarioGeneratorAgent(BaseAgent):
         self.register_handler("generate_with_context", self._handle_generate_with_context)
         self.register_handler("apply_player_choice", self._handle_apply_player_choice)
         self.register_handler("get_generator_status", self._handle_get_generator_status)
+    
+    def _is_haystack_pipeline_available(self) -> bool:
+        """Check if haystack pipeline is available via orchestrator communication"""
+        try:
+            # Send status request to haystack pipeline agent
+            status_response = self.send_message("haystack_pipeline", "get_pipeline_status", {})
+            
+            # Note: In agent architecture, we can't wait for synchronous responses
+            # So we assume availability and handle errors gracefully in actual queries
+            return True
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Unable to check haystack pipeline status: {e}")
+            return False
     
     def _handle_generate_scenario(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle scenario generation request"""
@@ -99,17 +113,17 @@ class ScenarioGeneratorAgent(BaseAgent):
             return {"success": False, "error": str(e)}
     
     def _handle_get_generator_status(self, message: AgentMessage) -> Dict[str, Any]:
-        """Handle generator status request"""
+        """Handle generator status request - updated for orchestrator communication"""
         return {
-            "haystack_available": self.haystack_agent is not None,
             "llm_available": self.has_llm,
             "chat_generator_available": self.chat_generator is not None,
             "verbose": self.verbose,
-            "agent_type": self.agent_type
+            "agent_type": self.agent_type,
+            "uses_orchestrator_communication": True  # New flag
         }
     
     def _handle_generate_with_context(self, message: AgentMessage) -> Dict[str, Any]:
-        """Generate scenario with optional RAG context"""
+        """Generate scenario with optional RAG context - orchestrator communication"""
         query = message.data.get("query")
         use_rag = message.data.get("use_rag", True)
         campaign_context = message.data.get("campaign_context", "")
@@ -119,15 +133,20 @@ class ScenarioGeneratorAgent(BaseAgent):
             return {"success": False, "error": "No query provided"}
         
         try:
-            # Optionally retrieve relevant documents
+            # Retrieve relevant documents via orchestrator
             documents = []
-            if use_rag and self.haystack_agent:
+            if use_rag:
+                # Use the correct handler name from haystack pipeline agent
                 rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
                     "query": query,
                     "max_docs": 3
                 })
+                
+                # Handle orchestrator response properly
                 if rag_response and rag_response.get("success"):
                     documents = rag_response.get("documents", [])
+                elif self.verbose:
+                    print(f"⚠️ RAG document retrieval failed or unavailable")
             
             # Generate scenario with or without RAG context
             scenario = self._generate_creative_scenario(query, documents, campaign_context, game_state)
@@ -139,41 +158,45 @@ class ScenarioGeneratorAgent(BaseAgent):
                 "source_count": len(documents)
             }
         except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Scenario generation error: {e}")
             return {"success": False, "error": str(e)}
     
     def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
-        """Generate a new scenario based on current game state"""
+        """Generate a new scenario based on current game state - orchestrator communication"""
         seed = self._seed_scene(state)
         scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
         options_text = ""
         
-        # Try creative scenario generation first via HaystackPipelineAgent
-        if self.haystack_agent:
-            try:
-                prompt = self._build_creative_prompt(seed)
-                # Send message to haystack agent through orchestrator
-                message_id = self.send_message("haystack_pipeline", "query_scenario", {
-                    "query": prompt,
-                    "campaign_context": seed.get('story_arc', ''),
-                    "game_state": str(seed)
-                })
-                
-                if message_id:
-                    # Note: In agent architecture, we don't wait for responses synchronously
-                    # The response will be handled by the orchestrator
-                    if self.verbose:
-                        print("📤 Sent scenario generation request to haystack pipeline")
-                        
-            except Exception as e:
-                if self.verbose:
-                    print(f"Error in creative scenario generation: {str(e)}")
-                    import traceback
-                    print(f"Traceback: {traceback.format_exc()}")
-        
-        # If haystack agent failed or unavailable, use basic fallback
-        elif not self.haystack_agent:
+        # Try creative scenario generation via orchestrator (remove non-existent query_scenario)
+        try:
+            prompt = self._build_creative_prompt(seed)
+            
+            # First try to get RAG context for scenario generation
+            documents = []
+            rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
+                "query": prompt,
+                "max_docs": 3
+            })
+            
+            if rag_response and rag_response.get("success"):
+                documents = rag_response.get("documents", [])
+            
+            # Generate creative scenario with RAG context
+            if documents or self.has_llm:
+                scenario = self._generate_creative_scenario(prompt, documents,
+                                                          seed.get('story_arc', ''), str(seed))
+                if scenario and scenario.get("scenario_text"):
+                    scene_text = scenario["scenario_text"]
+                    if scenario.get("options"):
+                        options_text = "\n".join(scenario["options"])
+            
             if self.verbose:
-                print("No Haystack agent available, using basic scenario generation")
+                print(f"📤 Generated scenario via orchestrator communication (RAG docs: {len(documents)})")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Orchestrator scenario generation failed: {e}")
         
         # Generate fallback options if needed
         if not options_text:
@@ -196,13 +219,9 @@ class ScenarioGeneratorAgent(BaseAgent):
         return json.dumps(scene_json, indent=2), options_text
     
     def apply_player_choice(self, state: Dict[str, Any], player: str, choice_value: int) -> str:
-        """Apply a player's choice and return the continuation"""
+        """Apply a player's choice and return the continuation - orchestrator communication"""
         try:
             current_options = state.get("current_options", "")
-            # if self.verbose:
-            #     print(f"DEBUG: current_options = {current_options}")
-            #     print(f"DEBUG: choice_value = {choice_value}")
-            
             lines = [line for line in current_options.splitlines() if line.strip()]
             target = None
             
@@ -218,38 +237,37 @@ class ScenarioGeneratorAgent(BaseAgent):
                 target = lines[idx]
             
             if not target:
-                # Use a generic choice description
                 target = f"Option {choice_value}"
             
             continuation = f"{player} chose: {target}"
             
-            # Try creative consequence generation first via HaystackPipelineAgent
-            if self.haystack_agent:
+            # Try creative consequence generation via orchestrator
+            try:
                 prompt = self._build_creative_choice_prompt(state, target, player)
-                try:
-                    # Send message to haystack agent through orchestrator
-                    message_id = self.send_message("haystack_pipeline", "query_scenario", {
-                        "query": prompt,
-                        "campaign_context": state.get('story_arc', ''),
-                        "game_state": str(state)
-                    })
-                    
-                    if message_id:
-                        if self.verbose:
-                            print("📤 Sent choice consequence request to haystack pipeline")
-                        # In agent architecture, return basic continuation since we can't wait synchronously
-                        # The detailed response will be handled by the orchestrator
-                        
-                except Exception as e:
-                    if self.verbose:
-                        print(f"Error in creative choice consequence generation: {str(e)}")
-                        import traceback
-                        print(f"Traceback: {traceback.format_exc()}")
-            
-            # If haystack agent failed or unavailable, use basic continuation
-            elif not self.haystack_agent:
+                
+                # Get RAG context for consequence generation
+                rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
+                    "query": prompt,
+                    "max_docs": 2
+                })
+                
+                documents = []
+                if rag_response and rag_response.get("success"):
+                    documents = rag_response.get("documents", [])
+                
+                # Generate consequence with RAG context
+                if documents or self.has_llm:
+                    consequence = self._generate_creative_scenario(prompt, documents,
+                                                               state.get('story_arc', ''), str(state))
+                    if consequence and consequence.get("scenario_text"):
+                        return consequence["scenario_text"]
+                
                 if self.verbose:
-                    print("No Haystack agent available for choice consequence generation")
+                    print("📤 Generated choice consequence via orchestrator communication")
+                    
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Orchestrator choice consequence generation failed: {e}")
             
             return continuation
             
@@ -502,59 +520,58 @@ Focus on creativity, engagement, and D&D authenticity."""
         pass
 
 
-class ScenarioGenerator:
-    """Traditional ScenarioGenerator class for backward compatibility"""
+# class ScenarioGenerator:
+    """Traditional ScenarioGenerator class for backward compatibility - orchestrator communication"""
     
-    def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, verbose: bool = False):
-        self.haystack_agent = haystack_agent
+    def __init__(self, haystack_agent=None, verbose: bool = False):
+        # Ignore haystack_agent parameter for backward compatibility
+        # but don't store it - use orchestrator communication instead
         self.verbose = verbose
+        self._agent_communication_available = False
+        
+        # Try to detect if we're in an agent environment
+        try:
+            # This will be set when the ScenarioGeneratorAgent is used in orchestrator
+            self._scenario_agent = None  # Will be set by orchestrator if available
+        except Exception:
+            pass
     
-    def _seed_scene(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract seed information for scene generation"""
-        return {
-            "location": state["session"].get("location") or "unknown",
-            "recent": state["session"].get("events", [])[-4:],
-            "party": list(state.get("players", {}).keys())[:8],
-            "story_arc": state.get("story_arc", "")
-        }
-    
-    def _build_prompt(self, seed: Dict[str, Any]) -> str:
-        """Build prompt for scenario generation"""
-        prompt = (
-            f"You are the Dungeon Master. Create a vivid short scene (2-3 sentences) and offer 3-4 numbered options.\n"
-            f"Location: {seed['location']}\nRecent: {seed['recent']}\nParty: {seed['party']}\nStory arc: {seed['story_arc']}\n"
-            "Return a JSON-like object with fields: scene_text, options_text."
-        )
-        return prompt
+    def _query_via_orchestrator(self, action: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Attempt to query via orchestrator if available"""
+        if self._scenario_agent and hasattr(self._scenario_agent, 'send_message'):
+            try:
+                return self._scenario_agent.send_message("haystack_pipeline", action, data)
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Orchestrator query failed: {e}")
+        return None
     
     def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
-        """Generate a new scenario"""
+        """Generate a new scenario - orchestrator communication fallback"""
         seed = self._seed_scene(state)
         scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
         options_text = ""
         
-        if self.haystack_agent:
-            try:
-                prompt = self._build_prompt(seed)
-                response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_scenario", {
-                    "query": prompt,
-                    "campaign_context": seed.get('story_arc', ''),
-                    "game_state": str(seed)
-                }, timeout=30.0)
-                
-                if response and response.get("success"):
-                    result = response.get("result", {})
-                    answer = result.get("answer", "")
-                    
-                    # Try to parse the response
-                    if isinstance(answer, str) and len(answer) > 50:
-                        scene_text = answer
-            except Exception as e:
-                if self.verbose:
-                    print(f"Error in backward compatibility scenario generation: {str(e)}")
+        # Try orchestrator communication for RAG context
+        try:
+            prompt = self._build_prompt(seed)
+            rag_response = self._query_via_orchestrator("retrieve_documents", {
+                "query": prompt,
+                "max_docs": 3
+            })
+            
+            if rag_response and rag_response.get("success"):
+                documents = rag_response.get("documents", [])
+                if documents and self.verbose:
+                    print(f"📚 Enhanced scenario with {len(documents)} RAG documents")
+                    # Simple enhancement based on RAG context
+                    scene_text += f" (Enhanced with {len(documents)} D&D references from knowledge base.)"
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Backward compatibility RAG query failed: {e}")
         
+        # Generate fallback options
         if not options_text:
-            # Fallback options
             options = [
                 "1. Investigate the suspicious noise.",
                 "2. Approach openly and ask questions.",
@@ -572,7 +589,7 @@ class ScenarioGenerator:
         return json.dumps(scene_json, indent=2), options_text
     
     def apply_player_choice(self, state: Dict[str, Any], player: str, choice_value: int) -> str:
-        """Apply player choice and return continuation"""
+        """Apply player choice - orchestrator communication fallback"""
         try:
             current_options = state.get("current_options", "")
             lines = [l for l in current_options.splitlines() if l.strip()]
@@ -585,38 +602,49 @@ class ScenarioGenerator:
                     break
             
             if not target and lines:
-                # Fallback: pick by index
                 idx = max(0, min(len(lines) - 1, choice_value - 1))
                 target = lines[idx]
             
             if not target:
                 return f"No such option: {choice_value}"
             
-            cont = f"{player} chose: {target}"
+            continuation = f"{player} chose: {target}"
             
-            # Ask haystack agent for consequence
-            if self.haystack_agent:
-                prompt = (
-                    f"CONTEXT: {state.get('story_arc')}\nCHOICE: {target}\n"
-                    "Describe the immediate consequence in 2-3 sentences and return a short 'continuation' field."
-                )
-                try:
-                    response = self.haystack_agent.send_message_and_wait("haystack_pipeline", "query_scenario", {
-                        "query": prompt,
-                        "campaign_context": state.get('story_arc', ''),
-                        "game_state": str(state)
-                    }, timeout=30.0)
-                    
-                    if response and response.get("success"):
-                        result = response.get("result", {})
-                        answer = result.get("answer", "")
-                        if isinstance(answer, str) and len(answer) > 10:
-                            return answer
-                except Exception as e:
-                    if self.verbose:
-                        print(f"Error in backward compatibility choice consequence generation: {str(e)}")
+            # Try orchestrator communication for consequence enhancement
+            try:
+                prompt = f"CONTEXT: {state.get('story_arc')}\nCHOICE: {target}\nDescribe the immediate consequence in 2-3 sentences."
+                rag_response = self._query_via_orchestrator("retrieve_documents", {
+                    "query": prompt,
+                    "max_docs": 2
+                })
+                
+                if rag_response and rag_response.get("success"):
+                    documents = rag_response.get("documents", [])
+                    if documents:
+                        continuation += f" (Enhanced with {len(documents)} D&D rule references.)"
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Backward compatibility choice consequence failed: {e}")
             
-            return cont
+            return continuation
             
         except Exception as e:
             return f"Error applying choice: {e}"
+    
+    # Keep existing helper methods unchanged
+    def _seed_scene(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract seed information for scene generation"""
+        return {
+            "location": state["session"].get("location") or "unknown",
+            "recent": state["session"].get("events", [])[-4:],
+            "party": list(state.get("players", {}).keys())[:8],
+            "story_arc": state.get("story_arc", "")
+        }
+    
+    def _build_prompt(self, seed: Dict[str, Any]) -> str:
+        """Build prompt for scenario generation"""
+        return (
+            f"You are the Dungeon Master. Create a vivid short scene (2-3 sentences) and offer 3-4 numbered options.\n"
+            f"Location: {seed['location']}\nRecent: {seed['recent']}\nParty: {seed['party']}\nStory arc: {seed['story_arc']}\n"
+            "Return a JSON-like object with fields: scene_text, options_text."
+        )

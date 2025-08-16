@@ -8,19 +8,30 @@ This plan outlines the separation of RAG data retrieval from scenario generation
 
 ### 1. Mixed Responsibilities in HaystackPipelineAgent
 - **RAG Queries**: Document retrieval, embedding, ranking, and structured responses
-- **Scenario Generation**: Creative story continuation, option generation, narrative flow
-- **Specialized Pipelines**: NPC-specific, rules-specific, and scenario-specific pipelines
+- **Scenario Generation**: Creative story continuation, option generation, narrative flow (REMOVED)
+- **Specialized Pipelines**: NPC-specific, rules-specific, and scenario-specific pipelines (scenario removed)
 - **LLM Integration**: Direct Claude Sonnet 4 integration for creative tasks
 
-### 2. Dependency Coupling
-- `ScenarioGeneratorAgent` depends on `HaystackPipelineAgent` for creative generation
-- `modular_dm_assistant.py` routes scenario commands to haystack pipeline
-- Command mapping directly links scenario commands to haystack agent
+### 2. Direct Agent Coupling in ScenarioGeneratorAgent
+- **Direct Import**: `from agents.haystack_pipeline_agent import HaystackPipelineAgent` creates tight coupling
+- **Direct Parameter**: Constructor takes `haystack_agent: Optional[HaystackPipelineAgent]` parameter
+- **Direct Reference Checks**: `self.haystack_agent is not None` and `use_rag and self.haystack_agent`
+- **Non-Existent Handlers**: Calls `query_scenario` handler that doesn't exist in HaystackPipelineAgent
+- **Synchronous Assumptions**: Agent communication assumes synchronous responses
 
-### 3. Code Duplication
-- Similar prompt building logic in both agents
-- Redundant error handling and response formatting
-- Duplicate LLM integration patterns
+### 3. Backward Compatibility Issues
+- **Legacy ScenarioGenerator Class**: Also has direct HaystackPipelineAgent coupling
+- **Mixed Communication Patterns**: Uses both direct agent references and orchestrator messaging
+- **Inconsistent Error Handling**: Different error patterns for agent vs direct communication
+
+### 4. Communication Architecture Problems
+- **Handler Mismatch**: ScenarioGenerator calls non-existent `query_scenario` in HaystackPipelineAgent
+- **Async/Sync Confusion**: Agent framework is async but some code assumes synchronous responses
+- **Missing Fallback Logic**: Poor graceful degradation when RAG unavailable via orchestrator
+
+### 5. Status Detection Anti-Patterns
+- **Direct Agent Inspection**: Checking `self.haystack_agent is not None` instead of orchestrator queries
+- **Hardcoded Dependencies**: Constructor requires specific agent type instead of using orchestrator discovery
 
 ## Target Architecture
 
@@ -97,38 +108,362 @@ def _handle_retrieve_documents(self, message: AgentMessage) -> Dict[str, Any]:
 - **NPC Pipeline**: Query → Embed → Retrieve → Rank → NPC-specific LLM → Response
 - **Rules Pipeline**: Query → Embed → Retrieve → Rank → Rules-specific LLM → Response
 
-### Phase 2: ScenarioGeneratorAgent Enhancement
+### Phase 2: ScenarioGeneratorAgent Orchestrator Integration
 
-#### 2.1 Add Creative Generation Capabilities
+#### 2.1 Remove Direct HaystackPipelineAgent Coupling
 **Files to Modify:** `agents/scenario_generator.py`
 
-**New Dependencies:**
-```python
-# Add at top of file
-try:
-    from hwtgenielib import component
-    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
-    from hwtgenielib.dataclasses import ChatMessage
-    CLAUDE_AVAILABLE = True
-except ImportError:
-    CLAUDE_AVAILABLE = False
-```
+**Critical Changes Required:**
 
-**New Initialization:**
+**1. Remove Direct Import and Reference:**
 ```python
-def __init__(self, haystack_agent: Optional[HaystackPipelineAgent] = None, verbose: bool = False):
+# REMOVE this line:
+from agents.haystack_pipeline_agent import HaystackPipelineAgent
+
+# UPDATE constructor to remove direct haystack_agent parameter:
+def __init__(self, verbose: bool = False):  # Remove haystack_agent parameter entirely
     super().__init__("scenario_generator", "ScenarioGenerator")
-    self.haystack_agent = haystack_agent
     self.verbose = verbose
     self.has_llm = CLAUDE_AVAILABLE
+    # Remove: self.haystack_agent = haystack_agent
     
     # Initialize LLM for creative generation
     if self.has_llm:
-        self.chat_generator = AppleGenAIChatGenerator(
-            model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
-        )
+        try:
+            self.chat_generator = AppleGenAIChatGenerator(
+                model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
+            )
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Failed to initialize LLM: {e}")
+            self.chat_generator = None
+            self.has_llm = False
     else:
         self.chat_generator = None
+```
+
+**2. Replace Direct Status Detection with Orchestrator Queries:**
+```python
+def _is_haystack_pipeline_available(self) -> bool:
+    """Check if haystack pipeline is available via orchestrator communication"""
+    try:
+        # Send status request to haystack pipeline agent
+        status_response = self.send_message("haystack_pipeline", "get_pipeline_status", {})
+        
+        # Note: In agent architecture, we can't wait for synchronous responses
+        # So we assume availability and handle errors gracefully in actual queries
+        return True
+    except Exception as e:
+        if self.verbose:
+            print(f"⚠️ Unable to check haystack pipeline status: {e}")
+        return False
+
+def _handle_get_generator_status(self, message: AgentMessage) -> Dict[str, Any]:
+    """Handle generator status request - updated for orchestrator communication"""
+    return {
+        "llm_available": self.has_llm,
+        "chat_generator_available": self.chat_generator is not None,
+        "verbose": self.verbose,
+        "agent_type": self.agent_type,
+        "uses_orchestrator_communication": True  # New flag
+    }
+```
+
+**3. Fix RAG Query Communication - Remove Non-Existent Handlers:**
+```python
+def _handle_generate_with_context(self, message: AgentMessage) -> Dict[str, Any]:
+    """Generate scenario with optional RAG context - orchestrator communication"""
+    query = message.data.get("query")
+    use_rag = message.data.get("use_rag", True)
+    campaign_context = message.data.get("campaign_context", "")
+    game_state = message.data.get("game_state", "")
+    
+    if not query:
+        return {"success": False, "error": "No query provided"}
+    
+    try:
+        # Retrieve relevant documents via orchestrator
+        documents = []
+        if use_rag:
+            # Use the correct handler name from haystack pipeline agent
+            rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
+                "query": query,
+                "max_docs": 3
+            })
+            
+            # Handle orchestrator response properly
+            if rag_response and rag_response.get("success"):
+                documents = rag_response.get("documents", [])
+            elif self.verbose:
+                print(f"⚠️ RAG document retrieval failed or unavailable")
+        
+        # Generate scenario with or without RAG context
+        scenario = self._generate_creative_scenario(query, documents, campaign_context, game_state)
+        
+        return {
+            "success": True,
+            "scenario": scenario,
+            "used_rag": len(documents) > 0,
+            "source_count": len(documents)
+        }
+    except Exception as e:
+        if self.verbose:
+            print(f"⚠️ Scenario generation error: {e}")
+        return {"success": False, "error": str(e)}
+```
+
+#### 2.2 Update Legacy Methods for Orchestrator Communication
+
+**Update `generate()` method:**
+```python
+def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
+    """Generate a new scenario based on current game state - orchestrator communication"""
+    seed = self._seed_scene(state)
+    scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
+    options_text = ""
+    
+    # Try creative scenario generation via orchestrator (remove non-existent query_scenario)
+    try:
+        prompt = self._build_creative_prompt(seed)
+        
+        # First try to get RAG context for scenario generation
+        documents = []
+        rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
+            "query": prompt,
+            "max_docs": 3
+        })
+        
+        if rag_response and rag_response.get("success"):
+            documents = rag_response.get("documents", [])
+        
+        # Generate creative scenario with RAG context
+        if documents or self.has_llm:
+            scenario = self._generate_creative_scenario(prompt, documents,
+                                                      seed.get('story_arc', ''), str(seed))
+            if scenario and scenario.get("scenario_text"):
+                scene_text = scenario["scenario_text"]
+                if scenario.get("options"):
+                    options_text = "\n".join(scenario["options"])
+        
+        if self.verbose:
+            print(f"📤 Generated scenario via orchestrator communication (RAG docs: {len(documents)})")
+            
+    except Exception as e:
+        if self.verbose:
+            print(f"⚠️ Orchestrator scenario generation failed: {e}")
+    
+    # Generate fallback options if needed
+    if not options_text:
+        options = [
+            "1. Investigate the suspicious noise.",
+            "2. Approach openly and ask questions.",
+            "3. Set up an ambush and wait.",
+            "4. Leave and gather more information."
+        ]
+        random.shuffle(options)
+        options_text = "\n".join(options[:4])
+    
+    # Create scene JSON
+    scene_json = {
+        "scene_text": scene_text,
+        "seed": seed,
+        "options": [line.strip() for line in options_text.splitlines() if line.strip()]
+    }
+    
+    return json.dumps(scene_json, indent=2), options_text
+```
+
+**Update `apply_player_choice()` method:**
+```python
+def apply_player_choice(self, state: Dict[str, Any], player: str, choice_value: int) -> str:
+    """Apply a player's choice and return the continuation - orchestrator communication"""
+    try:
+        current_options = state.get("current_options", "")
+        lines = [line for line in current_options.splitlines() if line.strip()]
+        target = None
+        
+        # Try to find the choice by number
+        for line in lines:
+            if line.strip().startswith(f"{choice_value}."):
+                target = line
+                break
+        
+        # Fallback: pick by index
+        if not target and lines:
+            idx = max(0, min(len(lines) - 1, choice_value - 1))
+            target = lines[idx]
+        
+        if not target:
+            target = f"Option {choice_value}"
+        
+        continuation = f"{player} chose: {target}"
+        
+        # Try creative consequence generation via orchestrator
+        try:
+            prompt = self._build_creative_choice_prompt(state, target, player)
+            
+            # Get RAG context for consequence generation
+            rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
+                "query": prompt,
+                "max_docs": 2
+            })
+            
+            documents = []
+            if rag_response and rag_response.get("success"):
+                documents = rag_response.get("documents", [])
+            
+            # Generate consequence with RAG context
+            if documents or self.has_llm:
+                consequence = self._generate_creative_scenario(prompt, documents,
+                                                           state.get('story_arc', ''), str(state))
+                if consequence and consequence.get("scenario_text"):
+                    return consequence["scenario_text"]
+            
+            if self.verbose:
+                print("📤 Generated choice consequence via orchestrator communication")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Orchestrator choice consequence generation failed: {e}")
+        
+        return continuation
+        
+    except Exception as e:
+        return f"Error applying choice: {e}"
+```
+
+#### 2.3 Update Backward Compatibility Class
+
+**Complete Rewrite of `ScenarioGenerator` Class:**
+```python
+class ScenarioGenerator:
+    """Traditional ScenarioGenerator class for backward compatibility - orchestrator communication"""
+    
+    def __init__(self, haystack_agent=None, verbose: bool = False):
+        # Ignore haystack_agent parameter for backward compatibility
+        # but don't store it - use orchestrator communication instead
+        self.verbose = verbose
+        self._agent_communication_available = False
+        
+        # Try to detect if we're in an agent environment
+        try:
+            # This will be set when the ScenarioGeneratorAgent is used in orchestrator
+            self._scenario_agent = None  # Will be set by orchestrator if available
+        except Exception:
+            pass
+    
+    def _query_via_orchestrator(self, action: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Attempt to query via orchestrator if available"""
+        if self._scenario_agent and hasattr(self._scenario_agent, 'send_message'):
+            try:
+                return self._scenario_agent.send_message("haystack_pipeline", action, data)
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Orchestrator query failed: {e}")
+        return None
+    
+    def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
+        """Generate a new scenario - orchestrator communication fallback"""
+        seed = self._seed_scene(state)
+        scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
+        options_text = ""
+        
+        # Try orchestrator communication for RAG context
+        try:
+            prompt = self._build_prompt(seed)
+            rag_response = self._query_via_orchestrator("retrieve_documents", {
+                "query": prompt,
+                "max_docs": 3
+            })
+            
+            if rag_response and rag_response.get("success"):
+                documents = rag_response.get("documents", [])
+                if documents and self.verbose:
+                    print(f"📚 Enhanced scenario with {len(documents)} RAG documents")
+                    # Simple enhancement based on RAG context
+                    scene_text += f" (Enhanced with {len(documents)} D&D references from knowledge base.)"
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Backward compatibility RAG query failed: {e}")
+        
+        # Generate fallback options
+        if not options_text:
+            options = [
+                "1. Investigate the suspicious noise.",
+                "2. Approach openly and ask questions.",
+                "3. Set up an ambush and wait.",
+                "4. Leave and gather more information."
+            ]
+            random.shuffle(options)
+            options_text = "\n".join(options[:4])
+        
+        scene_json = {
+            "scene_text": scene_text,
+            "seed": seed,
+            "options": [line.strip() for line in options_text.splitlines() if line.strip()]
+        }
+        return json.dumps(scene_json, indent=2), options_text
+    
+    def apply_player_choice(self, state: Dict[str, Any], player: str, choice_value: int) -> str:
+        """Apply player choice - orchestrator communication fallback"""
+        try:
+            current_options = state.get("current_options", "")
+            lines = [l for l in current_options.splitlines() if l.strip()]
+            target = None
+            
+            # Try numeric match
+            for l in lines:
+                if l.strip().startswith(f"{choice_value}."):
+                    target = l
+                    break
+            
+            if not target and lines:
+                idx = max(0, min(len(lines) - 1, choice_value - 1))
+                target = lines[idx]
+            
+            if not target:
+                return f"No such option: {choice_value}"
+            
+            continuation = f"{player} chose: {target}"
+            
+            # Try orchestrator communication for consequence enhancement
+            try:
+                prompt = f"CONTEXT: {state.get('story_arc')}\nCHOICE: {target}\nDescribe the immediate consequence in 2-3 sentences."
+                rag_response = self._query_via_orchestrator("retrieve_documents", {
+                    "query": prompt,
+                    "max_docs": 2
+                })
+                
+                if rag_response and rag_response.get("success"):
+                    documents = rag_response.get("documents", [])
+                    if documents:
+                        continuation += f" (Enhanced with {len(documents)} D&D rule references.)"
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Backward compatibility choice consequence failed: {e}")
+            
+            return continuation
+            
+        except Exception as e:
+            return f"Error applying choice: {e}"
+    
+    # Keep existing helper methods unchanged
+    def _seed_scene(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract seed information for scene generation"""
+        return {
+            "location": state["session"].get("location") or "unknown",
+            "recent": state["session"].get("events", [])[-4:],
+            "party": list(state.get("players", {}).keys())[:8],
+            "story_arc": state.get("story_arc", "")
+        }
+    
+    def _build_prompt(self, seed: Dict[str, Any]) -> str:
+        """Build prompt for scenario generation"""
+        return (
+            f"You are the Dungeon Master. Create a vivid short scene (2-3 sentences) and offer 3-4 numbered options.\n"
+            f"Location: {seed['location']}\nRecent: {seed['recent']}\nParty: {seed['party']}\nStory arc: {seed['story_arc']}\n"
+            "Return a JSON-like object with fields: scene_text, options_text."
+        )
 ```
 
 #### 2.2 Enhanced Handler Methods
