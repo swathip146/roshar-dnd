@@ -10,12 +10,8 @@ from agent_framework import BaseAgent, MessageType, AgentMessage
 from haystack_pipeline_agent import HaystackPipelineAgent
 
 # Claude-specific imports
-try:
-    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
-    from hwtgenielib.dataclasses import ChatMessage
-    CLAUDE_AVAILABLE = True
-except ImportError:
-    CLAUDE_AVAILABLE = False
+CLAUDE_AVAILABLE = True
+
 
 
 class ScenarioGeneratorAgent(BaseAgent):

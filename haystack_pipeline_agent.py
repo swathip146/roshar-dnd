@@ -25,12 +25,14 @@ DEFAULT_TOP_K = 20
 DEFAULT_RANKER_TOP_K = 5
 DEFAULT_EMBEDDING_DIM = 384
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
+
 
 # Claude-specific imports
 try:
-    from hwtgenielib import component
-    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
-    from hwtgenielib.dataclasses import ChatMessage
+    from XXXlib import component
+    from XXXlib.components.generators.chat import XXXGenAIChatGenerator
+    from XXXlib.dataclasses import ChatMessage
     CLAUDE_AVAILABLE = True
 except ImportError:
     CLAUDE_AVAILABLE = False
@@ -257,8 +259,8 @@ Provide a clear, accurate answer with rule citations:"""
             prompt_builder = self._create_general_prompt_builder()
             string_to_chat = StringToChatMessages()
             answer_builder = AnswerBuilder()
-            chat_generator = AppleGenAIChatGenerator(
-                model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
+            chat_generator = XXXGenAIChatGenerator(
+                model= LLM_MODEL
             )
             
             self.pipeline.add_component("prompt_builder", prompt_builder)
@@ -288,8 +290,8 @@ Provide a clear, accurate answer with rule citations:"""
         self.scenario_pipeline = Pipeline()
         self.scenario_pipeline.add_component("prompt_builder", self._create_creative_scenario_prompt_builder())
         self.scenario_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.scenario_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
-            model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
+        self.scenario_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+            model= LLM_MODEL
         ))
         
         # Connect creative scenario pipeline (no retrieval)
@@ -303,8 +305,8 @@ Provide a clear, accurate answer with rule citations:"""
         self.npc_pipeline.add_component("ranker", self._create_ranker())
         self.npc_pipeline.add_component("prompt_builder", self._create_npc_prompt_builder())
         self.npc_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.npc_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
-            model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
+        self.npc_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+            model= LLM_MODEL
         ))
         
         # Connect NPC pipeline
@@ -321,8 +323,8 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.add_component("ranker", self._create_ranker())
         self.rules_pipeline.add_component("prompt_builder", self._create_rules_prompt_builder())
         self.rules_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.rules_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
-            model="aws:anthropic.claude-sonnet-4-20250514-v1:0"
+        self.rules_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+            model= LLM_MODEL
         ))
         
         # Connect rules pipeline
@@ -552,17 +554,3 @@ Make it engaging, appropriate for D&D, and keep the story moving forward natural
     def process_tick(self):
         """Process Haystack pipeline tick - mostly reactive, no regular processing needed"""
         pass
-
-
-def get_embeddings_model():
-    """Get the embeddings model - for test mocking compatibility"""
-    return EMBEDDING_MODEL
-
-
-def get_llm_generator():
-    """Get the LLM generator - for test mocking compatibility"""
-    if CLAUDE_AVAILABLE:
-        from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
-        return AppleGenAIChatGenerator(model="aws:anthropic.claude-sonnet-4-20250514-v1:0")
-    else:
-        return None

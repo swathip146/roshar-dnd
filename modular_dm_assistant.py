@@ -32,13 +32,7 @@ from experience_manager_agent import ExperienceManagerAgent
 # Removed over-engineered pipeline components - using simple inline methods instead
 
 # Claude-specific imports for text processing
-try:
-    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
-    from hwtgenielib.dataclasses import ChatMessage
-    CLAUDE_AVAILABLE = True
-except ImportError:
-    CLAUDE_AVAILABLE = False
-
+CLAUDE_AVAILABLE = True
 
 # Simple command mapping dictionary - replaces complex CommandMapper class
 COMMAND_MAP = {
