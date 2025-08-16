@@ -413,7 +413,7 @@ class ModularDMAssistant:
     
     def __init__(self,
                  collection_name: str = "dnd_documents",
-                 campaigns_dir: str = "docs/current_campaign",
+                 campaigns_dir: str = "resources/current_campaign",
                  players_dir: str = "docs/players",
                  verbose: bool = False,
                  enable_game_engine: bool = True,

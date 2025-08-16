@@ -30,9 +30,9 @@ LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
 
 # Claude-specific imports
 try:
-    from XXXlib import component
-    from XXXlib.components.generators.chat import XXXGenAIChatGenerator
-    from XXXlib.dataclasses import ChatMessage
+    from hwtgenielib import component
+    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+    from hwtgenielib.dataclasses import ChatMessage
     CLAUDE_AVAILABLE = True
 except ImportError:
     CLAUDE_AVAILABLE = False
@@ -62,15 +62,11 @@ class HaystackPipelineAgent(BaseAgent):
     
     def __init__(self,
                  collection_name: str = "dnd_documents",
-                 host: str = "localhost",
-                 port: int = 6333,
                  top_k: int = DEFAULT_TOP_K,
                  verbose: bool = False):
         super().__init__("haystack_pipeline", "HaystackPipeline")
         
         self.collection_name = collection_name
-        self.host = host
-        self.port = port
         self.top_k = top_k
         self.verbose = verbose
         self.has_llm = CLAUDE_AVAILABLE
@@ -100,34 +96,21 @@ class HaystackPipelineAgent(BaseAgent):
         self.register_handler("get_collection_info", self._handle_get_collection_info)
     
     def _setup_document_store(self):
-        """Setup Qdrant document store connection"""
+        """Setup Qdrant document store with local storage"""
         try:
-            # Test connection
-            client = QdrantClient(host=self.host, port=self.port)
-            collections = client.get_collections()
-            collection_names = [col.name for col in collections.collections]
-            
-            if self.collection_name not in collection_names:
-                if self.verbose:
-                    print(f"⚠️ Collection '{self.collection_name}' not found. Available: {collection_names}")
-                # Don't raise error, just disable document store
-                self.document_store = None
-                return
-            
-            # Initialize document store
+            # Initialize local document store
             self.document_store = QdrantDocumentStore(
-                host=self.host,
-                port=self.port,
+                path="../qdrant_storage",
                 index=self.collection_name,
                 embedding_dim=DEFAULT_EMBEDDING_DIM
             )
             
             if self.verbose:
-                print(f"✓ Connected to Qdrant collection: {self.collection_name}")
+                print(f"✓ Connected to local Qdrant storage: {self.collection_name}")
                 
         except Exception as e:
             if self.verbose:
-                print(f"⚠️ Qdrant not available, running in offline mode: {e}")
+                print(f"⚠️ Local Qdrant storage not available, running in offline mode: {e}")
             # Don't raise error, just disable document store for graceful degradation
             self.document_store = None
     
@@ -259,7 +242,7 @@ Provide a clear, accurate answer with rule citations:"""
             prompt_builder = self._create_general_prompt_builder()
             string_to_chat = StringToChatMessages()
             answer_builder = AnswerBuilder()
-            chat_generator = XXXGenAIChatGenerator(
+            chat_generator = AppleGenAIChatGenerator(
                 model= LLM_MODEL
             )
             
@@ -290,7 +273,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.scenario_pipeline = Pipeline()
         self.scenario_pipeline.add_component("prompt_builder", self._create_creative_scenario_prompt_builder())
         self.scenario_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.scenario_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.scenario_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
@@ -305,7 +288,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.npc_pipeline.add_component("ranker", self._create_ranker())
         self.npc_pipeline.add_component("prompt_builder", self._create_npc_prompt_builder())
         self.npc_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.npc_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.npc_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
@@ -323,7 +306,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.add_component("ranker", self._create_ranker())
         self.rules_pipeline.add_component("prompt_builder", self._create_rules_prompt_builder())
         self.rules_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.rules_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.rules_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
@@ -438,15 +421,16 @@ Make it engaging, appropriate for D&D, and keep the story moving forward natural
     def _handle_get_collection_info(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle collection info request"""
         try:
-            client = QdrantClient(host=self.host, port=self.port)
-            collection_info = client.get_collection(self.collection_name)
+            if self.document_store is None:
+                return {"success": False, "error": "Document store not available"}
             
+            # For local storage, we can get basic info from the document store
             return {
                 "success": True,
                 "collection_name": self.collection_name,
-                "total_documents": collection_info.points_count,
-                "vector_size": collection_info.config.params.vectors.size,
-                "distance_metric": collection_info.config.params.vectors.distance.name
+                "storage_type": "local",
+                "storage_path": "../qdrant_storage",
+                "embedding_dim": DEFAULT_EMBEDDING_DIM
             }
         except Exception as e:
             return {"success": False, "error": str(e)}

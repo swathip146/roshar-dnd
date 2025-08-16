@@ -472,7 +472,7 @@ class CampaignLoader:
 class CampaignManagerAgent(BaseAgent):
     """Campaign Manager agent for handling campaign and player operations"""
     
-    def __init__(self, campaigns_dir: str = "docs/current_campaign", players_dir: str = "docs/players"):
+    def __init__(self, campaigns_dir: str = "resources/current_campaign", players_dir: str = "docs/players"):
         super().__init__("campaign_manager", "CampaignManager")
         self.campaigns_dir = Path(campaigns_dir)
         self.players_dir = Path(players_dir)

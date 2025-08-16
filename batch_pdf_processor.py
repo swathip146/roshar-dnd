@@ -11,61 +11,41 @@ from haystack.components.preprocessors import DocumentSplitter
 from haystack.components.writers import DocumentWriter
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
 
 
-def clear_qdrant_collection(collection_name: str, host: str = "localhost", port: int = 6333):
-    """Clear all documents from a Qdrant collection"""
-    client = QdrantClient(host=host, port=port)
+def clear_qdrant_collection(collection_name: str, storage_path: str = "../qdrant_storage"):
+    """Clear all documents from a local Qdrant collection"""
+    import shutil
     
-    # Check if collection exists
-    collections = client.get_collections()
-    collection_names = [col.name for col in collections.collections]
+    # For local storage, we can remove the collection directory
+    collection_path = Path(storage_path) / collection_name
     
-    if collection_name in collection_names:
-        # Delete the collection
-        client.delete_collection(collection_name)
-        print(f"Cleared Qdrant collection: {collection_name}")
+    if collection_path.exists():
+        shutil.rmtree(collection_path)
+        print(f"Cleared local Qdrant collection: {collection_name}")
     else:
-        print(f"Collection {collection_name} does not exist")
+        print(f"Collection {collection_name} does not exist at {storage_path}")
 
 
 def setup_qdrant_store(collection_name: str = "dnd_documents",
                       embedding_dim: int = 384,
-                      host: str = "localhost",
-                      port: int = 6333,
+                      storage_path: str = "../qdrant_storage",
                       clear_existing: bool = False) -> QdrantDocumentStore:
-    """Set up Qdrant vector store for document storage"""
-    # Initialize Qdrant client
-    client = QdrantClient(host=host, port=port)
-    
-    # Check if collection exists
-    collections = client.get_collections()
-    collection_names = [col.name for col in collections.collections]
+    """Set up local Qdrant vector store for document storage"""
     
     # Clear existing collection if requested
-    if clear_existing and collection_name in collection_names:
-        client.delete_collection(collection_name)
+    if clear_existing:
+        clear_qdrant_collection(collection_name, storage_path)
         print(f"Cleared existing collection: {collection_name}")
-        collection_names.remove(collection_name)
     
-    # Create collection if it doesn't exist
-    if collection_name not in collection_names:
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=embedding_dim, distance=Distance.COSINE)
-        )
-        print(f"Created Qdrant collection: {collection_name}")
-    
-    # Initialize document store
+    # Initialize local document store - it will create the collection automatically
     document_store = QdrantDocumentStore(
-        host=host,
-        port=port,
+        path=storage_path,
         index=collection_name,
         embedding_dim=embedding_dim
     )
     
+    print(f"Initialized local Qdrant collection: {collection_name}")
     return document_store
 
 
@@ -298,13 +278,13 @@ def process_all_documents(root_folder, use_qdrant=True, collection_name="dnd_doc
     document_store = None
     if use_qdrant:
         try:
-            print("Setting up Qdrant vector store...")
+            print("Setting up local Qdrant vector store...")
             document_store = setup_qdrant_store(collection_name=collection_name, clear_existing=clear_existing)
-            print("✓ Qdrant connection successful")
+            print("✓ Local Qdrant storage initialized")
         except Exception as e:
-            print(f"⚠️  Qdrant connection failed: {e}")
+            print(f"⚠️  Local Qdrant storage initialization failed: {e}")
             print("Continuing without vector storage - only text files will be generated")
-            print("To enable vector storage, start Qdrant with: docker run -p 6333:6333 qdrant/qdrant")
+            print("Check that the storage path is accessible and has write permissions")
             document_store = None
     
     all_documents = []
@@ -348,9 +328,9 @@ def process_all_documents(root_folder, use_qdrant=True, collection_name="dnd_doc
         print(f"✓ Total document chunks: {len(all_documents)}")
         # print(f"✓ Text output saved: {output_filename}")
         if document_store:
-            print(f"✓ Documents stored in Qdrant collection: {collection_name}")
+            print(f"✓ Documents stored in local Qdrant collection: {collection_name}")
         else:
-            print(f"⚠️  Vector storage skipped (Qdrant not available)")
+            print(f"⚠️  Vector storage skipped (local Qdrant not available)")
     else:
         print("No documents were processed successfully.")
 
