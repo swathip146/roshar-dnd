@@ -59,6 +59,8 @@ class ScenarioGeneratorAgent(BaseAgent):
         self.register_handler("apply_player_choice", self._handle_apply_player_choice)
         self.register_handler("get_generator_status", self._handle_get_generator_status)
         self.register_handler("game_state_updated", self._handle_game_state_updated)
+        self.register_handler("campaign_selected", self._handle_campaign_selected)
+        self.register_handler("retrieve_documents", self._handle_retrieve_documents)
     
     def _is_haystack_pipeline_available(self) -> bool:
         """Check if haystack pipeline is available via orchestrator communication"""
@@ -126,32 +128,65 @@ class ScenarioGeneratorAgent(BaseAgent):
     
     def _handle_generate_with_context(self, message: AgentMessage):
         """Generate scenario with optional RAG context - orchestrator communication"""
-        query = message.data.get("query")
-        use_rag = message.data.get("use_rag", True)
-        campaign_context = message.data.get("campaign_context", "")
-        game_state = message.data.get("game_state", "")
-        
-        if not query:
-            self.send_response(message, {"success": False, "error": "No query provided"})
-            return
-        
         try:
+            if self.verbose:
+                print(f"🔥 ScenarioGenerator: Processing generate_with_context request")
+            
+            # Validate message data first
+            if not isinstance(message.data, dict):
+                if self.verbose:
+                    print(f"❌ ScenarioGenerator: Invalid message data type: {type(message.data)}")
+                self.send_response(message, {"success": False, "error": "Invalid message data format"})
+                return
+            
+            query = message.data.get("query")
+            use_rag = message.data.get("use_rag", True)
+            campaign_context = message.data.get("campaign_context", "")
+            game_state = message.data.get("game_state", "")
+            
+            if self.verbose:
+                print(f"🔥 ScenarioGenerator: Query={query}, use_rag={use_rag}")
+            
+            if not query:
+                if self.verbose:
+                    print(f"❌ ScenarioGenerator: No query provided")
+                self.send_response(message, {"success": False, "error": "No query provided"})
+                return
+            
             # For now, skip RAG retrieval since it requires asynchronous handling
             # Generate scenario without RAG context for immediate response
             documents = []
             
+            if self.verbose:
+                print(f"🔥 ScenarioGenerator: Calling _generate_creative_scenario")
+            
             # Generate scenario with or without RAG context
             scenario = self._generate_creative_scenario(query, documents, campaign_context, game_state)
             
-            self.send_response(message, {
+            if self.verbose:
+                print(f"🔥 ScenarioGenerator: Generated scenario: {scenario}")
+            
+            response_data = {
                 "success": True,
                 "scenario": scenario,
                 "used_rag": len(documents) > 0,
                 "source_count": len(documents)
-            })
+            }
+            
+            if self.verbose:
+                print(f"🔥 ScenarioGenerator: Sending response: {response_data}")
+            
+            self.send_response(message, response_data)
+            
+            if self.verbose:
+                print(f"✅ ScenarioGenerator: Response sent successfully")
+                
         except Exception as e:
             if self.verbose:
-                print(f"⚠️ Scenario generation error: {e}")
+                print(f"❌ ScenarioGenerator: Exception in handler: {e}")
+                import traceback
+                print(f"❌ ScenarioGenerator: Traceback: {traceback.format_exc()}")
+            
             self.send_response(message, {"success": False, "error": str(e)})
     
     def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
@@ -512,6 +547,46 @@ Focus on creativity, engagement, and D&D authenticity."""
         # Scenario generator doesn't need to respond to game state updates directly
         # This handler exists only to prevent "no handler" error messages
         pass
+
+    def _handle_campaign_selected(self, message: AgentMessage):
+        """Handle campaign_selected event - validate message data and acknowledge"""
+        # Validate message data - fix for 'str' object has no attribute 'get' error
+        if not isinstance(message.data, dict):
+            if self.verbose:
+                print(f"⚠️ ScenarioGenerator received invalid campaign_selected data type: {type(message.data)}")
+            # Convert to dict if it's a string (common issue)
+            if isinstance(message.data, str):
+                try:
+                    import json
+                    message.data = json.loads(message.data)
+                except:
+                    message.data = {"campaign_name": message.data}
+            else:
+                message.data = {"campaign_name": "unknown"}
+        
+        campaign_name = message.data.get("campaign_name", "unknown")
+        if self.verbose:
+            print(f"📋 ScenarioGenerator acknowledged campaign selection: {campaign_name}")
+        
+        # No response needed for broadcast events - just acknowledge receipt
+
+    def _handle_retrieve_documents(self, message: AgentMessage):
+        """Handle retrieve_documents response from haystack_pipeline"""
+        # This handler receives the async response from haystack_pipeline.retrieve_documents
+        if self.verbose:
+            print(f"📄 ScenarioGenerator received retrieve_documents response")
+        
+        # Store the response for any pending RAG operations
+        # For now, just acknowledge receipt - full async RAG integration would require
+        # more complex state management to match responses to original requests
+        documents = message.data.get("documents", [])
+        success = message.data.get("success", False)
+        
+        if self.verbose:
+            print(f"📄 Retrieved {len(documents)} documents, success: {success}")
+        
+        # Note: This is a response handler, so no response is sent back
+        # The actual RAG integration would need to be refactored for proper async handling
 
     def process_tick(self):
         """Process scenario generator tick - mostly reactive, no regular processing needed"""

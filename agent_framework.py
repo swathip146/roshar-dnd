@@ -65,13 +65,16 @@ class AgentMessage:
 class BaseAgent(ABC):
     """Base class for all agents in the framework"""
     
-    def __init__(self, agent_id: str, agent_type: str):
+    def __init__(self, agent_id: str, agent_type: str, verbose: bool = False):
         self.agent_id = agent_id
         self.agent_type = agent_type
+        self.verbose = verbose
         self.message_bus: Optional['MessageBus'] = None
         self.running = False
         self.message_handlers: Dict[str, Callable] = {}
         self._setup_handlers()
+        # Register universal handlers after agent-specific ones
+        self._register_universal_handlers()
     
     @abstractmethod
     def _setup_handlers(self):
@@ -81,6 +84,24 @@ class BaseAgent(ABC):
     def register_handler(self, action: str, handler: Callable):
         """Register a message handler for a specific action"""
         self.message_handlers[action] = handler
+    
+    def _validate_message_data(self, message: AgentMessage) -> bool:
+        """Validate message data format - Fix #1 from Phase 1"""
+        if not isinstance(message.data, dict):
+            if self.verbose:
+                print(f"❌ {self.agent_id}: Invalid message data type: {type(message.data)}")
+            return False
+        return True
+    
+    def _handle_broadcast_event(self, message: AgentMessage) -> Dict[str, Any]:
+        """Default handler for broadcast events that don't need agent-specific handling - Fix #3 from Phase 1"""
+        if not self._validate_message_data(message):
+            return {"success": False, "error": "Invalid message data format"}
+        
+        event_type = message.data.get("event_type", message.action)
+        if self.verbose:
+            print(f"📢 {self.agent_id} received broadcast: {event_type}")
+        return {"success": True, "message": f"Event {event_type} acknowledged"}
     
     def send_message(self, receiver_id: str, action: str, data: Dict[str, Any], 
                     message_type: MessageType = MessageType.REQUEST) -> str:
@@ -114,6 +135,8 @@ class BaseAgent(ABC):
             response_to=original_message.id
         )
         
+        print(f"Response prepared in send_response (AgentMessage) is {response}")
+        
         self.message_bus.send_message(response)
     
     def broadcast_event(self, action: str, data: Dict[str, Any]):
@@ -138,11 +161,102 @@ class BaseAgent(ABC):
         try:
             handler = self.message_handlers.get(message.action)
             if handler:
-                handler(message)
+                # Store the message ID to track if a response was sent for this specific message
+                message_id = message.id
+                original_history_length = len(self.message_bus.message_history) if self.message_bus else 0
+                
+                if self.verbose and message.message_type == MessageType.REQUEST:
+                    print(f"🔍 {self.agent_id}: Calling handler for {message.action} (msg_id: {message_id})")
+                
+                # Call handler and check for response data
+                result = handler(message)
+                
+                if self.verbose and message.message_type == MessageType.REQUEST:
+                    print(f"🔍 {self.agent_id}: Handler returned: {type(result)} for {message.action}")
+                
+                # Give the message bus a moment to process any send_response calls
+                import time
+                time.sleep(0.01)  # 10ms delay to allow message bus processing
+                
+                # Check if handler already sent a response by looking for response message
+                response_already_sent = False
+                if self.message_bus:
+                    current_history_length = len(self.message_bus.message_history)
+                    if self.verbose and message.message_type == MessageType.REQUEST:
+                        print(f"🔍 {self.agent_id}: History length before: {original_history_length}, after: {current_history_length}")
+                    
+                    # Look for response messages sent after handler execution
+                    new_messages = self.message_bus.message_history[original_history_length:]
+                    if self.verbose and message.message_type == MessageType.REQUEST and new_messages:
+                        print(f"🔍 {self.agent_id}: Found {len(new_messages)} new messages")
+                    
+                    for i, msg in enumerate(new_messages):
+                        if self.verbose and message.message_type == MessageType.REQUEST:
+                            print(f"🔍 {self.agent_id}: New msg {i}: type={msg.message_type.value}, response_to={msg.response_to}, sender={msg.sender_id}")
+                        
+                        # msg is an AgentMessage object, not a dict
+                        if (msg.message_type == MessageType.RESPONSE and
+                            msg.response_to == message_id and
+                            msg.sender_id == self.agent_id):
+                            response_already_sent = True
+                            if self.verbose:
+                                print(f"🔍 {self.agent_id}: Found response message in history for {message.action}")
+                            break
+                
+                # If handler returned data and this is a REQUEST message AND no response sent yet
+                if (result is not None and
+                    isinstance(result, dict) and
+                    message.message_type == MessageType.REQUEST and
+                    not response_already_sent):
+                    if self.verbose:
+                        print(f"🔍 {self.agent_id}: Framework sending result response for {message.action}")
+                    self.send_response(message, result)
+                    
+                # For debugging: log what happened
+                if self.verbose and message.message_type == MessageType.REQUEST:
+                    if response_already_sent:
+                        print(f"✅ {self.agent_id}: Handler sent response directly for {message.action}")
+                    elif result is not None:
+                        print(f"✅ {self.agent_id}: Framework sent handler result for {message.action}")
+                    else:
+                        print(f"⚠️ {self.agent_id}: No response sent for {message.action}")
+                        
             else:
-                print(f"Agent {self.agent_id} has no handler for action: {message.action}")
+                if self.verbose:
+                    print(f"⚠️ Agent {self.agent_id} has no handler for action: {message.action}")
+                
+                # Send error response for requests to unknown actions
+                if message.message_type == MessageType.REQUEST:
+                    self.send_response(message, {
+                        "success": False,
+                        "error": f"No handler for action: {message.action}"
+                    })
         except Exception as e:
-            print(f"Error handling message in agent {self.agent_id}: {e}")
+            if self.verbose:
+                print(f"❌ Error handling message in agent {self.agent_id}: {e}")
+            
+            # Send error response for requests that failed
+            if message.message_type == MessageType.REQUEST:
+                self.send_response(message, {
+                    "success": False,
+                    "error": f"Handler error: {str(e)}"
+                })
+
+    def _register_universal_handlers(self):
+        """Register universal handlers that all agents should have"""
+        # Register game_state_updated handler if not already registered
+        if "game_state_updated" not in self.message_handlers:
+            self.register_handler("game_state_updated", self._handle_game_state_updated)
+        
+        # Register campaign_selected handler if not already registered
+        if "campaign_selected" not in self.message_handlers:
+            self.register_handler("campaign_selected", self._handle_broadcast_event)
+    
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Default handler for game_state_updated events"""
+        if self.verbose:
+            print(f"📢 {self.agent_id} received game_state_updated event")
+        # No response needed for events
     
     def start(self):
         """Start the agent"""

@@ -242,17 +242,37 @@ class ManualCommandHandler(BaseCommandHandler):
     
     def _is_numeric_selection(self, instruction_lower: str) -> bool:
         """Check if instruction is a numeric selection."""
-        return instruction_lower.isdigit() and self.last_command == "list_campaigns"
+        # Handle campaign selection
+        if instruction_lower.isdigit() and self.last_command == "list_campaigns":
+            return True
+        
+        # Handle scenario option selection (support "1", "1.", etc.)
+        clean_input = instruction_lower.rstrip('.')
+        if clean_input.isdigit() and self.last_scenario_options:
+            return True
+            
+        return False
     
     def _handle_numeric_selection(self, instruction_lower: str) -> str:
-        """Handle numeric campaign selection."""
-        campaign_idx = int(instruction_lower) - 1
-        response = self._send_message_and_wait("campaign_manager", "select_campaign", {"index": campaign_idx})
-        self.last_command = ""
-        if response and response.get("success"):
-            return f"✅ Selected campaign: {response['campaign']}"
-        else:
-            return f"❌ {response.get('error', 'Failed to select campaign')}"
+        """Handle numeric campaign or scenario option selection."""
+        clean_input = instruction_lower.rstrip('.')
+        
+        # Campaign selection
+        if self.last_command == "list_campaigns":
+            campaign_idx = int(clean_input) - 1
+            response = self._send_message_and_wait_safe("campaign_manager", "select_campaign", {"index": campaign_idx})
+            self.last_command = ""
+            if response and response.get("success"):
+                return f"✅ Selected campaign: {response['campaign']}"
+            else:
+                return f"❌ {response.get('error', 'Failed to select campaign')}"
+        
+        # Scenario option selection
+        elif self.last_scenario_options:
+            option_number = int(clean_input)
+            return self._select_player_option(option_number)
+        
+        return f"❌ Invalid numeric selection"
     
     def _parse_command(self, instruction: str) -> tuple:
         """Parse command into agent_id, action, and parameters."""
@@ -325,7 +345,7 @@ class ManualCommandHandler(BaseCommandHandler):
     def _handle_campaign_command(self, action: str, params: dict) -> str:
         """Handle campaign-related commands."""
         if action == 'list_campaigns':
-            response = self._send_message_and_wait("campaign_manager", "list_campaigns", {})
+            response = self._send_message_and_wait_safe("campaign_manager", "list_campaigns", {})
             if response:
                 campaigns = response.get("campaigns", [])
                 if campaigns:
@@ -336,14 +356,14 @@ class ManualCommandHandler(BaseCommandHandler):
             return "❌ Failed to retrieve campaigns"
         
         elif action == 'get_campaign_info':
-            response = self._send_message_and_wait("campaign_manager", "get_campaign_info", {})
+            response = self._send_message_and_wait_safe("campaign_manager", "get_campaign_info", {})
             if response and response.get("success"):
                 return self._format_campaign_info(response["campaign"])
             else:
                 return f"❌ {response.get('error', 'No campaign selected')}"
         
         elif action == 'list_players':
-            response = self._send_message_and_wait("campaign_manager", "list_players", {})
+            response = self._send_message_and_wait_safe("campaign_manager", "list_players", {})
             if response:
                 return self._format_player_list(response.get("players", []))
             return "❌ Failed to retrieve players"
@@ -354,10 +374,10 @@ class ManualCommandHandler(BaseCommandHandler):
         """Handle combat-related commands."""
         if action == 'start_combat':
             # Add players to combat
-            players_response = self._send_message_and_wait("campaign_manager", "list_players", {})
+            players_response = self._send_message_and_wait_safe("campaign_manager", "list_players", {})
             if players_response and players_response.get("players"):
                 for player in players_response["players"]:
-                    self._send_message_and_wait("combat_engine", "add_combatant", {
+                    self._send_message_and_wait_safe("combat_engine", "add_combatant", {
                         "name": player["name"],
                         "max_hp": player.get("hp", 20),
                         "armor_class": player.get("combat_stats", {}).get("armor_class", 12),
@@ -365,21 +385,21 @@ class ManualCommandHandler(BaseCommandHandler):
                     })
             
             # Start combat
-            response = self._send_message_and_wait("combat_engine", "start_combat", {})
+            response = self._send_message_and_wait_safe("combat_engine", "start_combat", {})
             if response and response.get("success"):
                 return "⚔️ **COMBAT STARTED!**\n\nUse 'combat status' to see initiative order and 'next turn' to advance."
             else:
                 return f"❌ Failed to start combat: {response.get('error', 'Unknown error')}"
         
         elif action == 'get_combat_status':
-            response = self._send_message_and_wait("combat_engine", "get_combat_status", {})
+            response = self._send_message_and_wait_safe("combat_engine", "get_combat_status", {})
             if response and response.get("success"):
                 return self._format_combat_status(response["status"])
             else:
                 return f"❌ Failed to get combat status: {response.get('error', 'Unknown error')}"
         
         elif action == 'next_turn':
-            response = self._send_message_and_wait("combat_engine", "next_turn", {})
+            response = self._send_message_and_wait_safe("combat_engine", "next_turn", {})
             if response and response.get("success"):
                 current = response.get("current_combatant")
                 if current:
@@ -389,7 +409,7 @@ class ManualCommandHandler(BaseCommandHandler):
                 return f"❌ Failed to advance turn: {response.get('error', 'Unknown error')}"
         
         elif action == 'end_combat':
-            response = self._send_message_and_wait("combat_engine", "end_combat", {})
+            response = self._send_message_and_wait_safe("combat_engine", "end_combat", {})
             if response and response.get("success"):
                 return "🏁 **COMBAT ENDED!**"
             else:
@@ -399,7 +419,7 @@ class ManualCommandHandler(BaseCommandHandler):
     
     def _handle_dice_roll(self, instruction: str) -> str:
         """Handle dice rolling commands."""
-        response = self._send_message_and_wait("dice_system", "roll_dice", {
+        response = self._send_message_and_wait_safe("dice_system", "roll_dice", {
             "expression": "1d20",  # Default, could be enhanced
             "context": "Manual roll",
             "skill": None
@@ -413,7 +433,7 @@ class ManualCommandHandler(BaseCommandHandler):
     
     def _handle_rule_query(self, instruction: str) -> str:
         """Handle rule checking commands."""
-        response = self._send_message_and_wait("rule_enforcement", "check_rule", {
+        response = self._send_message_and_wait_safe("rule_enforcement", "check_rule", {
             "query": instruction,
             "category": "general"
         })
@@ -442,9 +462,9 @@ class ManualCommandHandler(BaseCommandHandler):
     
     def _handle_rag_query(self, instruction: str) -> str:
         """Handle direct RAG queries (not scenario generation)."""
-        response = self._send_message_and_wait("haystack_pipeline", "query_rag", {
+        response = self._send_message_and_wait_safe("haystack_pipeline", "query_rag", {
             "query": instruction
-        })
+        }, timeout=10.0)  # Increased timeout for RAG queries
         
         if response and response.get("success"):
             result = response["result"]
@@ -465,12 +485,12 @@ class ManualCommandHandler(BaseCommandHandler):
     
     def _handle_scenario_generation(self, instruction: str) -> str:
         """Handle scenario generation using scenario generator agent."""
-        response = self._send_message_and_wait("scenario_generator", "generate_with_context", {
+        response = self._send_message_and_wait_safe("scenario_generator", "generate_with_context", {
             "query": instruction,
             "use_rag": True,
             "campaign_context": "",
             "game_state": ""
-        })
+        }, timeout=15.0)  # Increased timeout for LLM-based scenario generation
         
         if response and response.get("success"):
             scenario = response.get("scenario", {})
@@ -490,14 +510,14 @@ class ManualCommandHandler(BaseCommandHandler):
     def _handle_session_command(self, action: str, params: dict) -> str:
         """Handle session-related commands."""
         if action == 'take_short_rest':
-            response = self._send_message_and_wait("session_manager", "take_short_rest", {})
+            response = self._send_message_and_wait_safe("session_manager", "take_short_rest", {})
             if response and response.get("success"):
                 return f"😴 **SHORT REST COMPLETED!**\n{response['message']}"
             else:
                 return f"❌ Failed to take short rest: {response.get('error', 'Unknown error')}"
         
         elif action == 'take_long_rest':
-            response = self._send_message_and_wait("session_manager", "take_long_rest", {})
+            response = self._send_message_and_wait_safe("session_manager", "take_long_rest", {})
             if response and response.get("success"):
                 return f"🛌 **LONG REST COMPLETED!**\n{response['message']}"
             else:
@@ -508,7 +528,7 @@ class ManualCommandHandler(BaseCommandHandler):
     def _handle_inventory_command(self, action: str, params: dict) -> str:
         """Handle inventory-related commands."""
         if action == 'get_inventory':
-            response = self._send_message_and_wait("inventory_manager", "get_inventory", {
+            response = self._send_message_and_wait_safe("inventory_manager", "get_inventory", {
                 "character": params.get('param_1', 'party')
             })
             if response and response.get("success"):
@@ -521,7 +541,7 @@ class ManualCommandHandler(BaseCommandHandler):
     def _handle_spell_command(self, action: str, params: dict) -> str:
         """Handle spell-related commands."""
         if action == 'cast_spell':
-            response = self._send_message_and_wait("spell_manager", "cast_spell", {
+            response = self._send_message_and_wait_safe("spell_manager", "cast_spell", {
                 "character": params.get('param_2', 'caster'),
                 "spell": params.get('param_1', '')
             })
@@ -535,7 +555,7 @@ class ManualCommandHandler(BaseCommandHandler):
     def _handle_character_command(self, action: str, params: dict) -> str:
         """Handle character-related commands."""
         if action == 'create_character':
-            response = self._send_message_and_wait("character_manager", "create_character", {
+            response = self._send_message_and_wait_safe("character_manager", "create_character", {
                 "name": params.get('param_1', ''),
                 "race": "Human",
                 "character_class": "Fighter",
@@ -551,7 +571,7 @@ class ManualCommandHandler(BaseCommandHandler):
     def _handle_experience_command(self, action: str, params: dict) -> str:
         """Handle experience-related commands."""
         if action == 'level_up':
-            response = self._send_message_and_wait("experience_manager", "level_up", {
+            response = self._send_message_and_wait_safe("experience_manager", "level_up", {
                 "character": params.get('param_1', '')
             })
             if response and response.get("success"):
@@ -584,7 +604,7 @@ class ManualCommandHandler(BaseCommandHandler):
         if not npc_name:
             return "❌ Please specify NPC name. Usage: talk to npc [name] [optional: what to say]"
         
-        response = self._send_message_and_wait("npc_controller", "generate_npc_dialogue", {
+        response = self._send_message_and_wait_safe("npc_controller", "generate_npc_dialogue", {
             "npc_name": npc_name,
             "player_input": player_input,
             "context": "dialogue"
@@ -597,7 +617,7 @@ class ManualCommandHandler(BaseCommandHandler):
 
     def _handle_npc_behavior_generation(self, instruction: str, params: dict) -> str:
         """Handle NPC behavior generation requests"""
-        response = self._send_message_and_wait("npc_controller", "generate_npc_behavior", {
+        response = self._send_message_and_wait_safe("npc_controller", "generate_npc_behavior", {
             "context": instruction,
             "game_state": self._get_current_game_state()
         })
@@ -614,7 +634,7 @@ class ManualCommandHandler(BaseCommandHandler):
         if not npc_name:
             return "❌ Please specify NPC name. Usage: npc status [name]"
         
-        response = self._send_message_and_wait("npc_controller", "get_npc_state", {
+        response = self._send_message_and_wait_safe("npc_controller", "get_npc_state", {
             "npc_name": npc_name
         })
         
@@ -658,7 +678,7 @@ class ManualCommandHandler(BaseCommandHandler):
         if not npc_name:
             return f"❌ Please specify NPC name. Usage: {interaction_type} [npc_name] [attempt]"
         
-        response = self._send_message_and_wait("npc_controller", "npc_social_interaction", {
+        response = self._send_message_and_wait_safe("npc_controller", "npc_social_interaction", {
             "npc_name": npc_name,
             "interaction_type": interaction_type,
             "player_action": player_action,
@@ -683,7 +703,7 @@ class ManualCommandHandler(BaseCommandHandler):
     
     def _handle_general_query(self, instruction: str) -> str:
         """Handle general queries using RAG."""
-        response = self._send_message_and_wait("haystack_pipeline", "query_rag", {"query": instruction})
+        response = self._send_message_and_wait_safe("haystack_pipeline", "query_rag", {"query": instruction}, timeout=10.0)  # Increased timeout for RAG queries
         
         if response and response.get("success"):
             result = response["result"]
@@ -815,11 +835,11 @@ class ManualCommandHandler(BaseCommandHandler):
         selected_option = self.last_scenario_options[option_number - 1]
         
         # Process the choice using scenario generator
-        response = self._send_message_and_wait("scenario_generator", "apply_player_choice", {
+        response = self._send_message_and_wait_safe("scenario_generator", "apply_player_choice", {
             "game_state": {"current_options": "\n".join(self.last_scenario_options)},
             "player": "DM",
             "choice": option_number
-        })
+        }, timeout=15.0)  # Increased timeout for LLM-based consequence generation
         
         if response and response.get("success"):
             continuation = response.get("continuation", "Option processed")

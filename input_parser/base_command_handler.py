@@ -109,6 +109,75 @@ class BaseCommandHandler(ABC):
                 print(f"❌ Error sending message to {agent_id}:{action}: {e}")
             return {"success": False, "error": f"Communication error: {str(e)}"}
     
+    def _send_message_and_wait_safe(self, agent_id: str, action: str, data: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
+        """
+        Send a message to an agent and wait for response with safety wrapper.
+        
+        This method wraps _send_message_and_wait() with additional safety checks to handle:
+        - None responses from message bus race conditions
+        - Data type validation to prevent 'NoneType' object has no attribute 'get' errors
+        - Consistent fallback response format
+        
+        Args:
+            agent_id: Target agent identifier
+            action: Action/handler name to invoke
+            data: Message payload data
+            timeout: Maximum wait time for response
+            
+        Returns:
+            Dict[str, Any]: Always returns a valid dictionary with success/error indicators
+        """
+        try:
+            # Call the underlying message sending method
+            result = self._send_message_and_wait(agent_id, action, data, timeout)
+            
+            # Handle None response (message bus race condition)
+            if result is None:
+                if self.dm_assistant.verbose:
+                    print(f"⚠️ Received None response from {agent_id}:{action} - possible message bus race condition")
+                return {
+                    "success": False,
+                    "error": f"No response received from {agent_id}",
+                    "timeout": True
+                }
+            
+            # Validate response is a dictionary
+            if not isinstance(result, dict):
+                if self.dm_assistant.verbose:
+                    print(f"⚠️ Received non-dict response from {agent_id}:{action}: {type(result)} - {result}")
+                
+                # Try to convert string responses to dict
+                if isinstance(result, str):
+                    try:
+                        import json
+                        result = json.loads(result)
+                    except:
+                        # Wrap string response in standard format
+                        result = {"success": True, "response": result}
+                else:
+                    # Wrap other types in error format
+                    result = {
+                        "success": False,
+                        "error": f"Invalid response type from {agent_id}: {type(result)}",
+                        "raw_response": str(result)
+                    }
+            
+            # Ensure required fields exist
+            if "success" not in result:
+                result["success"] = True  # Assume success if not explicitly failed
+            
+            return result
+            
+        except Exception as e:
+            if self.dm_assistant.verbose:
+                print(f"❌ Error in safe message sending to {agent_id}:{action}: {e}")
+            return {
+                "success": False,
+                "error": f"Safe communication error: {str(e)}",
+                "agent_id": agent_id,
+                "action": action
+            }
+    
     def _check_agent_availability(self, agent_id: str, action: str) -> bool:
         """Check if agent is registered and has the required handler"""
         try:

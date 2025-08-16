@@ -112,6 +112,11 @@ class NPCControllerAgent(BaseAgent):
         self.register_handler("get_npc_state", self._handle_get_npc_state)
         self.register_handler("npc_social_interaction", self._handle_npc_social_interaction)
         self.register_handler("game_state_updated", self._handle_game_state_updated)
+        
+        # RAG response handlers for async messaging
+        self.register_handler("retrieve_documents", self._handle_retrieve_documents)
+        self.register_handler("query_rag", self._handle_query_rag_response)
+        self.register_handler("query_rules", self._handle_query_rules_response)
     
     def _setup_llm_integration(self):
         """Initialize direct LLM integration for creative NPC generation"""
@@ -1330,6 +1335,56 @@ Respond in JSON format:
         # For now, just acknowledge the update
         # Future enhancement: Update NPC states based on game changes
         pass
+
+    def _handle_retrieve_documents(self, message: AgentMessage):
+        """Handle retrieve_documents response from haystack_pipeline"""
+        # This handler receives async responses from haystack_pipeline.retrieve_documents
+        if self.verbose:
+            print(f"📄 NPCController received retrieve_documents response")
+        
+        documents = message.data.get("documents", [])
+        success = message.data.get("success", False)
+        
+        if self.verbose:
+            print(f"📄 Retrieved {len(documents)} documents, success: {success}")
+        
+        # Store response for any pending RAG operations
+        # For full async implementation, would need to match responses to original requests
+        # This handler just acknowledges receipt for now
+
+    def _handle_query_rag_response(self, message: AgentMessage):
+        """Handle query_rag response from haystack_pipeline"""
+        if self.verbose:
+            print(f"🔍 NPCController received query_rag response")
+        
+        success = message.data.get("success", False)
+        result = message.data.get("result", {})
+        
+        if success and result:
+            answer = result.get("answer", "")
+            sources = result.get("sources", [])
+            if self.verbose:
+                print(f"🔍 RAG answer received: {answer[:100]}... Sources: {len(sources)}")
+        
+        # Store response for any pending RAG operations
+        # For full async implementation, would need to match responses to original requests
+
+    def _handle_query_rules_response(self, message: AgentMessage):
+        """Handle query_rules response from haystack_pipeline"""
+        if self.verbose:
+            print(f"📋 NPCController received query_rules response")
+        
+        success = message.data.get("success", False)
+        result = message.data.get("result", {})
+        
+        if success and result:
+            answer = result.get("answer", "")
+            sources = result.get("sources", [])
+            if self.verbose:
+                print(f"📋 Rules answer received: {answer[:100]}... Sources: {len(sources)}")
+        
+        # Store response for any pending rules queries
+        # For full async implementation, would need to match responses to original requests
 
     def process_tick(self):
         """Enhanced process tick with memory cleanup and state maintenance"""
