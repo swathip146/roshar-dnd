@@ -5,6 +5,8 @@ Abstract base class that defines the interface for command handlers.
 This allows for pluggable parsing strategies (manual vs AI-based).
 """
 
+import json
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
@@ -56,29 +58,157 @@ class BaseCommandHandler(ABC):
         pass
     
     def _send_message_and_wait(self, agent_id: str, action: str, data: Dict[str, Any], timeout: float = 5.0) -> Optional[Dict[str, Any]]:
-        """
-        Convenience method to send messages through the DM assistant.
-        
-        Args:
-            agent_id: Target agent identifier
-            action: Action to perform
-            data: Data payload for the action
-            timeout: Timeout in seconds
+        """Send a message to an agent and wait for response"""
+        try:
+            # Check cache if enabled
+            cache_key = None
+            if self.dm_assistant.enable_caching and self.dm_assistant.cache_manager and self._should_cache(agent_id, action, data):
+                cache_key = f"{agent_id}_{action}_{json.dumps(data, sort_keys=True)}"
+                cached_result = self.dm_assistant.cache_manager.get(cache_key)
+                if cached_result:
+                    if self.dm_assistant.verbose:
+                        print(f"📦 Cache hit for {agent_id}:{action}")
+                    return cached_result
             
-        Returns:
-            Optional response data from the agent
-        """
-        return self.dm_assistant._send_message_and_wait(agent_id, action, data, timeout)
+            # Send message through orchestrator
+            message_id = self.dm_assistant.orchestrator.send_message_to_agent(agent_id, action, data)
+            if not message_id:
+                return {"success": False, "error": "Failed to send message"}
+            
+            # Wait for response
+            start_time = time.time()
+            result = None
+            
+            while time.time() - start_time < timeout:
+                try:
+                    history = self.dm_assistant.orchestrator.message_bus.get_message_history(limit=50)
+                    for msg in reversed(history):
+                        if (msg.get("response_to") == message_id and
+                            msg.get("message_type") == "response"):
+                            result = msg.get("data", {})
+                            break
+                    
+                    if result:
+                        break
+                    
+                except Exception as e:
+                    if self.dm_assistant.verbose:
+                        print(f"⚠️ Error checking message history: {e}")
+                
+                time.sleep(0.1)
+            
+            # Cache result if successful
+            if result and cache_key and self.dm_assistant.cache_manager:
+                ttl_hours = self._get_cache_ttl(agent_id, action)
+                self.dm_assistant.cache_manager.set(cache_key, result, ttl_hours)
+            
+            return result
+            
+        except Exception as e:
+            if self.dm_assistant.verbose:
+                print(f"❌ Error sending message to {agent_id}:{action}: {e}")
+            return {"success": False, "error": f"Communication error: {str(e)}"}
     
     def _check_agent_availability(self, agent_id: str, action: str) -> bool:
+        """Check if agent is registered and has the required handler"""
+        try:
+            agent_status = self.dm_assistant.orchestrator.get_agent_status()
+            if agent_id not in agent_status:
+                return False
+            
+            if not agent_status[agent_id].get("running", False):
+                return False
+            
+            handlers = agent_status[agent_id].get("handlers", [])
+            if action not in handlers:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            if self.dm_assistant.verbose:
+                print(f"⚠️ Error checking agent availability: {e}")
+            return False
+    
+    def _should_cache(self, agent_id: str, action: str, data: Dict[str, Any]) -> bool:
+        """Determine if a query should be cached"""
+        # Don't cache dice rolls or random content
+        if agent_id == 'dice_system':
+            return False
+        
+        # Don't cache scenario generation (creative content)
+        if agent_id == 'haystack_pipeline' and action == 'query_scenario':
+            return False
+        
+        # Don't cache if data contains random/time-sensitive elements
+        query_text = json.dumps(data).lower()
+        if any(keyword in query_text for keyword in ['roll', 'random', 'dice', 'turn', 'timestamp']):
+            return False
+        
+        return True
+    
+    def _get_cache_ttl(self, agent_id: str, action: str) -> float:
+        """Get cache TTL (time-to-live) in hours for different agent/action combinations"""
+        if agent_id == 'rule_enforcement':
+            return 24.0  # Rule queries can be cached longer
+        elif agent_id == 'campaign_manager':
+            return 12.0  # Campaign info can be cached for medium duration
+        else:
+            return 6.0   # General queries use shorter TTL
+    
+    def handle_game_state_updated(self, event_data: Dict[str, Any]) -> None:
         """
-        Check if an agent is available and has the required handler.
+        Handle game_state_updated events from the message bus.
+        
+        This method is called when the game state changes, allowing command handlers
+        to update their internal state, invalidate caches, or perform other
+        synchronization tasks.
         
         Args:
-            agent_id: Target agent identifier
-            action: Action to check for
-            
-        Returns:
-            bool: True if agent is available and has the handler
+            event_data: Event data containing game_state and timestamp
         """
-        return self.dm_assistant._check_agent_availability(agent_id, action)
+        if self.dm_assistant.verbose:
+            timestamp = event_data.get('timestamp', 'unknown')
+            print(f"🔄 Game state updated at {timestamp}")
+        
+        # Invalidate game state related cache entries if caching is enabled
+        if self.dm_assistant.enable_caching and self.dm_assistant.cache_manager:
+            # Clear any cached game state queries
+            cache_keys_to_remove = []
+            cache_stats = self.dm_assistant.cache_manager.get_stats()
+            
+            for key in cache_stats.get('keys', []):
+                # Remove cache entries related to game state, combat status, or scenario context
+                if any(term in key.lower() for term in ['game_state', 'combat_status', 'scenario', 'current_scene']):
+                    cache_keys_to_remove.append(key)
+            
+            for key in cache_keys_to_remove:
+                self.dm_assistant.cache_manager.remove(key)
+                if self.dm_assistant.verbose:
+                    print(f"📦 Invalidated cache entry: {key}")
+        
+        # Update narrative continuity if available
+        if hasattr(self.dm_assistant, 'narrative_tracker') and self.dm_assistant.narrative_tracker:
+            game_state = event_data.get('game_state', {})
+            if 'current_scenario' in game_state:
+                self.dm_assistant.narrative_tracker.add_event(
+                    event_type='game_state_update',
+                    content=game_state.get('current_scenario', ''),
+                    metadata={
+                        'timestamp': event_data.get('timestamp'),
+                        'location': game_state.get('session', {}).get('location', ''),
+                        'players': list(game_state.get('players', {}).keys())
+                    }
+                )
+        
+        # Allow subclasses to implement custom game state update handling
+        self._on_game_state_updated(event_data)
+    
+    def _on_game_state_updated(self, event_data: Dict[str, Any]) -> None:
+        """
+        Override this method in subclasses to implement custom game state update handling.
+        
+        Args:
+            event_data: Event data containing game_state and timestamp
+        """
+        pass

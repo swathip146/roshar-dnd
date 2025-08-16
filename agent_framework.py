@@ -246,6 +246,10 @@ class AgentOrchestrator:
         self.running = False
         self.orchestrator_thread: Optional[threading.Thread] = None
         
+        # Event handling for external components (like command handlers)
+        self.event_handlers: Dict[str, List[Callable]] = {}
+        self._processed_event_ids: set = set()
+        
         # Agent references for easy access
         self.haystack_agent = None
         self.campaign_agent = None
@@ -271,8 +275,9 @@ class AgentOrchestrator:
                              players_dir: str = "docs/players",
                              verbose: bool = False,
                              enable_game_engine: bool = True,
-                             tick_seconds: float = 0.8):
-        """Initialize all D&D-specific agents"""
+                             tick_seconds: float = 0.8,
+                             command_handler = None):
+        """Initialize all D&D-specific agents and register standard event handlers"""
         try:
             # Import agents here to avoid circular imports
             from agents.haystack_pipeline_agent import HaystackPipelineAgent
@@ -377,6 +382,9 @@ class AgentOrchestrator:
             )
             self.register_agent(self.experience_agent)
             
+            # Register standard event handlers
+            self._register_standard_event_handlers(command_handler, verbose)
+            
             if verbose:
                 print("✅ All D&D agents initialized successfully")
                 
@@ -405,6 +413,102 @@ class AgentOrchestrator:
             'experience': self.experience_agent
         }
         return agent_map.get(agent_type)
+    
+    def register_event_handler(self, event_type: str, handler: Callable):
+        """Register an external event handler for specific event types"""
+        if event_type not in self.event_handlers:
+            self.event_handlers[event_type] = []
+        self.event_handlers[event_type].append(handler)
+    
+    def unregister_event_handler(self, event_type: str, handler: Callable):
+        """Unregister an external event handler"""
+        if event_type in self.event_handlers:
+            try:
+                self.event_handlers[event_type].remove(handler)
+                if not self.event_handlers[event_type]:
+                    del self.event_handlers[event_type]
+            except ValueError:
+                pass  # Handler not found, ignore
+    
+    def check_and_forward_events(self, event_types: List[str] = None, verbose: bool = False):
+        """
+        Check for new events and forward them to registered handlers.
+        
+        Args:
+            event_types: List of event types to check for. If None, checks for all registered types.
+            verbose: Whether to print verbose output
+        """
+        if not self.event_handlers:
+            return
+        
+        try:
+            # Get recent message history
+            history = self.message_bus.get_message_history(limit=50)
+            
+            # Determine which event types to check for
+            target_event_types = event_types or list(self.event_handlers.keys())
+            
+            # Look for events we haven't processed yet
+            for msg in reversed(history):  # Most recent first
+                if (msg.get("message_type") == "EVENT" and 
+                    msg.get("action") in target_event_types and
+                    msg.get("id") not in self._processed_event_ids):
+                    
+                    # Mark as processed
+                    self._processed_event_ids.add(msg.get("id"))
+                    
+                    # Forward to registered handlers for this event type
+                    event_type = msg.get("action")
+                    event_data = msg.get("data", {})
+                    
+                    for handler in self.event_handlers.get(event_type, []):
+                        try:
+                            handler(event_data)
+                            if verbose:
+                                print(f"🔄 Forwarded {event_type} event to handler")
+                        except Exception as e:
+                            if verbose:
+                                print(f"⚠️ Error in event handler for {event_type}: {e}")
+            
+            # Clean up old processed event IDs to prevent memory bloat
+            if len(self._processed_event_ids) > 100:
+                self._processed_event_ids = set(list(self._processed_event_ids)[-50:])
+                
+        except Exception as e:
+            if verbose:
+                print(f"⚠️ Error checking for events: {e}")
+    
+    def _register_standard_event_handlers(self, command_handler=None, verbose: bool = False):
+        """
+        Register standard event handlers that are commonly needed by the framework.
+        
+        Args:
+            command_handler: Command handler instance that may have event handling methods
+            verbose: Whether to print verbose output about registration
+        """
+        if command_handler is None:
+            return
+        
+        # Register game_state_updated event handler
+        if hasattr(command_handler, 'handle_game_state_updated'):
+            self.register_event_handler('game_state_updated', command_handler.handle_game_state_updated)
+            if verbose:
+                print("🔧 Registered game_state_updated event handler")
+        
+        # Register other standard event handlers if they exist
+        standard_events = {
+            'combat_state_changed': 'handle_combat_state_changed',
+            'character_updated': 'handle_character_updated',
+            'campaign_loaded': 'handle_campaign_loaded',
+            'session_started': 'handle_session_started',
+            'session_ended': 'handle_session_ended'
+        }
+        
+        for event_type, handler_method in standard_events.items():
+            if hasattr(command_handler, handler_method):
+                self.register_event_handler(event_type, getattr(command_handler, handler_method))
+                if verbose:
+                    print(f"🔧 Registered {event_type} event handler")
     
     def start(self):
         """Start the orchestrator and all agents"""

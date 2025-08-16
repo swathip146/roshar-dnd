@@ -60,14 +60,21 @@ class ModularDMAssistant:
         # Agent orchestrator
         self.orchestrator = AgentOrchestrator()
         
-        # Initialize all D&D agents through the orchestrator
+        # Initialize pluggable command handler first
+        if command_handler is None:
+            self.command_handler = ManualCommandHandler(self)
+        else:
+            self.command_handler = command_handler
+        
+        # Initialize all D&D agents through the orchestrator, passing command handler for event registration
         self.orchestrator.initialize_dnd_agents(
             collection_name=collection_name,
             campaigns_dir=campaigns_dir,
             players_dir=players_dir,
             verbose=verbose,
             enable_game_engine=enable_game_engine,
-            tick_seconds=tick_seconds
+            tick_seconds=tick_seconds,
+            command_handler=self.command_handler
         )
         
         # Get agent references from orchestrator
@@ -87,12 +94,6 @@ class ModularDMAssistant:
         
         # Game state tracking
         self.game_state = {}
-        
-        # Initialize pluggable command handler
-        if command_handler is None:
-            self.command_handler = ManualCommandHandler(self)
-        else:
-            self.command_handler = command_handler
         
         # Load game save if specified
         if game_save_file:
@@ -163,106 +164,10 @@ class ModularDMAssistant:
     
     def process_dm_input(self, instruction: str) -> str:
         """Process DM instruction using the pluggable command handler"""
+        # Check for new events through orchestrator before processing command
+        self.orchestrator.check_and_forward_events(verbose=self.verbose)
+        
         return self.command_handler.handle_command(instruction)
-    
-    def _check_agent_availability(self, agent_id: str, action: str) -> bool:
-        """Check if agent is registered and has the required handler"""
-        try:
-            agent_status = self.orchestrator.get_agent_status()
-            if agent_id not in agent_status:
-                return False
-            
-            if not agent_status[agent_id].get("running", False):
-                return False
-            
-            handlers = agent_status[agent_id].get("handlers", [])
-            if action not in handlers:
-                return False
-            
-            return True
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"⚠️ Error checking agent availability: {e}")
-            return False
-    
-    def _send_message_and_wait(self, agent_id: str, action: str, data: Dict[str, Any], timeout: float = 5.0) -> Optional[Dict[str, Any]]:
-        """Send a message to an agent and wait for response"""
-        try:
-            # Check cache if enabled
-            cache_key = None
-            if self.enable_caching and self.cache_manager and self._should_cache(agent_id, action, data):
-                cache_key = f"{agent_id}_{action}_{json.dumps(data, sort_keys=True)}"
-                cached_result = self.cache_manager.get(cache_key)
-                if cached_result:
-                    if self.verbose:
-                        print(f"📦 Cache hit for {agent_id}:{action}")
-                    return cached_result
-            
-            # Send message through orchestrator
-            message_id = self.orchestrator.send_message_to_agent(agent_id, action, data)
-            if not message_id:
-                return {"success": False, "error": "Failed to send message"}
-            
-            # Wait for response
-            start_time = time.time()
-            result = None
-            
-            while time.time() - start_time < timeout:
-                try:
-                    history = self.orchestrator.message_bus.get_message_history(limit=50)
-                    for msg in reversed(history):
-                        if (msg.get("response_to") == message_id and
-                            msg.get("message_type") == "response"):
-                            result = msg.get("data", {})
-                            break
-                    
-                    if result:
-                        break
-                    
-                except Exception as e:
-                    if self.verbose:
-                        print(f"⚠️ Error checking message history: {e}")
-                
-                time.sleep(0.1)
-            
-            # Cache result if successful
-            if result and cache_key and self.cache_manager:
-                ttl_hours = self._get_cache_ttl(agent_id, action)
-                self.cache_manager.set(cache_key, result, ttl_hours)
-            
-            return result
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Error sending message to {agent_id}:{action}: {e}")
-            return {"success": False, "error": f"Communication error: {str(e)}"}
-    
-    def _should_cache(self, agent_id: str, action: str, data: Dict[str, Any]) -> bool:
-        """Determine if a query should be cached"""
-        # Don't cache dice rolls or random content
-        if agent_id == 'dice_system':
-            return False
-        
-        # Don't cache scenario generation (creative content)
-        if agent_id == 'haystack_pipeline' and action == 'query_scenario':
-            return False
-        
-        # Don't cache if data contains random/time-sensitive elements
-        query_text = json.dumps(data).lower()
-        if any(keyword in query_text for keyword in ['roll', 'random', 'dice', 'turn', 'timestamp']):
-            return False
-        
-        return True
-    
-    def _get_cache_ttl(self, agent_id: str, action: str) -> float:
-        """Get cache TTL (time-to-live) in hours for different agent/action combinations"""
-        if agent_id == 'rule_enforcement':
-            return 24.0  # Rule queries can be cached longer
-        elif agent_id == 'campaign_manager':
-            return 12.0  # Campaign info can be cached for medium duration
-        else:
-            return 6.0   # General queries use shorter TTL
     
     # Game save and utility methods
     
