@@ -111,6 +111,7 @@ class NPCControllerAgent(BaseAgent):
         self.register_handler("update_npc_stats", self._handle_update_npc_stats)
         self.register_handler("get_npc_state", self._handle_get_npc_state)
         self.register_handler("npc_social_interaction", self._handle_npc_social_interaction)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def _setup_llm_integration(self):
         """Initialize direct LLM integration for creative NPC generation"""
@@ -1319,6 +1320,17 @@ Respond in JSON format:
         
         return "\n".join(prompt_parts)
     
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Handle game_state_updated event - update NPC states based on game changes"""
+        # NPCs might care about game state changes (player locations, events, etc.)
+        # This handler acknowledges the event and could update NPC states if needed
+        game_state = message.data.get("game_state", {})
+        timestamp = message.data.get("timestamp", time.time())
+        
+        # For now, just acknowledge the update
+        # Future enhancement: Update NPC states based on game changes
+        pass
+
     def process_tick(self):
         """Enhanced process tick with memory cleanup and state maintenance"""
         current_time = time.time()
@@ -1331,6 +1343,12 @@ Respond in JSON format:
             # Update last_updated if NPC hasn't been active
             if current_time - npc_state.last_updated > 3600:  # 1 hour
                 npc_state.last_updated = current_time
+
+    def _cleanup_old_memories(self, npc_id: str):
+        """Clean up old memories for an NPC"""
+        if npc_id in self.npc_states:
+            # Keep only the most recent 30 memories
+            self.npc_states[npc_id].memory = self.npc_states[npc_id].memory[-30:]
 
 
 # Deprecated NPCController class removed - use NPCControllerAgent instead

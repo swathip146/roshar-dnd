@@ -77,6 +77,7 @@ class RuleEnforcementAgent(BaseAgent):
         self.register_handler("get_condition_effects", self._handle_get_condition_effects)
         self.register_handler("validate_ability_check", self._handle_validate_ability_check)
         self.register_handler("get_rule_summary", self._handle_get_rule_summary)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def _load_common_rules(self) -> Dict[str, Dict[str, Any]]:
         """Load common D&D 5e rules for quick validation"""
@@ -839,6 +840,12 @@ class RuleEnforcementAgent(BaseAgent):
     def _validate_opportunity_attack_rules(self, data: Dict[str, Any]) -> bool:
         """Validate opportunity attack rules"""
         return True  # Simplified
+    
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Handle game_state_updated event - no action needed for rule enforcement"""
+        # Rule enforcement doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
     
     def process_tick(self):
         """Process rule enforcement tick - no regular processing needed"""

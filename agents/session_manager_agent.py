@@ -51,6 +51,7 @@ class SessionManagerAgent(BaseAgent):
         self.register_handler("add_time", self._handle_add_time)
         self.register_handler("get_session_status", self._handle_get_session_status)
         self.register_handler("take_long_rest", self._handle_take_long_rest)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def process_tick(self):
         """Process one tick/cycle of the agent's main loop"""
@@ -582,3 +583,9 @@ class SessionManagerAgent(BaseAgent):
         start_time = datetime.fromisoformat(self.current_session["start_time"])
         duration = datetime.now() - start_time
         return int(duration.total_seconds() / 60)
+    
+    def _handle_game_state_updated(self, message):
+        """Handle game_state_updated event - no action needed for session manager"""
+        # Session manager doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass

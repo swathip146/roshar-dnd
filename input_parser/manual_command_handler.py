@@ -66,12 +66,12 @@ class ManualCommandHandler(BaseCommandHandler):
             'what happens': ('rule_enforcement', 'check_rule'),
             
             # Scenario generation
-            'introduce scenario': ('haystack_pipeline', 'query_scenario'),
-            'generate scenario': ('haystack_pipeline', 'query_scenario'),
-            'create scenario': ('haystack_pipeline', 'query_scenario'),
-            'new scene': ('haystack_pipeline', 'query_scenario'),
-            'encounter': ('haystack_pipeline', 'query_scenario'),
-            'adventure': ('haystack_pipeline', 'query_scenario'),
+            'introduce scenario': ('scenario_generator', 'generate_with_context'),
+            'generate scenario': ('scenario_generator', 'generate_with_context'),
+            'create scenario': ('scenario_generator', 'generate_with_context'),
+            'new scene': ('scenario_generator', 'generate_with_context'),
+            'encounter': ('scenario_generator', 'generate_with_context'),
+            'adventure': ('scenario_generator', 'generate_with_context'),
             'select option': ('scenario_generator', 'apply_player_choice'),
             'choose option': ('scenario_generator', 'apply_player_choice'),
             'option': ('scenario_generator', 'apply_player_choice'),
@@ -106,7 +106,19 @@ class ManualCommandHandler(BaseCommandHandler):
             # Spell management
             'cast spell': ('spell_manager', 'cast_spell'),
             'cast': ('spell_manager', 'cast_spell'),
-            'prepare spells': ('spell_manager', 'get_prepared_spells')
+            'prepare spells': ('spell_manager', 'get_prepared_spells'),
+            
+            # NPC interaction commands
+            'talk to npc': ('npc_controller', 'generate_npc_dialogue'),
+            'npc dialogue': ('npc_controller', 'generate_npc_dialogue'),
+            'speak to': ('npc_controller', 'generate_npc_dialogue'),
+            'npc behavior': ('npc_controller', 'generate_npc_behavior'),
+            'npc status': ('npc_controller', 'get_npc_state'),
+            'update npc': ('npc_controller', 'update_npc_stats'),
+            'npc interaction': ('npc_controller', 'npc_social_interaction'),
+            'persuade': ('npc_controller', 'npc_social_interaction'),
+            'intimidate': ('npc_controller', 'npc_social_interaction'),
+            'deceive': ('npc_controller', 'npc_social_interaction')
         }
     
     def handle_command(self, user_command: str) -> str:
@@ -258,7 +270,7 @@ class ManualCommandHandler(BaseCommandHandler):
         elif instruction_lower.startswith('rule ') or 'how does' in instruction_lower or self._is_condition_query(instruction_lower):
             return 'rule_enforcement', 'check_rule', {}
         elif self._is_scenario_request(instruction_lower):
-            return 'haystack_pipeline', 'query_scenario', {}
+            return 'scenario_generator', 'generate_with_context', {}
         elif instruction_lower.startswith('select option'):
             match = re.search(r'select option (\d+)', instruction_lower)
             if match:
@@ -286,9 +298,9 @@ class ManualCommandHandler(BaseCommandHandler):
             elif agent_id == 'game_engine':
                 return self._handle_game_engine_command(action, params)
             elif agent_id == 'haystack_pipeline':
-                return self._handle_scenario_generation(instruction)
+                return self._handle_rag_query(instruction)
             elif agent_id == 'scenario_generator':
-                return self._handle_scenario_command(action, params)
+                return self._handle_scenario_command(action, params, instruction)
             elif agent_id == 'session_manager':
                 return self._handle_session_command(action, params)
             elif agent_id == 'inventory_manager':
@@ -428,32 +440,52 @@ class ManualCommandHandler(BaseCommandHandler):
         
         return f"❌ Unknown game engine action: {action}"
     
+    def _handle_rag_query(self, instruction: str) -> str:
+        """Handle direct RAG queries (not scenario generation)."""
+        response = self._send_message_and_wait("haystack_pipeline", "query_rag", {
+            "query": instruction
+        })
+        
+        if response and response.get("success"):
+            result = response["result"]
+            answer = result.get("answer", "No answer generated")
+            return f"💡 {answer}"
+        else:
+            return f"❌ Failed to process query: {response.get('error', 'Unknown error')}"
+    
+    def _handle_scenario_command(self, action: str, params: dict, instruction: str = "") -> str:
+        """Handle scenario-related commands."""
+        if action == 'apply_player_choice':
+            option_number = params.get('option_number', 1)
+            return self._select_player_option(option_number)
+        elif action == 'generate_with_context':
+            return self._handle_scenario_generation(instruction)
+        
+        return f"❌ Unknown scenario action: {action}"
+    
     def _handle_scenario_generation(self, instruction: str) -> str:
-        """Handle scenario generation."""
-        response = self._send_message_and_wait("haystack_pipeline", "query_scenario", {
+        """Handle scenario generation using scenario generator agent."""
+        response = self._send_message_and_wait("scenario_generator", "generate_with_context", {
             "query": instruction,
+            "use_rag": True,
             "campaign_context": "",
             "game_state": ""
         })
         
         if response and response.get("success"):
-            result = response["result"]
-            scenario_text = result.get("answer", "Failed to generate scenario")
+            scenario = response.get("scenario", {})
+            scenario_text = scenario.get("scenario_text", "Failed to generate scenario")
+            options = scenario.get("options", [])
             
-            # Extract and store options
-            self._extract_and_store_options(scenario_text)
-            
-            return f"🎭 SCENARIO:\n{scenario_text}\n\n📝 *Type 'select option [number]' to choose a player option.*"
+            # Store options for later selection
+            if options:
+                self.last_scenario_options = options
+                options_text = "\n".join(options)
+                return f"🎭 **SCENARIO:**\n{scenario_text}\n\n**OPTIONS:**\n{options_text}\n\n📝 *Type 'select option [number]' to choose a player option.*"
+            else:
+                return f"🎭 **SCENARIO:**\n{scenario_text}"
         else:
             return f"❌ Failed to generate scenario: {response.get('error', 'Unknown error')}"
-    
-    def _handle_scenario_command(self, action: str, params: dict) -> str:
-        """Handle scenario-related commands."""
-        if action == 'apply_player_choice':
-            option_number = params.get('option_number', 1)
-            return self._select_player_option(option_number)
-        
-        return f"❌ Unknown scenario action: {action}"
     
     def _handle_session_command(self, action: str, params: dict) -> str:
         """Handle session-related commands."""
@@ -528,6 +560,126 @@ class ManualCommandHandler(BaseCommandHandler):
                 return f"❌ Failed to level up: {response.get('error', 'Unknown error')}"
         
         return f"❌ Unknown experience action: {action}"
+    
+    def _handle_npc_command(self, action: str, params: dict, instruction: str) -> str:
+        """Handle NPC-related commands."""
+        if action == 'generate_npc_dialogue':
+            return self._handle_npc_dialogue(instruction, params)
+        elif action == 'generate_npc_behavior':
+            return self._handle_npc_behavior_generation(instruction, params)
+        elif action == 'get_npc_state':
+            return self._handle_npc_status(instruction, params)
+        elif action == 'update_npc_stats':
+            return self._handle_npc_stat_update(instruction, params)
+        elif action == 'npc_social_interaction':
+            return self._handle_npc_social_interaction(instruction, params)
+        
+        return f"❌ Unknown NPC action: {action}"
+
+    def _handle_npc_dialogue(self, instruction: str, params: dict) -> str:
+        """Handle NPC dialogue generation requests"""
+        npc_name = params.get('param_1', '').strip()
+        player_input = params.get('param_2', '').strip()
+        
+        if not npc_name:
+            return "❌ Please specify NPC name. Usage: talk to npc [name] [optional: what to say]"
+        
+        response = self._send_message_and_wait("npc_controller", "generate_npc_dialogue", {
+            "npc_name": npc_name,
+            "player_input": player_input,
+            "context": "dialogue"
+        })
+        
+        if response and response.get("success"):
+            return f"💬 **{npc_name}:** {response['dialogue']}\n\n📊 **Mood:** {response.get('mood', 'neutral')}"
+        else:
+            return f"❌ Could not generate dialogue for {npc_name}: {response.get('error', 'Unknown error')}"
+
+    def _handle_npc_behavior_generation(self, instruction: str, params: dict) -> str:
+        """Handle NPC behavior generation requests"""
+        response = self._send_message_and_wait("npc_controller", "generate_npc_behavior", {
+            "context": instruction,
+            "game_state": self._get_current_game_state()
+        })
+        
+        if response and response.get("success"):
+            return f"🎭 **NPC BEHAVIOR:**\n{response['behavior_description']}\n\n📋 **Actions:** {response.get('actions', 'No specific actions')}"
+        else:
+            return f"❌ Failed to generate NPC behavior: {response.get('error', 'Unknown error')}"
+
+    def _handle_npc_status(self, instruction: str, params: dict) -> str:
+        """Handle NPC status requests"""
+        npc_name = params.get('param_1', '').strip()
+        
+        if not npc_name:
+            return "❌ Please specify NPC name. Usage: npc status [name]"
+        
+        response = self._send_message_and_wait("npc_controller", "get_npc_state", {
+            "npc_name": npc_name
+        })
+        
+        if response and response.get("success"):
+            npc_state = response['npc_state']
+            status = f"📊 **{npc_state['name']} STATUS:**\n"
+            status += f"**HP:** {npc_state['stats'].get('hp', '?')}/{npc_state['stats'].get('max_hp', '?')}\n"
+            status += f"**AC:** {npc_state['stats'].get('ac', '?')}\n"
+            status += f"**Location:** {npc_state['location']}\n"
+            if npc_state['status_effects']:
+                status += f"**Conditions:** {', '.join(npc_state['status_effects'])}\n"
+            status += f"**Memory Count:** {npc_state['memory_count']}"
+            return status
+        else:
+            return f"❌ Could not get status for {npc_name}: {response.get('error', 'Unknown error')}"
+
+    def _handle_npc_stat_update(self, instruction: str, params: dict) -> str:
+        """Handle NPC stat update requests"""
+        npc_name = params.get('param_1', '').strip()
+        
+        if not npc_name:
+            return "❌ Please specify NPC name. Usage: update npc [name]"
+        
+        # For now, return a placeholder - would need more complex parsing for actual stat updates
+        return f"📝 NPC stat update for {npc_name} - Feature requires more detailed implementation"
+
+    def _handle_npc_social_interaction(self, instruction: str, params: dict) -> str:
+        """Handle NPC social interaction requests"""
+        # Determine interaction type from instruction
+        interaction_type = "conversation"
+        if "persuade" in instruction.lower():
+            interaction_type = "persuasion"
+        elif "intimidate" in instruction.lower():
+            interaction_type = "intimidation"
+        elif "deceive" in instruction.lower():
+            interaction_type = "deception"
+        
+        npc_name = params.get('param_1', '').strip()
+        player_action = params.get('param_2', '').strip()
+        
+        if not npc_name:
+            return f"❌ Please specify NPC name. Usage: {interaction_type} [npc_name] [attempt]"
+        
+        response = self._send_message_and_wait("npc_controller", "npc_social_interaction", {
+            "npc_name": npc_name,
+            "interaction_type": interaction_type,
+            "player_action": player_action,
+            "context": {"instruction": instruction}
+        })
+        
+        if response and response.get("success"):
+            result = response['interaction_result']
+            return f"🎭 **{interaction_type.upper()} ATTEMPT:**\n{result['response']}\n\n📊 **Relationship Change:** {result.get('relationship_change', 0)}"
+        else:
+            return f"❌ Failed {interaction_type} attempt: {response.get('error', 'Unknown error')}"
+
+    def _get_current_game_state(self) -> dict:
+        """Get current game state for NPC context"""
+        # This would ideally get the actual game state from the game engine
+        # For now, return a basic placeholder
+        return {
+            "session": {"events": []},
+            "players": {},
+            "world": {"locations": []}
+        }
     
     def _handle_general_query(self, instruction: str) -> str:
         """Handle general queries using RAG."""

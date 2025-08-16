@@ -61,6 +61,7 @@ class CharacterManagerAgent(BaseAgent):
         self.register_handler("calculate_modifier", self._handle_calculate_modifier)
         self.register_handler("get_character_stats", self._handle_get_character_stats)
         self.register_handler("update_ability_scores", self._handle_update_ability_scores)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def process_tick(self):
         """Process one tick/cycle of the agent's main loop"""
@@ -508,3 +509,9 @@ class CharacterManagerAgent(BaseAgent):
             85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000
         ]
         return xp_table[min(level - 1, len(xp_table) - 1)]
+    
+    def _handle_game_state_updated(self, message):
+        """Handle game_state_updated event - no action needed for character manager"""
+        # Character manager doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass

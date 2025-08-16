@@ -44,6 +44,7 @@ class InventoryManagerAgent(BaseAgent):
         self.register_handler("create_custom_item", self._handle_create_custom_item)
         self.register_handler("initialize_inventory", self._handle_initialize_inventory)
         self.register_handler("get_carrying_capacity", self._handle_get_carrying_capacity)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def process_tick(self):
         """Process one tick/cycle of the agent's main loop"""
@@ -801,6 +802,12 @@ class InventoryManagerAgent(BaseAgent):
         for slot, item in inventory["equipped"].items():
             item_data = self._get_item_data(item["name"].lower())
             if item_data:
-                total_weight += item_data.get("weight", 0)
-        
+               total_weight += item_data.get("weight", 0)
+       
         inventory["total_weight"] = total_weight
+   
+    def _handle_game_state_updated(self, message):
+       """Handle game_state_updated event - no action needed for inventory manager"""
+       # Inventory manager doesn't need to respond to game state updates
+       # This handler exists only to prevent "no handler" error messages
+       pass

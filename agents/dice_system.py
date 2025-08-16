@@ -293,6 +293,7 @@ class DiceSystemAgent(BaseAgent):
         self.register_handler("roll_skill_check", self._handle_roll_skill_check)
         self.register_handler("get_roll_history", self._handle_get_roll_history)
         self.register_handler("clear_roll_history", self._handle_clear_roll_history)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def _handle_roll_dice(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle general dice roll request"""
@@ -509,6 +510,12 @@ class DiceSystemAgent(BaseAgent):
             return {"success": True, "message": "Roll history cleared"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Handle game_state_updated event - no action needed for dice system"""
+        # Dice system doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
     
     def process_tick(self):
         """Process dice system tick - no regular processing needed"""

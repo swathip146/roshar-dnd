@@ -43,6 +43,7 @@ class SpellManagerAgent(BaseAgent):
         self.register_handler("upcast_spell", self._handle_upcast_spell)
         self.register_handler("get_spell_save_dc", self._handle_get_spell_save_dc)
         self.register_handler("get_spell_attack_bonus", self._handle_get_spell_attack_bonus)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def process_tick(self):
         """Process one tick/cycle of the agent's main loop"""
@@ -530,6 +531,12 @@ class SpellManagerAgent(BaseAgent):
             
         except Exception as e:
             return {"success": False, "error": f"Failed to get spell attack bonus: {str(e)}"}
+    
+    def _handle_game_state_updated(self, message):
+        """Handle game_state_updated event - no action needed for spell manager"""
+        # Spell manager doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
     
     # Helper methods
     def _load_spell_database(self):

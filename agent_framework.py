@@ -335,14 +335,12 @@ class AgentOrchestrator:
             
             # 7. Initialize NPC Controller Agent
             self.npc_agent = NPCControllerAgent(
-                haystack_agent=self.haystack_agent,
-                mode="hybrid"
+                verbose=verbose
             )
             self.register_agent(self.npc_agent)
             
             # 8. Initialize Scenario Generator Agent
             self.scenario_agent = ScenarioGeneratorAgent(
-                haystack_agent=self.haystack_agent,
                 verbose=verbose
             )
             self.register_agent(self.scenario_agent)

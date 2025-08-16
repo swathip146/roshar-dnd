@@ -92,6 +92,7 @@ class HaystackPipelineAgent(BaseAgent):
         self.register_handler("query_rules", self._handle_query_rules)
         self.register_handler("get_pipeline_status", self._handle_get_pipeline_status)
         self.register_handler("get_collection_info", self._handle_get_collection_info)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def _setup_document_store(self):
         """Setup Qdrant document store with local storage"""
@@ -438,6 +439,12 @@ Provide a clear, accurate answer with rule citations:"""
         
         return response
     
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Handle game_state_updated event - no action needed for Haystack pipeline"""
+        # Haystack pipeline doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
+
     def process_tick(self):
         """Process Haystack pipeline tick - mostly reactive, no regular processing needed"""
         pass

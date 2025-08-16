@@ -499,6 +499,7 @@ class CampaignManagerAgent(BaseAgent):
         self.register_handler("get_player_info", self._handle_get_player_info)
         self.register_handler("add_player_to_game", self._handle_add_player_to_game)
         self.register_handler("get_campaign_context", self._handle_get_campaign_context)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def _load_campaigns(self):
         """Load available campaigns from the campaigns directory"""
@@ -522,17 +523,18 @@ class CampaignManagerAgent(BaseAgent):
                 if player:
                     self.available_players.append(player)
     
-    def _handle_list_campaigns(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_list_campaigns(self, message: AgentMessage):
         """Handle campaign listing request"""
-        campaigns = [f"{i+1}. {campaign.title} ({campaign.theme})" 
+        campaigns = [f"{i+1}. {campaign.title} ({campaign.theme})"
                     for i, campaign in enumerate(self.available_campaigns)]
-        return {"campaigns": campaigns}
+        self.send_response(message, {"campaigns": campaigns})
     
-    def _handle_select_campaign(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_select_campaign(self, message: AgentMessage):
         """Handle campaign selection request"""
         campaign_index = message.data.get("index")
         if campaign_index is None:
-            return {"success": False, "error": "No campaign index provided"}
+            self.send_response(message, {"success": False, "error": "No campaign index provided"})
+            return
         
         if 0 <= campaign_index < len(self.available_campaigns):
             self.selected_campaign = self.available_campaigns[campaign_index]
@@ -549,17 +551,18 @@ class CampaignManagerAgent(BaseAgent):
                 }
             })
             
-            return {"success": True, "campaign": self.selected_campaign.title}
-        
-        return {"success": False, "error": "Invalid campaign index"}
+            self.send_response(message, {"success": True, "campaign": self.selected_campaign.title})
+        else:
+            self.send_response(message, {"success": False, "error": "Invalid campaign index"})
     
-    def _handle_get_campaign_info(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_get_campaign_info(self, message: AgentMessage):
         """Handle campaign info request"""
         if not self.selected_campaign:
-            return {"success": False, "error": "No campaign selected"}
+            self.send_response(message, {"success": False, "error": "No campaign selected"})
+            return
         
         campaign = self.selected_campaign
-        return {
+        response_data = {
             "success": True,
             "campaign": {
                 "title": campaign.title,
@@ -577,8 +580,9 @@ class CampaignManagerAgent(BaseAgent):
                 "dm_notes": campaign.dm_notes
             }
         }
+        self.send_response(message, response_data)
     
-    def _handle_list_players(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_list_players(self, message: AgentMessage):
         """Handle player listing request"""
         players = []
         for player in self.available_players:
@@ -591,29 +595,33 @@ class CampaignManagerAgent(BaseAgent):
                 "hp": hp_info
             })
         
-        return {"players": players}
+        self.send_response(message, {"players": players})
     
-    def _handle_get_player_info(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_get_player_info(self, message: AgentMessage):
         """Handle player info request"""
         player_name = message.data.get("name")
         if not player_name:
-            return {"success": False, "error": "No player name provided"}
+            self.send_response(message, {"success": False, "error": "No player name provided"})
+            return
         
         player = next((p for p in self.available_players if p.name.lower() == player_name.lower()), None)
         if not player:
-            return {"success": False, "error": f"Player '{player_name}' not found"}
+            self.send_response(message, {"success": False, "error": f"Player '{player_name}' not found"})
+            return
         
-        return {"success": True, "player": player.to_dict()}
+        self.send_response(message, {"success": True, "player": player.to_dict()})
     
-    def _handle_add_player_to_game(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_add_player_to_game(self, message: AgentMessage):
         """Handle adding player to active game"""
         player_name = message.data.get("name")
         if not player_name:
-            return {"success": False, "error": "No player name provided"}
+            self.send_response(message, {"success": False, "error": "No player name provided"})
+            return
         
         player = next((p for p in self.available_players if p.name.lower() == player_name.lower()), None)
         if not player:
-            return {"success": False, "error": f"Player '{player_name}' not found"}
+            self.send_response(message, {"success": False, "error": f"Player '{player_name}' not found"})
+            return
         
         if player not in self.active_players:
             self.active_players.append(player)
@@ -633,12 +641,13 @@ class CampaignManagerAgent(BaseAgent):
                 }
             })
         
-        return {"success": True, "message": f"Player {player.name} added to game"}
+        self.send_response(message, {"success": True, "message": f"Player {player.name} added to game"})
     
-    def _handle_get_campaign_context(self, message: AgentMessage) -> Dict[str, Any]:
+    def _handle_get_campaign_context(self, message: AgentMessage):
         """Handle campaign context request for RAG operations"""
         if not self.selected_campaign:
-            return {"success": False, "error": "No campaign selected"}
+            self.send_response(message, {"success": False, "error": "No campaign selected"})
+            return
         
         campaign = self.selected_campaign
         context = {
@@ -647,15 +656,21 @@ class CampaignManagerAgent(BaseAgent):
             "overview": campaign.overview,
             "background": campaign.background,
             "main_plot": campaign.main_plot,
-            "npcs": [{"name": npc.name, "role": npc.role, "description": npc.description} 
+            "npcs": [{"name": npc.name, "role": npc.role, "description": npc.description}
                     for npc in campaign.npcs[:5]],  # Limit for context size
-            "locations": [{"name": loc.name, "type": loc.location_type, "description": loc.description} 
+            "locations": [{"name": loc.name, "type": loc.location_type, "description": loc.description}
                          for loc in campaign.locations[:5]],
-            "encounters": [{"title": enc.title, "type": enc.encounter_type} 
+            "encounters": [{"title": enc.title, "type": enc.encounter_type}
                           for enc in campaign.encounters[:3]]
         }
         
-        return {"success": True, "context": context}
+        self.send_response(message, {"success": True, "context": context})
+    
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Handle game_state_updated event - no action needed for campaign manager"""
+        # Campaign manager doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
     
     def process_tick(self):
         """Process campaign manager tick - mostly reactive, no regular processing needed"""

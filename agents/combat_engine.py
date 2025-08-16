@@ -535,6 +535,7 @@ class CombatEngineAgent(BaseAgent):
         self.register_handler("apply_healing", self._handle_apply_healing)
         self.register_handler("add_condition", self._handle_add_condition)
         self.register_handler("remove_condition", self._handle_remove_condition)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def _handle_add_combatant(self, message: AgentMessage) -> Dict[str, Any]:
         """Handle add combatant request"""
@@ -728,6 +729,12 @@ class CombatEngineAgent(BaseAgent):
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    def _handle_game_state_updated(self, message: AgentMessage):
+        """Handle game_state_updated event - no action needed for combat engine"""
+        # Combat engine doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
     
     def process_tick(self):
         """Process combat engine tick - handle ongoing effects"""

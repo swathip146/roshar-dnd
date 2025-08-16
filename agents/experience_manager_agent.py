@@ -40,6 +40,7 @@ class ExperienceManagerAgent(BaseAgent):
         self.register_handler("get_xp_to_next_level", self._handle_get_xp_to_next_level)
         self.register_handler("bulk_level_party", self._handle_bulk_level_party)
         self.register_handler("reset_xp", self._handle_reset_xp)
+        self.register_handler("game_state_updated", self._handle_game_state_updated)
     
     def process_tick(self):
         """Process one tick/cycle of the agent's main loop"""
@@ -645,6 +646,12 @@ class ExperienceManagerAgent(BaseAgent):
             
         except Exception as e:
             return {"success": False, "error": f"Failed to reset XP: {str(e)}"}
+    
+    def _handle_game_state_updated(self, message):
+        """Handle game_state_updated event - no action needed for experience manager"""
+        # Experience manager doesn't need to respond to game state updates
+        # This handler exists only to prevent "no handler" error messages
+        pass
     
     # Helper methods
     def _create_xp_thresholds(self) -> Dict[int, int]:
