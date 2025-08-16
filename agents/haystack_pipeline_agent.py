@@ -30,9 +30,9 @@ LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
 
 # Claude-specific imports
 try:
-    from XXXgenielib import component
-    from XXXgenielib.components.generators.chat import XXXGenAIChatGenerator
-    from XXXgenielib.dataclasses import ChatMessage
+    from hwtgenielib import component
+    from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+    from hwtgenielib.dataclasses import ChatMessage
     CLAUDE_AVAILABLE = True
 except ImportError:
     CLAUDE_AVAILABLE = False
@@ -242,7 +242,7 @@ Provide a clear, accurate answer with rule citations:"""
             prompt_builder = self._create_general_prompt_builder()
             string_to_chat = StringToChatMessages()
             answer_builder = AnswerBuilder()
-            chat_generator = XXXGenAIChatGenerator(
+            chat_generator = AppleGenAIChatGenerator(
                 model= LLM_MODEL
             )
             
@@ -273,7 +273,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.scenario_pipeline = Pipeline()
         self.scenario_pipeline.add_component("prompt_builder", self._create_creative_scenario_prompt_builder())
         self.scenario_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.scenario_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.scenario_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
@@ -288,7 +288,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.npc_pipeline.add_component("ranker", self._create_ranker())
         self.npc_pipeline.add_component("prompt_builder", self._create_npc_prompt_builder())
         self.npc_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.npc_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.npc_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
@@ -306,7 +306,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.add_component("ranker", self._create_ranker())
         self.rules_pipeline.add_component("prompt_builder", self._create_rules_prompt_builder())
         self.rules_pipeline.add_component("string_to_chat", StringToChatMessages())
-        self.rules_pipeline.add_component("chat_generator", XXXGenAIChatGenerator(
+        self.rules_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
             model= LLM_MODEL
         ))
         
