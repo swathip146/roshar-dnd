@@ -102,20 +102,19 @@ class BaseAgent(ABC):
         return message.id
     
     def send_response(self, original_message: AgentMessage, data: Dict[str, Any]):
-        """Send a response to a received message"""
+        """Send a response to a previous message"""
         response = AgentMessage(
             id=str(uuid.uuid4()),
             sender_id=self.agent_id,
             receiver_id=original_message.sender_id,
             message_type=MessageType.RESPONSE,
-            action=f"{original_message.action}_response",
+            action=original_message.action,
             data=data,
             timestamp=time.time(),
             response_to=original_message.id
         )
         
-        if self.message_bus:
-            self.message_bus.send_message(response)
+        self.message_bus.send_message(response)
     
     def broadcast_event(self, action: str, data: Dict[str, Any]):
         """Broadcast an event to all agents"""
@@ -126,7 +125,7 @@ class BaseAgent(ABC):
             id=str(uuid.uuid4()),
             sender_id=self.agent_id,
             receiver_id="broadcast",
-            message_type=MessageType.BROADCAST,
+            message_type=MessageType.EVENT,
             action=action,
             data=data,
             timestamp=time.time()
@@ -134,24 +133,16 @@ class BaseAgent(ABC):
         
         self.message_bus.send_message(message)
     
-    def handle_message(self, message: AgentMessage) -> Optional[Dict[str, Any]]:
-        """Handle an incoming message"""
-        handler = self.message_handlers.get(message.action)
-        if handler:
-            try:
-                result = handler(message)
-                if message.message_type == MessageType.REQUEST and result:
-                    self.send_response(message, result)
-                return result
-            except Exception as e:
-                error_data = {"error": str(e), "action": message.action}
-                self.send_response(message, error_data)
-                return None
-        else:
-            # Unknown action
-            if message.message_type == MessageType.REQUEST:
-                error_data = {"error": f"Unknown action: {message.action}"}
-                self.send_response(message, error_data)
+    def handle_message(self, message: AgentMessage):
+        """Handle incoming messages"""
+        try:
+            handler = self.message_handlers.get(message.action)
+            if handler:
+                handler(message)
+            else:
+                print(f"Agent {self.agent_id} has no handler for action: {message.action}")
+        except Exception as e:
+            print(f"Error handling message in agent {self.agent_id}: {e}")
     
     def start(self):
         """Start the agent"""
@@ -161,23 +152,22 @@ class BaseAgent(ABC):
         """Stop the agent"""
         self.running = False
     
-    @abstractmethod
     def process_tick(self):
-        """Process one tick/cycle of the agent's main loop"""
+        """Process one tick of the agent's logic"""
         pass
 
 
 class MessageBus:
-    """Central message bus for agent communication"""
+    """Message bus for inter-agent communication"""
     
-    def __init__(self):
-        self.agents: Dict[str, BaseAgent] = {}
+    def __init__(self, max_history: int = 1000):
         self.message_queue = queue.Queue()
+        self.message_history: List[AgentMessage] = []
+        self.max_history = max_history
+        self.agents: Dict[str, BaseAgent] = {}
+        self.lock = threading.RLock()
         self.running = False
         self.processor_thread: Optional[threading.Thread] = None
-        self.lock = threading.RLock()
-        self.message_history: List[AgentMessage] = []
-        self.max_history = 1000
     
     def register_agent(self, agent: BaseAgent):
         """Register an agent with the message bus"""
@@ -185,16 +175,8 @@ class MessageBus:
             self.agents[agent.agent_id] = agent
             agent.message_bus = self
     
-    def unregister_agent(self, agent_id: str):
-        """Unregister an agent from the message bus"""
-        with self.lock:
-            if agent_id in self.agents:
-                del self.agents[agent_id]
-    
     def send_message(self, message: AgentMessage):
         """Send a message through the bus"""
-        # Store message immediately for synchronous access
-        self._store_message(message)
         self.message_queue.put(message)
     
     def start(self):
@@ -263,11 +245,166 @@ class AgentOrchestrator:
         self.tick_interval = 0.1  # seconds
         self.running = False
         self.orchestrator_thread: Optional[threading.Thread] = None
+        
+        # Agent references for easy access
+        self.haystack_agent = None
+        self.campaign_agent = None
+        self.game_engine_agent = None
+        self.npc_agent = None
+        self.scenario_agent = None
+        self.dice_agent = None
+        self.combat_agent = None
+        self.rule_agent = None
+        self.character_agent = None
+        self.session_agent = None
+        self.inventory_agent = None
+        self.spell_agent = None
+        self.experience_agent = None
     
     def register_agent(self, agent: BaseAgent):
         """Register an agent with the orchestrator"""
         self.agents[agent.agent_id] = agent
         self.message_bus.register_agent(agent)
+    
+    def initialize_dnd_agents(self, collection_name: str = "dnd_documents",
+                             campaigns_dir: str = "resources/current_campaign",
+                             players_dir: str = "docs/players",
+                             verbose: bool = False,
+                             enable_game_engine: bool = True,
+                             tick_seconds: float = 0.8):
+        """Initialize all D&D-specific agents"""
+        try:
+            # Import agents here to avoid circular imports
+            from agents.haystack_pipeline_agent import HaystackPipelineAgent
+            from agents.campaign_management import CampaignManagerAgent
+            from agents.game_engine import GameEngineAgent, JSONPersister
+            from agents.npc_controller import NPCControllerAgent
+            from agents.scenario_generator import ScenarioGeneratorAgent
+            from agents.dice_system import DiceSystemAgent, DiceRoller
+            from agents.combat_engine import CombatEngineAgent, CombatEngine
+            from agents.rule_enforcement_agent import RuleEnforcementAgent
+            from agents.character_manager_agent import CharacterManagerAgent
+            from agents.session_manager_agent import SessionManagerAgent
+            from agents.inventory_manager_agent import InventoryManagerAgent
+            from agents.spell_manager_agent import SpellManagerAgent
+            from agents.experience_manager_agent import ExperienceManagerAgent
+            
+            # 1. Initialize Haystack Pipeline Agent (core RAG services)
+            self.haystack_agent = HaystackPipelineAgent(
+                collection_name=collection_name,
+                verbose=verbose
+            )
+            self.register_agent(self.haystack_agent)
+            
+            # 2. Initialize Campaign Manager Agent
+            self.campaign_agent = CampaignManagerAgent(
+                campaigns_dir=campaigns_dir,
+                players_dir=players_dir
+            )
+            self.register_agent(self.campaign_agent)
+            
+            # 3. Initialize Game Engine Agent (if enabled)
+            if enable_game_engine:
+                persister = JSONPersister("./game_state_checkpoint.json")
+                self.game_engine_agent = GameEngineAgent(
+                    persister=persister,
+                    tick_seconds=tick_seconds
+                )
+                self.register_agent(self.game_engine_agent)
+            
+            # 4. Initialize Dice System Agent
+            self.dice_agent = DiceSystemAgent()
+            self.register_agent(self.dice_agent)
+            
+            # 5. Initialize Combat Engine Agent
+            dice_roller = DiceRoller()
+            self.combat_agent = CombatEngineAgent(dice_roller)
+            self.register_agent(self.combat_agent)
+            
+            # 6. Initialize Rule Enforcement Agent
+            self.rule_agent = RuleEnforcementAgent(
+                rag_agent=self.haystack_agent,
+                strict_mode=False
+            )
+            self.register_agent(self.rule_agent)
+            
+            # 7. Initialize NPC Controller Agent
+            self.npc_agent = NPCControllerAgent(
+                haystack_agent=self.haystack_agent,
+                mode="hybrid"
+            )
+            self.register_agent(self.npc_agent)
+            
+            # 8. Initialize Scenario Generator Agent
+            self.scenario_agent = ScenarioGeneratorAgent(
+                haystack_agent=self.haystack_agent,
+                verbose=verbose
+            )
+            self.register_agent(self.scenario_agent)
+            
+            # 9. Initialize Character Manager Agent
+            self.character_agent = CharacterManagerAgent(
+                characters_dir="docs/characters",
+                verbose=verbose
+            )
+            self.register_agent(self.character_agent)
+            
+            # 10. Initialize Session Manager Agent
+            self.session_agent = SessionManagerAgent(
+                sessions_dir="docs/sessions",
+                verbose=verbose
+            )
+            self.register_agent(self.session_agent)
+            
+            # 11. Initialize Inventory Manager Agent
+            self.inventory_agent = InventoryManagerAgent(
+                inventory_dir="docs/inventory",
+                verbose=verbose
+            )
+            self.register_agent(self.inventory_agent)
+            
+            # 12. Initialize Spell Manager Agent
+            self.spell_agent = SpellManagerAgent(
+                spells_dir="docs/spells",
+                verbose=verbose
+            )
+            self.register_agent(self.spell_agent)
+            
+            # 13. Initialize Experience Manager Agent
+            self.experience_agent = ExperienceManagerAgent(
+                xp_dir="docs/experience",
+                verbose=verbose
+            )
+            self.register_agent(self.experience_agent)
+            
+            if verbose:
+                print("✅ All D&D agents initialized successfully")
+                
+            return True
+                
+        except Exception as e:
+            if verbose:
+                print(f"❌ Failed to initialize D&D agents: {e}")
+            raise
+    
+    def get_agent_reference(self, agent_type: str):
+        """Get a reference to a specific agent by type"""
+        agent_map = {
+            'haystack': self.haystack_agent,
+            'campaign': self.campaign_agent,
+            'game_engine': self.game_engine_agent,
+            'npc': self.npc_agent,
+            'scenario': self.scenario_agent,
+            'dice': self.dice_agent,
+            'combat': self.combat_agent,
+            'rule': self.rule_agent,
+            'character': self.character_agent,
+            'session': self.session_agent,
+            'inventory': self.inventory_agent,
+            'spell': self.spell_agent,
+            'experience': self.experience_agent
+        }
+        return agent_map.get(agent_type)
     
     def start(self):
         """Start the orchestrator and all agents"""
