@@ -564,7 +564,8 @@ Focus on creativity, engagement, and D&D authenticity."""
             else:
                 message.data = {"campaign_name": "unknown"}
         
-        campaign_name = message.data.get("campaign_name", "unknown")
+        # Fix: Look for 'campaign' field (sent by campaign_manager) instead of 'campaign_name'
+        campaign_name = message.data.get("campaign", message.data.get("campaign_name", "unknown"))
         if self.verbose:
             print(f"📋 ScenarioGenerator acknowledged campaign selection: {campaign_name}")
         
