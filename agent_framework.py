@@ -135,7 +135,7 @@ class BaseAgent(ABC):
             response_to=original_message.id
         )
         
-        print(f"Response prepared in send_response (AgentMessage) is {response}")
+        print(f"Response prepared in send_response (AgentMessage) is ID:{response.id} Action:{response.action} From:{response.sender_id} To:{response.response_to}")
         
         self.message_bus.send_message(response)
     
@@ -176,7 +176,7 @@ class BaseAgent(ABC):
                 
                 # Give the message bus a moment to process any send_response calls
                 import time
-                time.sleep(0.01)  # 10ms delay to allow message bus processing
+                time.sleep(0.05)  # 50ms delay to allow message bus processing
                 
                 # Check if handler already sent a response by looking for response message
                 response_already_sent = False

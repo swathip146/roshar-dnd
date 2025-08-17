@@ -11,6 +11,8 @@ import time
 from typing import Any, Dict, List, Optional
 from .base_command_handler import BaseCommandHandler
 
+# Configuration constants
+MAX_TIMEOUT = 40
 
 class ManualCommandHandler(BaseCommandHandler):
     """
@@ -72,16 +74,14 @@ class ManualCommandHandler(BaseCommandHandler):
             'how does': ('rule_enforcement', 'check_rule'),
             'what happens': ('rule_enforcement', 'check_rule'),
             
-            # Scenario generation
-            'introduce scenario': ('scenario_generator', 'generate_with_context'),
-            'generate scenario': ('scenario_generator', 'generate_with_context'),
-            'create scenario': ('scenario_generator', 'generate_with_context'),
-            'new scene': ('scenario_generator', 'generate_with_context'),
-            'encounter': ('scenario_generator', 'generate_with_context'),
-            'adventure': ('scenario_generator', 'generate_with_context'),
-            'select option': ('scenario_generator', 'apply_player_choice'),
-            'choose option': ('scenario_generator', 'apply_player_choice'),
-            'option': ('scenario_generator', 'apply_player_choice'),
+            # Scenario generation - Updated to use RAG-first refactored generator
+            'introduce scenario': ('scenario_generator', 'generate_scenario'),
+            'generate scenario': ('scenario_generator', 'generate_scenario'),
+            'create scenario': ('scenario_generator', 'generate_scenario'),
+            'new scene': ('scenario_generator', 'generate_scenario'),
+            'encounter': ('scenario_generator', 'generate_scenario'),
+            'adventure': ('scenario_generator', 'generate_scenario'),
+            # Removed 'select option' entries - handled by regex in _parse_command
             
             # Game state management
             'save game': ('game_engine', 'save_game'),
@@ -195,8 +195,8 @@ class ManualCommandHandler(BaseCommandHandler):
             'add scene to history': ('game_engine', 'add_scene_to_history'),
             
             # Advanced Scenario Generation (3 commands)
-            'generate scenario advanced': ('scenario_generator', 'generate_scenario'),
-            'apply player choice advanced': ('scenario_generator', 'apply_player_choice'),
+            # 'generate scenario advanced': ('scenario_generator', 'generate_scenario'),
+            # 'apply player choice advanced': ('scenario_generator', 'apply_player_choice'),
             'get generator status': ('scenario_generator', 'get_generator_status'),
             
             # Advanced NPC Management (3 commands)
@@ -504,25 +504,25 @@ class ManualCommandHandler(BaseCommandHandler):
         """Parse command into agent_id, action, and parameters."""
         instruction_lower = instruction.lower().strip()
         
-        # Check for direct command matches (prioritize longer, more specific matches)
+        # PRIORITY 1: Handle parameterized patterns FIRST (before command_map matching)
+        if instruction_lower.startswith('select option'):
+            match = re.search(r'select option (\d+)', instruction_lower)
+            if match:
+                return 'scenario_generator', 'apply_player_choice', {'option_number': int(match.group(1))}
+        elif instruction_lower.startswith('roll '):
+            return 'dice_system', 'roll_dice', {}
+        elif instruction_lower.startswith('rule ') or 'how does' in instruction_lower or self._is_condition_query(instruction_lower):
+            return 'rule_enforcement', 'check_rule', {}
+        elif self._is_scenario_request(instruction_lower):
+            return 'scenario_generator', 'generate_scenario', {}
+        
+        # PRIORITY 2: Then check command map for exact matches
         # Sort patterns by length in descending order to prefer specific matches
         sorted_patterns = sorted(self.command_map.items(), key=lambda x: len(x[0]), reverse=True)
         for pattern, (agent, action) in sorted_patterns:
             if pattern in instruction_lower:
                 params = self._extract_params(instruction)
                 return agent, action, params
-        
-        # Handle special patterns with parameters
-        if instruction_lower.startswith('roll '):
-            return 'dice_system', 'roll_dice', {}
-        elif instruction_lower.startswith('rule ') or 'how does' in instruction_lower or self._is_condition_query(instruction_lower):
-            return 'rule_enforcement', 'check_rule', {}
-        elif self._is_scenario_request(instruction_lower):
-            return 'scenario_generator', 'generate_with_context', {}
-        elif instruction_lower.startswith('select option'):
-            match = re.search(r'select option (\d+)', instruction_lower)
-            if match:
-                return 'scenario_generator', 'apply_player_choice', {'option_number': int(match.group(1))}
         
         # No specific command found
         return None, None, {}
@@ -1023,74 +1023,95 @@ class ManualCommandHandler(BaseCommandHandler):
             return f"❌ Failed to process query: {response.get('error', 'Unknown error')}"
     
     def _handle_scenario_command(self, action: str, params: dict, instruction: str = "") -> str:
-        """Handle scenario-related commands."""
+        """Handle scenario-related commands with updated RAG-first flow."""
         if action == 'apply_player_choice':
             option_number = params.get('option_number', 1)
             return self._select_player_option(option_number)
-        elif action == 'generate_with_context':
+        elif action == 'generate_scenario':
             return self._handle_scenario_generation(instruction)
         
-        # Phase 4: Advanced Scenario Generation Commands
+        # Phase 4: Advanced Scenario Generation Commands - Updated for RAG-first architecture
         elif action == 'generate_scenario':
-            game_state = params.get('param_1', '') or None
+            # Extract context from parameters if provided
+            context = params.get('param_1', instruction) or instruction
             
             result = self._send_message_and_wait_safe("scenario_generator", "generate_scenario", {
-                "game_state": game_state,
-                "advanced_mode": True
+                "query": context,
+                "campaign_context": self._get_current_campaign_context(),
+                "game_state": self._get_current_game_state_for_scenarios(),
+                "use_rag": True
             })
             if result and result.get("success"):
                 scenario = result.get('scenario', {})
-                return f"🎭 **ADVANCED SCENARIO GENERATED!**\n📖 **Title**: {scenario.get('title', 'Untitled')}\n📝 **Description**: {scenario.get('description', 'No description')}\n🎯 **Difficulty**: {scenario.get('difficulty', 'Unknown')}\n⏱️ **Duration**: {scenario.get('estimated_duration', 'Unknown')}"
+                rag_info = ""
+                if result.get('used_rag'):
+                    rag_info = f"\n🔍 **RAG Enhanced**: {result.get('source_count', 0)} D&D sources used"
+                
+                return f"🎭 **SCENARIO GENERATED!**{rag_info}\n📖 **Scene**: {scenario.get('scenario_text', 'No description')}\n📝 **Options**: {len(scenario.get('options', []))} player choices available"
             else:
-                return f"❌ Failed to generate advanced scenario: {result.get('error', 'Unknown error')}"
+                return f"❌ Failed to generate scenario: {result.get('error', 'Unknown error')}"
         
         elif action == 'apply_player_choice':
-            state = params.get('param_1', '')
-            player = params.get('param_2', 'player')
+            state = params.get('param_1', self._get_current_game_state_for_scenarios())
+            player = params.get('param_2', 'DM')
             choice = params.get('param_3', '1')
             
             result = self._send_message_and_wait_safe("scenario_generator", "apply_player_choice", {
                 "game_state": state,
                 "player": player,
-                "choice": choice,
-                "advanced_processing": True
+                "choice": int(choice) if choice.isdigit() else 1
             })
             if result and result.get("success"):
-                return f"✅ **PLAYER CHOICE APPLIED!**\n👤 **Player**: {player}\n🎯 **Choice**: {choice}\n📖 **Consequence**: {result.get('consequence', 'Choice processed')}\n{result.get('message', '')}"
+                return f"✅ **PLAYER CHOICE APPLIED!**\n👤 **Player**: {player}\n🎯 **Choice**: {choice}\n📖 **Consequence**: {result.get('continuation', 'Choice processed')}"
             else:
                 return f"❌ Failed to apply player choice: {result.get('error', 'Unknown error')}"
         
         elif action == 'get_generator_status':
             result = self._send_message_and_wait_safe("scenario_generator", "get_generator_status", {})
             if result and result.get("success"):
-                generator_status = result.get('generator_status', {})
-                return f"🎬 **SCENARIO GENERATOR STATUS**\n🟢 **Status**: {generator_status.get('status', 'Unknown')}\n📊 **Scenarios Generated**: {generator_status.get('scenarios_count', 0)}\n🎯 **Active Template**: {generator_status.get('active_template', 'Default')}\n💾 **Memory Usage**: {generator_status.get('memory_usage', 'Unknown')}"
+                # Updated to show new RAG metrics from refactored generator
+                llm_available = result.get('llm_available', False)
+                rag_metrics = result.get('rag_metrics', {})
+                
+                status_text = f"🎬 **SCENARIO GENERATOR STATUS**\n"
+                status_text += f"🤖 **LLM Available**: {'✅ Yes' if llm_available else '❌ No'}\n"
+                status_text += f"🔍 **RAG Requests**: {rag_metrics.get('requests_made', 0)}\n"
+                status_text += f"✅ **RAG Success Rate**: {rag_metrics.get('success_rate', 0):.1f}%\n"
+                status_text += f"📊 **Architecture**: RAG-First with Orchestrator Communication"
+                
+                return status_text
             else:
                 return f"❌ Failed to get generator status: {result.get('error', 'Unknown error')}"
         
         return f"❌ Unknown scenario action: {action}"
     
     def _handle_scenario_generation(self, instruction: str) -> str:
-        """Handle scenario generation using scenario generator agent."""
-        response = self._send_message_and_wait_safe("scenario_generator", "generate_with_context", {
+        """Handle scenario generation using refactored RAG-first scenario generator."""
+        response = self._send_message_and_wait_safe("scenario_generator", "generate_scenario", {
             "query": instruction,
-            "use_rag": True,
-            "campaign_context": "",
-            "game_state": ""
-        }, timeout=15.0)  # Increased timeout for LLM-based scenario generation
+            "campaign_context": self._get_current_campaign_context(),
+            "game_state": self._get_current_game_state_for_scenarios(),
+            "use_rag": True
+        }, timeout=MAX_TIMEOUT)  # Increased timeout for LLM-based scenario generation
         
         if response and response.get("success"):
             scenario = response.get("scenario", {})
             scenario_text = scenario.get("scenario_text", "Failed to generate scenario")
             options = scenario.get("options", [])
             
+            # Build response with RAG enhancement info
+            rag_info = ""
+            if response.get('used_rag'):
+                source_count = response.get('source_count', 0)
+                rag_info = f"\n🔍 **Enhanced with {source_count} D&D knowledge sources**"
+            
             # Store options for later selection
             if options:
                 self.last_scenario_options = options
                 options_text = "\n".join(options)
-                return f"🎭 **SCENARIO:**\n{scenario_text}\n\n**OPTIONS:**\n{options_text}\n\n📝 *Type 'select option [number]' to choose a player option.*"
+                return f"🎭 **SCENARIO:**{rag_info}\n{scenario_text}\n\n**OPTIONS:**\n{options_text}\n\n📝 *Type 'select option [number]' to choose a player option.*"
             else:
-                return f"🎭 **SCENARIO:**\n{scenario_text}"
+                return f"🎭 **SCENARIO:**{rag_info}\n{scenario_text}"
         else:
             return f"❌ Failed to generate scenario: {response.get('error', 'Unknown error')}"
     
@@ -2018,7 +2039,7 @@ class ManualCommandHandler(BaseCommandHandler):
         self.last_scenario_options = options
     
     def _select_player_option(self, option_number: int) -> str:
-        """Handle player option selection."""
+        """Handle player option selection with refactored RAG-first generator."""
         if not self.last_scenario_options:
             return "❌ No options available. Please generate a scenario first."
         
@@ -2027,9 +2048,12 @@ class ManualCommandHandler(BaseCommandHandler):
         
         selected_option = self.last_scenario_options[option_number - 1]
         
-        # Process the choice using scenario generator
+        # Process the choice using refactored scenario generator with proper format
         response = self._send_message_and_wait_safe("scenario_generator", "apply_player_choice", {
-            "game_state": {"current_options": "\n".join(self.last_scenario_options)},
+            "game_state": {
+                "current_options": "\n".join(self.last_scenario_options),
+                "story_arc": self._get_current_campaign_context()
+            },
             "player": "DM",
             "choice": option_number
         }, timeout=15.0)  # Increased timeout for LLM-based consequence generation
@@ -2091,3 +2115,27 @@ class ManualCommandHandler(BaseCommandHandler):
                 return True
         
         return False
+    
+    def _get_current_campaign_context(self) -> str:
+        """Get current campaign context for scenario generation."""
+        # This could be enhanced to retrieve actual campaign context from campaign manager
+        try:
+            response = self._send_message_and_wait_safe("campaign_manager", "get_campaign_info", {}, timeout=2.0)
+            if response and response.get("success"):
+                campaign = response.get("campaign", {})
+                return f"{campaign.get('title', 'Unknown Campaign')} - {campaign.get('theme', 'No theme')}"
+        except:
+            pass
+        return "Default Campaign Context"
+    
+    def _get_current_game_state_for_scenarios(self) -> str:
+        """Get simplified game state for scenario generation."""
+        # This could be enhanced to retrieve actual game state
+        try:
+            response = self._send_message_and_wait_safe("game_engine", "get_game_state", {}, timeout=2.0)
+            if response and response.get("success"):
+                game_state = response.get("game_state", {})
+                return f"Phase: {game_state.get('current_phase', 'exploration')}, Location: {game_state.get('current_location', 'unknown')}"
+        except:
+            pass
+        return "Default game state"
