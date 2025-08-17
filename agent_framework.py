@@ -1,6 +1,7 @@
 """
 Agent Framework for DM Assistant
 Provides communication and coordination between different AI agents
+Enhanced with Haystack Pipeline Integration
 """
 from typing import Dict, Any, List, Optional, Callable, Union
 from dataclasses import dataclass, asdict
@@ -12,54 +13,17 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 
+# Import messaging components from shared module
+from core.messaging import AgentMessage, MessageType
 
-class MessageType(Enum):
-    """Types of messages that can be sent between agents"""
-    REQUEST = "request"
-    RESPONSE = "response"
-    EVENT = "event"
-    BROADCAST = "broadcast"
-    ERROR = "error"
-
-
-@dataclass
-class AgentMessage:
-    """Message passed between agents"""
-    id: str
-    sender_id: str
-    receiver_id: str
-    message_type: MessageType
-    action: str
-    data: Dict[str, Any]
-    timestamp: float
-    response_to: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert message to dictionary"""
-        return {
-            "id": self.id,
-            "sender_id": self.sender_id,
-            "receiver_id": self.receiver_id,
-            "message_type": self.message_type.value,
-            "action": self.action,
-            "data": self.data,
-            "timestamp": self.timestamp,
-            "response_to": self.response_to
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'AgentMessage':
-        """Create message from dictionary"""
-        return cls(
-            id=data["id"],
-            sender_id=data["sender_id"],
-            receiver_id=data["receiver_id"],
-            message_type=MessageType(data["message_type"]),
-            action=data["action"],
-            data=data["data"],
-            timestamp=data["timestamp"],
-            response_to=data.get("response_to")
-        )
+# Import Haystack bridge components
+try:
+    from core.command_envelope import CommandEnvelope, CommandHeader, CommandBody, create_command_envelope
+    from core.haystack_bridge import HaystackOrchestrator
+    HAYSTACK_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Haystack integration not available: {e}")
+    HAYSTACK_AVAILABLE = False
 
 
 class BaseAgent(ABC):
@@ -353,21 +317,37 @@ class MessageBus:
 class AgentOrchestrator:
     """Orchestrator for managing multiple agents and their interactions"""
     
-    def __init__(self):
+    def __init__(self, enable_haystack: bool = True, verbose: bool = False):
         self.message_bus = MessageBus()
         self.agents: Dict[str, BaseAgent] = {}
         self.tick_interval = 0.1  # seconds
         self.running = False
         self.orchestrator_thread: Optional[threading.Thread] = None
+        self.verbose = verbose
         
         # Event handling for external components (like command handlers)
         self.event_handlers: Dict[str, List[Callable]] = {}
         self._processed_event_ids: set = set()
         
+        # Haystack Integration
+        self.haystack_orchestrator: Optional[HaystackOrchestrator] = None
+        self.enable_haystack = enable_haystack and HAYSTACK_AVAILABLE
+        
+        if self.enable_haystack:
+            try:
+                self.haystack_orchestrator = HaystackOrchestrator(self, verbose=verbose)
+                if verbose:
+                    print("🚀 Haystack integration enabled")
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️ Failed to initialize Haystack integration: {e}")
+                self.enable_haystack = False
+        
         # Agent references for easy access
         self.haystack_agent = None
         self.campaign_agent = None
         self.game_engine_agent = None
+        self.enhanced_game_engine_agent = None  # New enhanced game engine
         self.npc_agent = None
         self.scenario_agent = None
         self.dice_agent = None
@@ -397,6 +377,7 @@ class AgentOrchestrator:
             from agents.haystack_pipeline_agent import HaystackPipelineAgent
             from agents.campaign_management import CampaignManagerAgent
             from agents.game_engine import GameEngineAgent, JSONPersister
+            from core.enhanced_game_engine import EnhancedGameEngineAgent  # Import enhanced game engine
             from agents.npc_controller import NPCControllerAgent
             from agents.scenario_generator import ScenarioGeneratorAgent
             from agents.dice_system import DiceSystemAgent, DiceRoller
@@ -430,6 +411,12 @@ class AgentOrchestrator:
                     tick_seconds=tick_seconds
                 )
                 self.register_agent(self.game_engine_agent)
+                
+                # 3.1. Initialize Enhanced Game Engine Agent (for event sourcing)
+                self.enhanced_game_engine_agent = EnhancedGameEngineAgent(
+                    verbose=verbose
+                )
+                self.register_agent(self.enhanced_game_engine_agent)
             
             # 4. Initialize Dice System Agent
             self.dice_agent = DiceSystemAgent()
@@ -513,6 +500,7 @@ class AgentOrchestrator:
             'haystack': self.haystack_agent,
             'campaign': self.campaign_agent,
             'game_engine': self.game_engine_agent,
+            'enhanced_game_engine': self.enhanced_game_engine_agent,
             'npc': self.npc_agent,
             'scenario': self.scenario_agent,
             'dice': self.dice_agent,
@@ -708,8 +696,177 @@ class AgentOrchestrator:
     
     def get_message_statistics(self) -> Dict[str, Any]:
         """Get message bus statistics"""
-        return {
+        stats = {
             "total_messages": len(self.message_bus.message_history),
             "queue_size": self.message_bus.message_queue.qsize(),
             "registered_agents": len(self.agents)
         }
+        
+        # Add Haystack integration statistics
+        if self.enable_haystack and self.haystack_orchestrator:
+            haystack_info = self.haystack_orchestrator.get_pipeline_info()
+            stats.update({
+                "haystack_enabled": True,
+                "haystack_pipelines": haystack_info["registered_pipelines"],
+                "haystack_active_commands": haystack_info["active_commands"]
+            })
+        else:
+            stats["haystack_enabled"] = False
+            
+        return stats
+    
+    def handle_command_envelope(self, envelope: CommandEnvelope) -> Dict[str, Any]:
+        """
+        Handle a command using the enhanced CommandEnvelope system
+        
+        This method serves as the main entry point for the new Haystack-integrated
+        command processing system while maintaining backward compatibility.
+        
+        Args:
+            envelope: CommandEnvelope containing the command to process
+            
+        Returns:
+            Dict containing the command execution result
+        """
+        if not self.enable_haystack or not self.haystack_orchestrator:
+            # Fallback to legacy message bus system
+            if self.verbose:
+                print("⤴️ Haystack not available, using legacy system")
+            return self._handle_envelope_legacy(envelope)
+        
+        try:
+            return self.haystack_orchestrator.handle_command(envelope)
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Haystack command handling failed: {e}")
+            # Fallback to legacy system
+            return self._handle_envelope_legacy(envelope)
+    
+    def _handle_envelope_legacy(self, envelope: CommandEnvelope) -> Dict[str, Any]:
+        """
+        Handle CommandEnvelope using the legacy message bus system
+        
+        Args:
+            envelope: CommandEnvelope to process
+            
+        Returns:
+            Dict containing the result
+        """
+        try:
+            # Convert CommandEnvelope to AgentMessage
+            message = AgentMessage(
+                id=str(uuid.uuid4()),
+                sender_id="orchestrator",
+                receiver_id=self._intent_to_agent(envelope.header.intent),
+                message_type=MessageType.REQUEST,
+                action=envelope.header.intent.lower().replace("_", "."),
+                data={
+                    "utterance": envelope.body.utterance,
+                    "entities": envelope.body.entities,
+                    "context": envelope.body.context,
+                    "correlation_id": envelope.header.correlation_id,
+                    "actor": envelope.header.actor
+                },
+                timestamp=time.time()
+            )
+            
+            # Send through message bus
+            self.message_bus.send_message(message)
+            
+            # Wait for response (simplified implementation)
+            response = self._wait_for_response(message.id, envelope.header.timeout_seconds)
+            
+            if response:
+                envelope.mark_completed(response)
+                return response
+            else:
+                error_msg = "No response from legacy system"
+                envelope.mark_failed(error_msg)
+                return {"success": False, "error": error_msg}
+                
+        except Exception as e:
+            error_msg = f"Legacy envelope handling failed: {str(e)}"
+            envelope.mark_failed(error_msg)
+            return {"success": False, "error": error_msg}
+    
+    def _intent_to_agent(self, intent: str) -> str:
+        """
+        Map command intent to agent ID for legacy system
+        
+        Args:
+            intent: The command intent
+            
+        Returns:
+            Agent ID string
+        """
+        intent_mapping = {
+            "SKILL_CHECK": "rule_enforcement",
+            "SCENARIO_CHOICE": "scenario_generator",
+            "RULE_QUERY": "rule_enforcement",
+            "COMBAT_ACTION": "combat_engine",
+            "LORE_LOOKUP": "haystack_pipeline"
+        }
+        return intent_mapping.get(intent, "haystack_pipeline")
+    
+    def _wait_for_response(self, message_id: str, timeout: float) -> Optional[Dict[str, Any]]:
+        """
+        Wait for response from message bus
+        
+        Args:
+            message_id: ID of message to wait for response to
+            timeout: Maximum wait time in seconds
+            
+        Returns:
+            Response data or None if timeout
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                history = self.message_bus.get_message_history(limit=50)
+                
+                for msg in reversed(history):
+                    if (msg.get("response_to") == message_id and
+                        msg.get("message_type") == "response"):
+                        return msg.get("data", {})
+                        
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Error waiting for response: {e}")
+            
+            time.sleep(0.1)
+        
+        return None
+    
+    def create_command_envelope(
+        self,
+        intent: str,
+        utterance: str,
+        actor: Dict[str, Any],
+        entities: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        priority: int = 0,
+        timeout_seconds: float = 30.0
+    ) -> CommandEnvelope:
+        """
+        Factory method to create CommandEnvelope instances
+        
+        This provides a convenient way for external systems to create
+        properly formatted CommandEnvelopes for processing.
+        """
+        if not HAYSTACK_AVAILABLE:
+            raise RuntimeError("Haystack integration not available - cannot create CommandEnvelope")
+            
+        return create_command_envelope(
+            intent=intent,
+            utterance=utterance,
+            actor=actor,
+            entities=entities,
+            context=context,
+            parameters=parameters,
+            metadata=metadata,
+            priority=priority,
+            timeout_seconds=timeout_seconds
+        )

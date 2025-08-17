@@ -232,3 +232,41 @@ class GameSaveManager:
     def has_save_loaded(self) -> bool:
         """Check if a save file is currently loaded."""
         return bool(self.current_save_file and self.game_save_data)
+    
+    def save_game_state(self, save_data: Dict[str, Any], save_name: str) -> bool:
+        """
+        Save game state data directly (method expected by tests).
+        
+        Args:
+            save_data: Dictionary containing the game state to save
+            save_name: Name for the save file
+            
+        Returns:
+            bool: True if save was successful, False otherwise
+        """
+        try:
+            # Create safe filename from save_name
+            safe_name = "".join(c for c in save_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            safe_name = safe_name.replace(' ', '_')
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{safe_name}_{timestamp}.json"
+            
+            filepath = os.path.join(self.game_saves_dir, filename)
+            
+            # Write save file
+            with open(filepath, 'w') as f:
+                json.dump(save_data, f, indent=2)
+            
+            # Update current save file reference
+            self.current_save_file = filename
+            self.game_save_data = save_data
+            
+            if self.verbose:
+                print(f"💾 Game state saved: {save_name}")
+            
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error saving game state: {e}")
+            return False

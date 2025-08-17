@@ -1,0 +1,70 @@
+CHARACTER: kali
+
+BASIC INFORMATION:
+Name: kali
+Race: Azish
+Class: Radiant
+Level: 1
+Background: Hermit
+Rulebook: Cosmere 5e (Roshar)
+
+ABILITY SCORES:
+Strength: 11 (modifier: +0)
+Dexterity: 15 (modifier: +2)
+Constitution: 16 (modifier: +3)
+Intelligence: 13 (modifier: +1)
+Wisdom: 12 (modifier: +1)
+Charisma: 14 (modifier: +2)
+
+COMBAT STATISTICS:
+Hit Points: 11
+Armor Class: 12
+Proficiency Bonus: +2
+
+FEATURES AND TRAITS:
+- However, based on the fragments I can see, here are what appear to be the core features for a level 1 character of this class:
+- **Spellcasting: The Radiant gains the ability to cast Invested Arts (this class's version of spells) using Charisma as their spellcasting ability. They know cantrips and have spell slots for casting higher-level Invested Arts.**
+- **Investiture Points: The Radiant gains a pool of Investiture points that can be spent to enhance their Invested Arts through various Surgebinding Techniques.**
+- **Spren Bond: The Radiant forms a bond with a Cryptic spren, which functions as a familiar and grants additional abilities. The Cryptic has specific stats and abilities as shown in the stat block.**
+- **Surgebinding Study: The Radiant learns techniques to modify their Invested Arts, though specific level 1 techniques aren't clearly defined in the provided text.**
+- **Note:** This appears to be homebrew content rather than official D&D 5e material. The complete level 1 features would need the full, unfragmented class description to provide accurate details about starting proficiencies, hit points, equipment, and the complete list of initial abilities.
+- Here are the **Makabaki** traits that would apply to Azish characters:
+- **Age:** Reach adulthood in their mid-teens and live to about 70 years old
+- **Creature Type:** Humans (humanoid)
+- **Size:** Medium (about 6 to 6½ feet tall on average)
+- **Speed:** Base walking speed is 30 feet
+- **Languages:** Can speak, read, and write Azish, Common, and its written forms (Common Glyphs and Common Script)
+
+EQUIPMENT:
+- Hermit Background Starting Equipment:**
+- Herbalism kit
+- Scroll case with spiritual writings
+- Winter blanket
+- Set of artisan's tools (one of your choice)
+- Belt pouch
+- Set of common clothes
+- gp
+
+SKILLS:
+No specific skills listed
+
+SPELLS:
+No spells known
+
+PERSONALITY:
+Personality Traits: A Azish Radiant who follows their chosen path and pursues their goals. Source: Unknown
+signs.The languages of Roshar are listed below:LanguageTypeIdentityCommonSpokenAllCommon ScriptWrittenAlethi, Herdazian, Natan, VedenCommon GlyphsWrittenAlethi, Herdazian, Natan, Vede...
+Ideals: Justice and personal growth
+Bonds: Connected to their hermit background and azish heritage
+Flaws: Sometimes too focused on their goals to consider consequences
+
+BACKSTORY:
+Backstory to be developed
+
+CHARACTER BUILD SUMMARY:
+This is a level 1 Azish Radiant with Hermit background.
+Key ability scores: STR 11, DEX 15, CON 16, INT 13, WIS 12, CHA 14.
+Combat stats: 11 HP, AC 12, +2 proficiency bonus.
+
+TAGS FOR INDEXING:
+Character, Azish, Radiant, Hermit, Level1, Cosmere 5e (Roshar)
