@@ -11,7 +11,7 @@ from agent_framework import BaseAgent
 class CharacterManagerAgent(BaseAgent):
     """Agent for managing D&D character creation, progression, and stats"""
     
-    def __init__(self, characters_dir: str = "docs/characters", verbose: bool = False):
+    def __init__(self, characters_dir: str = "docs/players", verbose: bool = False):
         super().__init__("character_manager", "character_manager")
         self.characters_dir = characters_dir
         self.characters_cache = {}
