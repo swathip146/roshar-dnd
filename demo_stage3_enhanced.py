@@ -106,7 +106,7 @@ def demo_character_management(orchestrator):
     }
     
     rogue_response = orchestrator.process_request(rogue_request)
-    print(f"✓ Added Rogue: {rogue_response['data']['message']}")
+    print(f"✓ Added Rogue: {rogue_response.data['message']}")
     
     # Add a fighter character
     fighter_request = {
@@ -135,7 +135,7 @@ def demo_character_management(orchestrator):
     }
     
     fighter_response = orchestrator.process_request(fighter_request)
-    print(f"✓ Added Fighter: {fighter_response['data']['message']}")
+    print(f"✓ Added Fighter: {fighter_response.data['message']}")
     
     return "lyralei_shadowstep", "thorin_ironshield"
 
@@ -165,8 +165,8 @@ def demo_7_step_skill_pipeline(orchestrator, rogue_id, fighter_id):
     print(f"\n--- Stealth Check: {stealth_check['action']} ---")
     stealth_result = orchestrator.process_request(stealth_check)
     
-    if stealth_result["success"]:
-        skill_data = stealth_result["data"]["skill_check_result"]
+    if stealth_result.success:
+        skill_data = stealth_result.data["skill_check_result"]
         print(f"🎯 Pipeline Result: {'SUCCESS' if skill_data['success'] else 'FAILURE'}")
         print(f"📊 Roll: {skill_data['selected_roll']} + {skill_data['character_modifier']} = {skill_data['roll_total']}")
         print(f"🎲 Raw Rolls: {skill_data['raw_rolls']}")
@@ -197,8 +197,8 @@ def demo_7_step_skill_pipeline(orchestrator, rogue_id, fighter_id):
     print(f"\n--- Athletics Check: {athletics_check['action']} ---")
     athletics_result = orchestrator.process_request(athletics_check)
     
-    if athletics_result["success"]:
-        skill_data = athletics_result["data"]["skill_check_result"]
+    if athletics_result.success:
+        skill_data = athletics_result.data["skill_check_result"]
         print(f"🎯 Pipeline Result: {'SUCCESS' if skill_data['success'] else 'FAILURE'}")
         print(f"📊 Roll: {skill_data['selected_roll']} + {skill_data['character_modifier']} = {skill_data['roll_total']}")
         print(f"🎯 DC: {skill_data['dc']} (Source: {skill_data['dc_source']})")
@@ -225,8 +225,8 @@ def demo_contested_checks(orchestrator, rogue_id, fighter_id):
     print("\n--- Contested Check: Stealth vs Perception ---")
     contest_result = orchestrator.process_request(contest_request)
     
-    if contest_result["success"]:
-        contest_data = contest_result["data"]["contested_result"]
+    if contest_result.success:
+        contest_data = contest_result.data["contested_result"]
         winner = contest_data["winner"]
         margin = contest_data["margin"]
         
@@ -263,8 +263,8 @@ def demo_saga_workflows(orchestrator, rogue_id, fighter_id):
     
     saga_response = orchestrator.process_request(saga_request)
     
-    if saga_response["success"]:
-        saga_data = saga_response["data"]
+    if saga_response.success:
+        saga_data = saga_response.data
         saga_id = saga_data["saga_id"]
         print(f"🎯 Started Saga: {saga_data['saga_type']}")
         print(f"🆔 Saga ID: {saga_id}")
@@ -288,9 +288,9 @@ def demo_saga_workflows(orchestrator, rogue_id, fighter_id):
         }
         
         advance_response = orchestrator.process_request(advance_request)
-        if advance_response["success"]:
+        if advance_response.success:
             print("✓ Step 1: Scenario presented")
-            advance_data = advance_response["data"]["saga_advance_result"]
+            advance_data = advance_response.data["saga_advance_result"]
             
             if "next_step" in advance_data:
                 print(f"➡️ Next Step: {advance_data['next_step']} ({advance_data['handler']})")
@@ -345,8 +345,8 @@ def demo_policy_runtime_changes(orchestrator):
     }
     
     change_response = orchestrator.process_request(policy_change)
-    if change_response["success"]:
-        print(f"✓ Changed to: {change_response['data']['new_profile']} profile")
+    if change_response.success:
+        print(f"✓ Changed to: {change_response.data['new_profile']} profile")
     
     # Add custom rule
     custom_rule = {
@@ -358,8 +358,8 @@ def demo_policy_runtime_changes(orchestrator):
     }
     
     rule_response = orchestrator.process_request(custom_rule)
-    if rule_response["success"]:
-        print(f"✓ Added custom rule: {rule_response['data']['rule_name']}")
+    if rule_response.success:
+        print(f"✓ Added custom rule: {rule_response.data['rule_name']}")
 
 
 def demo_comprehensive_statistics(orchestrator):
@@ -371,8 +371,8 @@ def demo_comprehensive_statistics(orchestrator):
     stats_request = {"type": "game_statistics"}
     stats_response = orchestrator.process_request(stats_request)
     
-    if stats_response["success"]:
-        data = stats_response["data"]
+    if stats_response.success:
+        data = stats_response.data
         
         print("\n🎮 Game Statistics:")
         game_stats = data["game_statistics"]
@@ -424,7 +424,7 @@ def demo_backward_compatibility():
     print("\n2. Testing Stage 2 Request Compatibility...")
     for i, request in enumerate(stage2_requests, 1):
         response = stage2_orchestrator.process_request(request)
-        print(f"✓ Request {i} ({request['type']}): {'SUCCESS' if response['success'] else 'FAILED'}")
+        print(f"✓ Request {i} ({request['type']}): {'SUCCESS' if response.success else 'FAILED'}")
 
 
 def demo_architecture_progression():

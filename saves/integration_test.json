@@ -1,0 +1,21 @@
+{
+  "location": "Tavern",
+  "story": "You enter a bustling tavern filled with adventurers, merchants, and locals. The air is thick with pipe smoke and the aroma of roasted meat. A fire crackles in the hearth, casting dancing shadows on weathered faces.",
+  "history": [
+    {
+      "player": "I look around",
+      "response": "\ud83d\udd0d Looking around: You find yourself in an interesting situation.",
+      "timestamp": 1755939474.600487,
+      "location": "Tavern",
+      "turn": 1
+    }
+  ],
+  "player_name": "Adventurer",
+  "created_time": 1755939462.942676,
+  "turn_count": 1,
+  "save_time": 1755939474.600607,
+  "save_version": "2.0",
+  "dice_stats": {
+    "total_rolls": 0
+  }
+}

@@ -129,14 +129,31 @@ class SimpleOrchestrator:
         self.post_hooks.append(hook)
         self.logger.info("Added post-processing hook")
     
-    def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def process_request(self, request) -> GameResponse:
         """
         Enhanced orchestration method with Stage 3 integration
         Maintains backward compatibility with Stage 2 format
+        Handles both GameRequest objects and dictionary requests
         """
+        request_type = "unknown"  # Initialize to avoid UnboundLocalError
+        
         try:
+            # Convert GameRequest objects to dictionaries before any processing
+            if isinstance(request, GameRequest):
+                # GameRequest object - convert to dictionary for processing
+                processed_request = {
+                    "type": request.request_type,
+                    "request_type": request.request_type,
+                    "data": request.data,
+                    "context": request.context,
+                    "correlation_id": request.correlation_id,
+                    "saga_id": request.saga_id
+                }
+            else:
+                # Dictionary request - copy for processing
+                processed_request = request.copy()
+            
             # Pre-processing hooks (Stage 3: saga context injection)
-            processed_request = request.copy()
             for hook in self.pre_hooks:
                 processed_request = hook(processed_request)
             
@@ -144,33 +161,46 @@ class SimpleOrchestrator:
             request_type = processed_request.get("type", processed_request.get("request_type", ""))
             handler = self.handlers.get(request_type)
             if not handler:
-                return {
-                    "success": False,
-                    "data": {"error": f"Unknown request type: {request_type}"},
-                    "correlation_id": processed_request.get("correlation_id")
-                }
+                return GameResponse(
+                    success=False,
+                    data={"error": f"Unknown request type: {request_type}"},
+                    correlation_id=processed_request.get("correlation_id")
+                )
             
             # Execute handler
-            response = handler(processed_request)
+            response_dict = handler(processed_request)
             
             # Ensure response has correlation_id
             if "correlation_id" in processed_request:
-                response["correlation_id"] = processed_request["correlation_id"]
+                response_dict["correlation_id"] = processed_request["correlation_id"]
             
             # Post-processing hooks (Stage 3: decision logging, state updates)
-            processed_response = response
+            processed_response = response_dict
             for hook in self.post_hooks:
                 processed_response = hook(processed_request, processed_response)
             
-            return processed_response
+            # Convert dict response to GameResponse object
+            return GameResponse(
+                success=processed_response.get("success", True),
+                data=processed_response.get("data", processed_response),
+                correlation_id=processed_response.get("correlation_id"),
+                metadata=processed_response.get("metadata")
+            )
             
         except Exception as e:
             self.logger.error(f"Error processing request: {e}")
-            return {
-                "success": False,
-                "data": {"error": str(e), "request_type": request_type},
-                "correlation_id": request.get("correlation_id")
-            }
+            # Get correlation_id safely from either object type
+            correlation_id = None
+            if isinstance(request, GameRequest):
+                correlation_id = request.correlation_id
+            elif isinstance(request, dict):
+                correlation_id = request.get("correlation_id")
+            
+            return GameResponse(
+                success=False,
+                data={"error": str(e), "request_type": request_type},
+                correlation_id=correlation_id
+            )
     
     # Stage 2 handlers (backward compatibility)
     

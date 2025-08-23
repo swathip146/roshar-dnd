@@ -7,6 +7,7 @@ import os
 import sys
 import logging
 from pathlib import Path
+from typing import Dict, Any
 
 # Add project paths
 sys.path.append(str(Path(__file__).parent))
@@ -138,12 +139,14 @@ def demo_orchestrator_integration():
     orchestrator = SimpleOrchestrator()
     
     # Add custom hooks for demonstration
-    def demo_pre_hook(request: GameRequest) -> GameRequest:
-        print(f"  PRE-HOOK: Processing {request.request_type} request")
+    def demo_pre_hook(request: Dict[str, Any]) -> Dict[str, Any]:
+        request_type = request.get("type", request.get("request_type", "unknown"))
+        print(f"  PRE-HOOK: Processing {request_type} request")
         return request
     
-    def demo_post_hook(response: GameResponse) -> GameResponse:
-        print(f"  POST-HOOK: Processed response (success: {response.success})")
+    def demo_post_hook(request: Dict[str, Any], response: Dict[str, Any]) -> Dict[str, Any]:
+        success = response.get("success", False)
+        print(f"  POST-HOOK: Processed response (success: {success})")
         return response
     
     orchestrator.add_pre_hook(demo_pre_hook)
@@ -160,11 +163,14 @@ def demo_orchestrator_integration():
     
     for request in test_requests:
         print(f"\nRequest: {request.request_type}")
-        response = orchestrator.process_request(request)
-        print(f"Success: {response.success}")
-        if response.data:
-            message = response.data.get('message', response.data.get('error', 'No message'))
-            print(f"Response: {message}")
+        try:
+            response = orchestrator.process_request(request)
+            print(f"Success: {response.success}")
+            if response.data:
+                message = response.data.get('message', response.data.get('error', 'No message'))
+                print(f"Response: {message}")
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 def demo_integration_patterns():
