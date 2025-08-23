@@ -16,7 +16,7 @@ from .config import GameConfig, DEFAULT_CONFIG
 class RAGScenarioGenerator:
     """Enhanced scenario generator with basic RAG support"""
     
-    def __init__(self, config: Optional[GameConfig] = None, document_store: Optional[SimpleDocumentStore] = None):
+    def __init__(self, document_store: Optional[SimpleDocumentStore] = None, config: Optional[GameConfig] = None):
         """Initialize the RAG-enhanced scenario generator"""
         self.config = config or DEFAULT_CONFIG
         

@@ -101,15 +101,15 @@ def demo_rag_scenario_generation(doc_store):
     print("RAG-Enhanced Scenario Generation")
     print("="*60)
     
-    # Initialize RAG scenario generator
+    # Initialize RAG scenario generator with shared document store
     print("\n1. Initializing RAG Scenario Generator...")
     generator = RAGScenarioGenerator(doc_store)
     
-    # Test scenario generation with different themes
+    # Test scenario generation with different contexts
     scenarios = [
-        {"theme": "dungeon", "difficulty": "medium"},
-        {"theme": "forest", "difficulty": "easy"},
-        {"theme": "dragon", "difficulty": "hard"}
+        {"context": "dungeon", "campaign": "Forgotten Realms"},
+        {"context": "forest", "campaign": None},
+        {"context": "tavern", "campaign": "Forgotten Realms"}
     ]
     
     print("2. Generating RAG-enhanced scenarios...")
@@ -119,7 +119,9 @@ def demo_rag_scenario_generation(doc_store):
         
         try:
             scenario = generator.generate_scenario(**scenario_request)
-            print(f"Generated: {scenario[:200]}...")
+            print(f"Generated Scene: {scenario.get('scene', 'N/A')[:150]}...")
+            print(f"Choices: {len(scenario.get('choices', []))} options available")
+            print(f"Method: {scenario.get('generation_method', 'unknown')}")
         except Exception as e:
             print(f"Error: {e}")
             print("Note: This demo shows the integration pattern - actual generation requires API keys")

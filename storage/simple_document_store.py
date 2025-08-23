@@ -6,7 +6,7 @@ Provides basic RAG capabilities for campaign context
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 from haystack.components.embedders import SentenceTransformersTextEmbedder
 from haystack import Document, Pipeline
-from haystack.components.retrievers import QdrantEmbeddingRetriever
+from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import os
@@ -17,17 +17,22 @@ class SimpleDocumentStore:
     def __init__(self, collection_name: str = "simple_dnd"):
         """Initialize the document store"""
         self.collection_name = collection_name
+        self.model_name = "sentence-transformers/all-MiniLM-L6-v2"  # For RAGScenarioGenerator compatibility
         
-        # Initialize Qdrant document store
+        # Initialize embedder with specific model
+        self.embedder = SentenceTransformersTextEmbedder(model=self.model_name)
+        
+        # Warm up the embedder
+        print("🔥 Warming up embedder model...")
+        self.embedder.warm_up()
+        
+        # Initialize Qdrant document store with correct embedding dimension (384 for all-MiniLM-L6-v2)
         self.document_store = QdrantDocumentStore(
             path="qdrant_storage",
             index=collection_name,
             embedding_dim=384,
-            recreate_index=False
+            recreate_index=True  # Recreate to ensure clean state
         )
-        
-        # Initialize embedder
-        self.embedder = SentenceTransformersTextEmbedder()
         
         # Initialize retriever
         self.retriever = QdrantEmbeddingRetriever(
@@ -250,6 +255,46 @@ class SimpleDocumentStore:
         except Exception as e:
             print(f"❌ Failed to add content: {e}")
             return False
+    
+    def load_documents(self, documents: List[Dict[str, Any]]) -> bool:
+        """Load a list of documents into the store - for demo and testing"""
+        try:
+            haystack_docs = []
+            
+            for doc_data in documents:
+                # Convert dict format to Haystack Document
+                doc = Document(
+                    content=doc_data["content"],
+                    meta=doc_data.get("meta", {})
+                )
+                
+                # Embed the document
+                embedding = self.embedder.run(text=doc.content)["embedding"]
+                doc.embedding = embedding
+                haystack_docs.append(doc)
+            
+            # Write all documents to store
+            self.document_store.write_documents(haystack_docs)
+            print(f"📚 Loaded {len(haystack_docs)} documents into store")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to load documents: {e}")
+            return False
+    
+    def retrieve_documents(self, query: str, top_k: int = 3) -> List[Document]:
+        """Retrieve documents for RAG - returns Haystack Document objects"""
+        try:
+            result = self.retrieval_pipeline.run({
+                "embedder": {"text": query}
+            })
+            
+            documents = result.get("retriever", {}).get("documents", [])
+            return documents[:top_k]
+            
+        except Exception as e:
+            print(f"⚠️ Document retrieval failed: {e}")
+            return []
     
     def list_campaigns(self) -> List[Dict[str, Any]]:
         """List available campaigns in the document store"""
