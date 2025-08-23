@@ -46,7 +46,7 @@ warnings.filterwarnings("ignore")
 
 @component
 class StringToChatMessages:
-    """Converts a string prompt into a list of ChatMessage objects."""
+    """Converts a string prompt into a list of ChatMessage objects for AppleGenAI compatibility."""
     
     @component.output_types(messages=list[ChatMessage] if CLAUDE_AVAILABLE else list)
     def run(self, prompt: str):
@@ -101,7 +101,10 @@ class HaystackPipelineAgent(BaseAgent):
             self.document_store = QdrantDocumentStore(
                 path="../qdrant_storage",
                 index=self.collection_name,
-                embedding_dim=DEFAULT_EMBEDDING_DIM
+                embedding_dim=DEFAULT_EMBEDDING_DIM,
+                recreate_index=False,
+                return_embedding=False,
+                wait_result_from_api=True
             )
             
             if self.verbose:
@@ -115,9 +118,7 @@ class HaystackPipelineAgent(BaseAgent):
     
     def _create_embedder(self) -> SentenceTransformersTextEmbedder:
         """Create and configure text embedder"""
-        embedder = SentenceTransformersTextEmbedder(model=EMBEDDING_MODEL)
-        embedder.warm_up()
-        return embedder
+        return SentenceTransformersTextEmbedder(model=EMBEDDING_MODEL)
     
     def _create_retriever(self) -> Optional[QdrantEmbeddingRetriever]:
         """Create document retriever"""
@@ -130,12 +131,10 @@ class HaystackPipelineAgent(BaseAgent):
     
     def _create_ranker(self) -> SentenceTransformersSimilarityRanker:
         """Create document ranker"""
-        ranker = SentenceTransformersSimilarityRanker(
-            model= RANKER_MODEL,
+        return SentenceTransformersSimilarityRanker(
+            model=RANKER_MODEL,
             top_k=DEFAULT_RANKER_TOP_K
         )
-        ranker.warm_up()
-        return ranker
     
     def _create_general_prompt_builder(self) -> PromptBuilder:
         """Create general RAG prompt builder"""
@@ -206,7 +205,7 @@ Provide a clear, accurate answer with rule citations:"""
             string_to_chat = StringToChatMessages()
             answer_builder = AnswerBuilder()
             chat_generator = AppleGenAIChatGenerator(
-                model= LLM_MODEL
+                model=LLM_MODEL
             )
             
             self.pipeline.add_component("prompt_builder", prompt_builder)
@@ -249,7 +248,7 @@ Provide a clear, accurate answer with rule citations:"""
         self.rules_pipeline.add_component("prompt_builder", self._create_rules_prompt_builder())
         self.rules_pipeline.add_component("string_to_chat", StringToChatMessages())
         self.rules_pipeline.add_component("chat_generator", AppleGenAIChatGenerator(
-            model= LLM_MODEL
+            model=LLM_MODEL
         ))
         
         # Connect rules pipeline
@@ -350,6 +349,7 @@ Provide a clear, accurate answer with rule citations:"""
             }
         
         if self.has_llm:
+            # Run pipeline with LLM components
             result = pipeline.run({
                 "text_embedder": {"text": query},
                 "ranker": {"query": query},
@@ -357,19 +357,31 @@ Provide a clear, accurate answer with rule citations:"""
                 "answer_builder": {"query": query}
             })
             
+            # Extract answer from results
+            answer = "No response generated"
+            documents = []
+            
             if "answer_builder" in result and "answers" in result["answer_builder"]:
-                answer_obj = result["answer_builder"]["answers"][0]
-                answer = answer_obj.data
-                documents = answer_obj.documents if hasattr(answer_obj, 'documents') else []
-            else:
-                answer = "No response generated"
-                documents = []
+                answers = result["answer_builder"]["answers"]
+                if answers and len(answers) > 0:
+                    answer_obj = answers[0]
+                    answer = answer_obj.data if hasattr(answer_obj, 'data') else str(answer_obj)
+                    documents = answer_obj.documents if hasattr(answer_obj, 'documents') else []
+            
+            # Fallback to chat_generator output if answer_builder didn't work
+            if answer == "No response generated" and "chat_generator" in result:
+                chat_replies = result["chat_generator"].get("replies", [])
+                if chat_replies and len(chat_replies) > 0:
+                    answer = str(chat_replies[0])
+                    # Get documents from ranker as fallback
+                    documents = result.get("ranker", {}).get("documents", [])
             
             return {
                 "answer": answer,
                 "sources": self._format_sources(documents)
             }
         else:
+            # Run retrieval-only pipeline
             result = pipeline.run({
                 "text_embedder": {"text": query},
                 "ranker": {"query": query}
@@ -398,20 +410,29 @@ Provide a clear, accurate answer with rule citations:"""
             
             documents = result.get("ranker", {}).get("documents", [])
             
-            # Format documents for return
+            # Format documents for return with improved error handling
             formatted_docs = []
             for doc in documents:
-                formatted_docs.append({
-                    "content": doc.content,
-                    "meta": doc.meta,
-                    "score": getattr(doc, 'score', 0.0)
-                })
+                try:
+                    formatted_docs.append({
+                        "content": doc.content if hasattr(doc, 'content') else str(doc),
+                        "meta": doc.meta if hasattr(doc, 'meta') else {},
+                        "score": getattr(doc, 'score', 0.0)
+                    })
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Error formatting document: {e}")
+                    continue
             
             return formatted_docs
             
         finally:
             # Restore original top_k
-            self.retrieval_pipeline.get_component("ranker").top_k = original_top_k
+            try:
+                self.retrieval_pipeline.get_component("ranker").top_k = original_top_k
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Error restoring ranker top_k: {e}")
     
     
     def _format_sources(self, documents: List[Document]) -> List[Dict[str, Any]]:

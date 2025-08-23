@@ -1,6 +1,7 @@
 """
 Scenario Generator for DM Assistant
 Generates dynamic scenarios and handles player choices using RAG and LLM
+Enhanced with direct Haystack pipeline integration while preserving hwtgenielib components
 """
 import json
 import random
@@ -8,9 +9,29 @@ import re
 from typing import Dict, List, Any, Optional, Tuple
 
 from agent_framework import BaseAgent, MessageType, AgentMessage
-# REMOVED: from agents.haystack_pipeline_agent import HaystackPipelineAgent - direct coupling removed
 
-# Claude-specific imports
+# Haystack imports for direct pipeline integration
+try:
+    from haystack import Pipeline
+    from haystack.components.embedders import SentenceTransformersTextEmbedder
+    from haystack.components.retrievers.in_memory import InMemoryEmbeddingRetriever
+    from haystack.components.rankers import SentenceTransformersSimilarityRanker
+    from haystack.components.builders import PromptBuilder
+    from haystack.document_stores.in_memory import InMemoryDocumentStore
+    from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
+    from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
+    HAYSTACK_AVAILABLE = True
+except ImportError:
+    HAYSTACK_AVAILABLE = False
+    # Mock classes for when Haystack is not available
+    class Pipeline: pass
+    class SentenceTransformersTextEmbedder: pass
+    class QdrantEmbeddingRetriever: pass
+    class SentenceTransformersSimilarityRanker: pass
+    class PromptBuilder: pass
+    class QdrantDocumentStore: pass
+
+# Claude-specific imports (preserve hwtgenielib integration)
 try:
     from hwtgenielib import component
     from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
@@ -21,26 +42,405 @@ except ImportError:
     def component(cls):
         return cls
 
-
-# Configuration constants    
+# Configuration constants
 LLM_MODEL = "aws:anthropic.claude-sonnet-4-20250514-v1:0"
+QDRANT_PATH = "../qdrant_storage"
+COLLECTION_NAME = "dnd_documents"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_DIM = 384
+
+
+class DocumentStoreManager:
+    """Shared document store manager for Haystack integration"""
+    _instance = None
+    _document_store = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def get_document_store(self):
+        """Get or create document store instance"""
+        if not HAYSTACK_AVAILABLE:
+            return None
+            
+        if self._document_store is None:
+            try:
+                self._document_store = QdrantDocumentStore(
+                    path=QDRANT_PATH,
+                    index=COLLECTION_NAME,
+                    embedding_dim=EMBEDDING_DIM,
+                    recreate_index=False
+                )
+            except Exception as e:
+                print(f"⚠️ Failed to initialize QdrantDocumentStore: {e}")
+                self._document_store = None
+        
+        return self._document_store
+
+
+class ScenarioGenerationPipeline:
+    """Haystack pipeline for scenario generation with RAG"""
+    
+    def __init__(self, document_store, chat_generator, verbose=False):
+        self.document_store = document_store
+        self.chat_generator = chat_generator
+        self.verbose = verbose
+        self.pipeline = None
+        
+        if HAYSTACK_AVAILABLE and document_store:
+            self._build_pipeline()
+    
+    def _build_pipeline(self):
+        """Build Haystack pipeline for scenario generation"""
+        try:
+            self.pipeline = Pipeline()
+            
+            # Add components
+            self.pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder(
+                model=EMBEDDING_MODEL
+            ))
+            self.pipeline.add_component("retriever", QdrantEmbeddingRetriever(
+                document_store=self.document_store,
+                top_k=5
+            ))
+            self.pipeline.add_component("ranker", SentenceTransformersSimilarityRanker(
+                model=EMBEDDING_MODEL,
+                top_k=3
+            ))
+            self.pipeline.add_component("prompt_builder", PromptBuilder(
+                template=self._get_scenario_template()
+            ))
+            
+            # Connect components
+            self.pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
+            self.pipeline.connect("retriever.documents", "ranker.documents")
+            self.pipeline.connect("ranker.documents", "prompt_builder.documents")
+            
+            if self.verbose:
+                print("✅ ScenarioGenerationPipeline built successfully")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Failed to build ScenarioGenerationPipeline: {e}")
+            self.pipeline = None
+    
+    def _get_scenario_template(self):
+        """Get prompt template for scenario generation"""
+        return """You are an expert Dungeon Master creating engaging D&D scenarios.
+
+{% if documents %}
+Relevant D&D context from your knowledge base:
+{% for doc in documents %}
+{{ loop.index }}. {{ doc.content[:200] }}... (Source: {{ doc.meta.get('source_file', 'Unknown') }})
+{% endfor %}
+
+{% endif %}
+Campaign Context: {{ campaign_context }}
+Current Game State: {{ game_state }}
+Player Request: {{ query }}
+
+Generate an engaging D&D scenario with the following structure:
+
+1. **Scene Description** (2-3 sentences): Vivid description of the current situation
+2. **Player Options** (3-4 numbered choices): Include mix of:
+   - Skill checks (format: "**Skill Check (DC X)** - Description")
+   - Combat options (format: "**Combat** - Description (Enemy details)")
+   - Social interactions
+   - Problem-solving approaches
+
+Ensure options are clearly numbered and formatted for easy selection.
+Focus on creativity, engagement, and D&D authenticity.
+
+Response:"""
+    
+    def generate_scenario(self, query: str, campaign_context: str = "",
+                         game_state: str = "") -> Dict[str, Any]:
+        """Generate scenario using Haystack pipeline"""
+        if not self.pipeline:
+            return self._fallback_generation(query, campaign_context, game_state)
+        
+        try:
+            # Run Haystack pipeline for RAG-enhanced generation
+            result = self.pipeline.run({
+                "query_embedder": {"text": query},
+                "ranker": {"query": query},
+                "prompt_builder": {
+                    "query": query,
+                    "campaign_context": campaign_context,
+                    "game_state": game_state
+                }
+            })
+            
+            # Extract enhanced prompt with RAG context
+            enhanced_prompt = result.get("prompt_builder", {}).get("prompt", "")
+            documents = result.get("ranker", {}).get("documents", [])
+            
+            # Use hwtgenielib LLM for generation (preserve existing integration)
+            if self.chat_generator and enhanced_prompt:
+                if CLAUDE_AVAILABLE:
+                    messages = [ChatMessage.from_user(enhanced_prompt)]
+                else:
+                    messages = [{"role": "user", "content": enhanced_prompt}]
+                
+                response = self.chat_generator.run(messages=messages)
+                
+                if response and "replies" in response:
+                    scenario_text = response["replies"][0].text
+                    parsed_scenario = self._parse_scenario_response(scenario_text)
+                    parsed_scenario["used_rag"] = len(documents) > 0
+                    parsed_scenario["source_count"] = len(documents)
+                    parsed_scenario["generation_method"] = "haystack_pipeline"
+                    return parsed_scenario
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Haystack pipeline generation failed: {e}")
+        
+        # Fallback to basic generation
+        return self._fallback_generation(query, campaign_context, game_state)
+    
+    def _parse_scenario_response(self, scenario_text: str) -> Dict[str, Any]:
+        """Parse scenario response into structured format"""
+        lines = scenario_text.split('\n')
+        scene_lines = []
+        options = []
+        
+        in_options = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Check if this looks like a numbered option
+            if re.match(r'^\d+\.', line) or (line.startswith('**') and ('Check' in line or 'Combat' in line)):
+                in_options = True
+                options.append(line)
+            elif in_options:
+                # Still in options section
+                if line.startswith('-') or re.match(r'^\d+', line):
+                    options.append(line)
+                else:
+                    # Back to description
+                    scene_lines.append(line)
+            else:
+                scene_lines.append(line)
+        
+        scene_text = ' '.join(scene_lines) if scene_lines else scenario_text
+        
+        # If no options parsed, create fallback
+        if not options:
+            options = [
+                "1. **Investigation Check (DC 15)** - Examine the area carefully",
+                "2. **Persuasion Check (DC 12)** - Try to negotiate peacefully",
+                "3. **Combat** - Attack directly",
+                "4. Take a different approach"
+            ]
+        
+        return {
+            "scenario_text": scene_text,
+            "options": options,
+            "generation_method": "haystack_enhanced_llm"
+        }
+    
+    def _fallback_generation(self, query: str, campaign_context: str,
+                           game_state: str) -> Dict[str, Any]:
+        """Fallback generation when Haystack pipeline unavailable"""
+        # Basic prompt without RAG context
+        prompt = f"""You are an expert Dungeon Master creating engaging D&D scenarios.
+
+Campaign Context: {campaign_context}
+Current Game State: {game_state}
+Player Request: {query}
+
+Generate an engaging D&D scenario with 2-3 sentences of scene description and 3-4 numbered player options including skill checks and combat opportunities."""
+
+        if self.chat_generator:
+            try:
+                if CLAUDE_AVAILABLE:
+                    messages = [ChatMessage.from_user(prompt)]
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                
+                response = self.chat_generator.run(messages=messages)
+                
+                if response and "replies" in response:
+                    scenario_text = response["replies"][0].text
+                    parsed_scenario = self._parse_scenario_response(scenario_text)
+                    parsed_scenario["generation_method"] = "fallback_llm"
+                    return parsed_scenario
+                    
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Fallback LLM generation failed: {e}")
+        
+        # Final fallback - template-based generation
+        return self._template_fallback_generation(query)
+    
+    def _template_fallback_generation(self, query: str) -> Dict[str, Any]:
+        """Template-based fallback when LLM unavailable"""
+        scene_templates = {
+            "tavern": "The party enters a bustling tavern filled with the aroma of roasted meat and ale. Conversations hush as suspicious eyes turn toward the newcomers. A hooded figure in the corner gestures subtly toward your group.",
+            "dungeon": "Ancient stone walls drip with moisture as your torchlight flickers across mysterious runes. The air grows thick with an otherworldly presence, and distant echoes suggest you are not alone in these forgotten depths.",
+            "forest": "Sunlight filters through the canopy above as the party travels along an overgrown path. Suddenly, the natural sounds of the forest fall silent, and you notice fresh tracks leading into the undergrowth.",
+            "city": "The crowded streets buzz with activity as merchants hawk their wares and guards patrol their beats. Your party notices unusual commotion near the city gates, with whispered conversations and furtive glances.",
+        }
+        
+        # Try to match query to template
+        query_lower = query.lower()
+        scene_text = scene_templates.get("tavern")  # Default
+        
+        for location, template in scene_templates.items():
+            if location in query_lower:
+                scene_text = template
+                break
+        
+        options = [
+            "1. **Perception Check (DC 15)** - Look around carefully for clues",
+            "2. **Investigation Check (DC 12)** - Search the immediate area",
+            "3. **Persuasion Check (DC 14)** - Approach and ask questions",
+            "4. Stay alert and observe from a distance"
+        ]
+        
+        return {
+            "scenario_text": scene_text,
+            "options": options,
+            "generation_method": "template_fallback"
+        }
+
+
+class ChoiceConsequencePipeline:
+    """Haystack pipeline for generating choice consequences"""
+    
+    def __init__(self, document_store, chat_generator, verbose=False):
+        self.document_store = document_store
+        self.chat_generator = chat_generator
+        self.verbose = verbose
+        self.pipeline = None
+        
+        if HAYSTACK_AVAILABLE and document_store:
+            self._build_pipeline()
+    
+    def _build_pipeline(self):
+        """Build Haystack pipeline for choice consequence generation"""
+        try:
+            self.pipeline = Pipeline()
+            
+            # Add components
+            self.pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder(
+                model=EMBEDDING_MODEL
+            ))
+            self.pipeline.add_component("retriever", QdrantEmbeddingRetriever(
+                document_store=self.document_store,
+                top_k=3
+            ))
+            self.pipeline.add_component("ranker", SentenceTransformersSimilarityRanker(
+                model=EMBEDDING_MODEL,
+                top_k=2
+            ))
+            self.pipeline.add_component("prompt_builder", PromptBuilder(
+                template=self._get_consequence_template()
+            ))
+            
+            # Connect components
+            self.pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
+            self.pipeline.connect("retriever.documents", "ranker.documents")
+            self.pipeline.connect("ranker.documents", "prompt_builder.documents")
+            
+            if self.verbose:
+                print("✅ ChoiceConsequencePipeline built successfully")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Failed to build ChoiceConsequencePipeline: {e}")
+            self.pipeline = None
+    
+    def _get_consequence_template(self):
+        """Get prompt template for choice consequence generation"""
+        return """You are an expert Dungeon Master describing the consequences of player actions.
+
+{% if documents %}
+Relevant D&D context:
+{% for doc in documents %}
+{{ loop.index }}. {{ doc.content[:200] }}... (Source: {{ doc.meta.get('source_file', 'Unknown') }})
+{% endfor %}
+
+{% endif %}
+Player: {{ player }}
+Choice: {{ choice }}
+Story Context: {{ story_context }}
+Game Location: {{ location }}
+
+Describe what happens as a result of this choice. Make it engaging and appropriate for D&D.
+Write 2-3 sentences showing the immediate consequence and outcome.
+
+Response:"""
+    
+    def generate_consequence(self, player: str, choice: str, story_context: str,
+                           location: str) -> str:
+        """Generate choice consequence using Haystack pipeline"""
+        if not self.pipeline:
+            return self._fallback_consequence(player, choice)
+        
+        try:
+            # Create query for RAG retrieval
+            query = f"{player} chose {choice} in {location}"
+            
+            # Run Haystack pipeline
+            result = self.pipeline.run({
+                "query_embedder": {"text": query},
+                "ranker": {"query": query},
+                "prompt_builder": {
+                    "player": player,
+                    "choice": choice,
+                    "story_context": story_context,
+                    "location": location
+                }
+            })
+            
+            # Extract enhanced prompt
+            enhanced_prompt = result.get("prompt_builder", {}).get("prompt", "")
+            
+            # Use hwtgenielib LLM for generation
+            if self.chat_generator and enhanced_prompt:
+                if CLAUDE_AVAILABLE:
+                    messages = [ChatMessage.from_user(enhanced_prompt)]
+                else:
+                    messages = [{"role": "user", "content": enhanced_prompt}]
+                
+                response = self.chat_generator.run(messages=messages)
+                
+                if response and "replies" in response:
+                    return response["replies"][0].text
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Choice consequence pipeline failed: {e}")
+        
+        # Fallback
+        return self._fallback_consequence(player, choice)
+    
+    def _fallback_consequence(self, player: str, choice: str) -> str:
+        """Fallback consequence generation"""
+        return f"{player} chose: {choice}. The action has immediate consequences..."
 
 
 
 class ScenarioGeneratorAgent(BaseAgent):
-    """Scenario Generator as an agent that creates dynamic scenarios and handles player choices"""
+    """Scenario Generator enhanced with direct Haystack pipeline integration"""
     
-    def __init__(self, verbose: bool = False):  # Remove haystack_agent parameter entirely
+    def __init__(self, verbose: bool = False):
         super().__init__("scenario_generator", "ScenarioGenerator")
         self.verbose = verbose
         self.has_llm = CLAUDE_AVAILABLE
-        # Remove: self.haystack_agent = haystack_agent
+        self.has_haystack = HAYSTACK_AVAILABLE
         
-        # Initialize LLM for creative generation
+        # Initialize LLM for creative generation (preserve hwtgenielib)
         if self.has_llm:
             try:
                 self.chat_generator = AppleGenAIChatGenerator(
-                    model= LLM_MODEL
+                    model=LLM_MODEL
                 )
             except Exception as e:
                 if self.verbose:
@@ -49,6 +449,30 @@ class ScenarioGeneratorAgent(BaseAgent):
                 self.has_llm = False
         else:
             self.chat_generator = None
+        
+        # Initialize Haystack components
+        self.document_store_manager = DocumentStoreManager()
+        self.document_store = self.document_store_manager.get_document_store()
+        
+        # Initialize Haystack pipelines
+        self.scenario_pipeline = None
+        self.consequence_pipeline = None
+        
+        if self.has_haystack and self.document_store:
+            try:
+                self.scenario_pipeline = ScenarioGenerationPipeline(
+                    self.document_store, self.chat_generator, verbose
+                )
+                self.consequence_pipeline = ChoiceConsequencePipeline(
+                    self.document_store, self.chat_generator, verbose
+                )
+                if verbose:
+                    print("✅ ScenarioGenerator: Haystack pipelines initialized")
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️ ScenarioGenerator: Failed to initialize Haystack pipelines: {e}")
+                self.scenario_pipeline = None
+                self.consequence_pipeline = None
         
         # Note: _setup_handlers() is already called by BaseAgent.__init__()
     
@@ -117,13 +541,17 @@ class ScenarioGeneratorAgent(BaseAgent):
             self.send_response(message, {"success": False, "error": str(e)})
     
     def _handle_get_generator_status(self, message: AgentMessage):
-        """Handle generator status request - updated for orchestrator communication"""
+        """Handle generator status request - updated with Haystack capabilities"""
         self.send_response(message, {
             "llm_available": self.has_llm,
             "chat_generator_available": self.chat_generator is not None,
+            "haystack_available": self.has_haystack,
+            "scenario_pipeline_available": self.scenario_pipeline is not None,
+            "consequence_pipeline_available": self.consequence_pipeline is not None,
+            "document_store_available": self.document_store is not None,
             "verbose": self.verbose,
             "agent_type": self.agent_type,
-            "uses_orchestrator_communication": True  # New flag
+            "uses_direct_haystack_pipelines": True
         })
     
     def _handle_generate_with_context(self, message: AgentMessage):
@@ -190,47 +618,56 @@ class ScenarioGeneratorAgent(BaseAgent):
             self.send_response(message, {"success": False, "error": str(e)})
     
     def generate(self, state: Dict[str, Any]) -> Tuple[str, str]:
-        """Generate a new scenario based on current game state - orchestrator communication"""
+        """Generate a new scenario based on current game state using Haystack pipelines"""
         seed = self._seed_scene(state)
         scene_text = f"You are at {seed['location']}. Recent events: {', '.join(seed['recent'])}."
         options_text = ""
         
-        # Try creative scenario generation via orchestrator (remove non-existent query_scenario)
+        # Use Haystack pipeline for enhanced scenario generation
         try:
             prompt = self._build_creative_prompt(seed)
             
-            # First try to get RAG context for scenario generation
-            documents = []
-            rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
-                "query": prompt,
-                "max_docs": 3
-            })
-            
-            if rag_response and rag_response.get("success"):
-                documents = rag_response.get("documents", [])
-            
-            # Generate creative scenario with RAG context
-            if documents or self.has_llm:
-                scenario = self._generate_creative_scenario(prompt, documents,
+            if self.scenario_pipeline:
+                if self.verbose:
+                    print(f"📤 Using Haystack pipeline for scenario generation")
+                
+                scenario = self.scenario_pipeline.generate_scenario(
+                    query=prompt,
+                    campaign_context=seed.get('story_arc', ''),
+                    game_state=str(seed)
+                )
+                
+                if scenario and scenario.get("scenario_text"):
+                    scene_text = scenario["scenario_text"]
+                    if scenario.get("options"):
+                        options_text = "\n".join(scenario["options"])
+                
+                if self.verbose:
+                    method = scenario.get("generation_method", "unknown")
+                    used_rag = scenario.get("used_rag", False)
+                    print(f"📤 Generated scenario via {method} (RAG: {used_rag})")
+            else:
+                # Fallback to direct LLM generation
+                if self.verbose:
+                    print(f"📤 Using direct LLM generation (no Haystack pipeline)")
+                
+                scenario = self._generate_creative_scenario(prompt, [],
                                                           seed.get('story_arc', ''), str(seed))
                 if scenario and scenario.get("scenario_text"):
                     scene_text = scenario["scenario_text"]
                     if scenario.get("options"):
                         options_text = "\n".join(scenario["options"])
-            
-            if self.verbose:
-                print(f"📤 Generated scenario via orchestrator communication (RAG docs: {len(documents)})")
                 
         except Exception as e:
             if self.verbose:
-                print(f"⚠️ Orchestrator scenario generation failed: {e}")
+                print(f"⚠️ Scenario generation failed: {e}")
         
         # Generate fallback options if needed
         if not options_text:
             options = [
-                "1. Investigate the suspicious noise.",
-                "2. Approach openly and ask questions.",
-                "3. Set up an ambush and wait.",
+                "1. **Investigation Check (DC 15)** - Investigate the suspicious noise.",
+                "2. **Persuasion Check (DC 12)** - Approach openly and ask questions.",
+                "3. **Stealth Check (DC 14)** - Set up an ambush and wait.",
                 "4. Leave and gather more information."
             ]
             random.shuffle(options)
@@ -246,7 +683,7 @@ class ScenarioGeneratorAgent(BaseAgent):
         return json.dumps(scene_json, indent=2), options_text
     
     def apply_player_choice(self, state: Dict[str, Any], player: str, choice_value: int) -> str:
-        """Apply a player's choice and return the continuation - orchestrator communication"""
+        """Apply a player's choice and return the continuation using Haystack pipeline"""
         try:
             current_options = state.get("current_options", "")
             lines = [line for line in current_options.splitlines() if line.strip()]
@@ -268,33 +705,38 @@ class ScenarioGeneratorAgent(BaseAgent):
             
             continuation = f"{player} chose: {target}"
             
-            # Try creative consequence generation via orchestrator
+            # Use Haystack pipeline for consequence generation
             try:
-                prompt = self._build_creative_choice_prompt(state, target, player)
-                
-                # Get RAG context for consequence generation
-                rag_response = self.send_message("haystack_pipeline", "retrieve_documents", {
-                    "query": prompt,
-                    "max_docs": 2
-                })
-                
-                documents = []
-                if rag_response and rag_response.get("success"):
-                    documents = rag_response.get("documents", [])
-                
-                # Generate consequence with RAG context
-                if documents or self.has_llm:
-                    consequence = self._generate_creative_scenario(prompt, documents,
+                if self.consequence_pipeline:
+                    if self.verbose:
+                        print("📤 Using Haystack pipeline for choice consequence generation")
+                    
+                    consequence = self.consequence_pipeline.generate_consequence(
+                        player=player,
+                        choice=target,
+                        story_context=state.get('story_arc', ''),
+                        location=state.get('session', {}).get('location', 'unknown')
+                    )
+                    
+                    if consequence and consequence.strip():
+                        return consequence
+                else:
+                    # Fallback to direct LLM generation
+                    if self.verbose:
+                        print("📤 Using direct LLM for choice consequence generation")
+                    
+                    prompt = self._build_creative_choice_prompt(state, target, player)
+                    consequence = self._generate_creative_scenario(prompt, [],
                                                                state.get('story_arc', ''), str(state))
                     if consequence and consequence.get("scenario_text"):
                         return consequence["scenario_text"]
                 
                 if self.verbose:
-                    print("📤 Generated choice consequence via orchestrator communication")
+                    print("📤 Generated choice consequence")
                     
             except Exception as e:
                 if self.verbose:
-                    print(f"⚠️ Orchestrator choice consequence generation failed: {e}")
+                    print(f"⚠️ Choice consequence generation failed: {e}")
             
             return continuation
             
