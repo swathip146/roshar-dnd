@@ -4,25 +4,31 @@ Connects Haystack pipelines with existing orchestrator infrastructure
 Enables seamless integration between agents and components
 """
 
-from typing import Dict, Any, Optional, List
+# Set tokenizers parallelism to avoid fork warnings - MUST be set before any imports
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+from typing import Dict, Any, Optional, List, Union
 import logging
 import time
 import traceback
 from haystack import Pipeline
 from haystack.components.builders.chat_prompt_builder import ChatPromptBuilder
-from haystack.components.tools import ToolInvoker
-from haystack.components.routers import ConditionalRouter
 from haystack.dataclasses import ChatMessage
 
 from .simple_orchestrator import SimpleOrchestrator, GameRequest, GameResponse
-from .context_broker import ContextBroker
 from components.policy import PolicyProfile
 from agents.scenario_generator_agent import create_scenario_generator_agent
-from agents.rag_retriever_agent import create_rag_retriever_agent, assess_rag_need
+from agents.rag_retriever_agent import create_rag_retriever_agent
 from agents.npc_controller_agent import create_npc_controller_agent
 from agents.main_interface_agent import create_main_interface_agent
 from shared_contract import normalize_incoming
-from config.llm_config import create_custom_config, LLMConfigManager, set_global_config_manager, get_global_config_manager
+from config.llm_config import (
+    create_custom_config,
+    LLMConfigManager,
+    set_global_config_manager,
+    get_global_config_manager
+)
 
 # Simple logging for errors only
 pipeline_logger = logging.getLogger("PipelineOrchestrator")
@@ -35,17 +41,20 @@ class PipelineOrchestrator(SimpleOrchestrator):
     Extends existing orchestrator while adding pipeline capabilities
     """
     
-    def __init__(self, policy_profile=PolicyProfile.RAW, enable_stage3=True, enable_pipelines=True, collection_name=None):
+    def __init__(self, policy_profile: PolicyProfile = PolicyProfile.RAW,
+                 enable_stage3: bool = True, enable_pipelines: bool = True,
+                 collection_name: Optional[str] = None,
+                 shared_document_store: Optional[Any] = None):
         super().__init__(policy_profile, enable_stage3)
         
         self.enable_pipelines = enable_pipelines
         self.logger = pipeline_logger
-        self.collection_name = collection_name  # Store collection name for agent creation
+        self.collection_name = collection_name
+        self.shared_document_store = shared_document_store
         
         # Initialize pipeline infrastructure
         self.pipelines: Dict[str, Pipeline] = {}
         self.agents: Dict[str, Any] = {}
-        self.context_broker: Optional[ContextBroker] = None
         
         if enable_pipelines:
             self._initialize_pipeline_infrastructure()
@@ -53,21 +62,17 @@ class PipelineOrchestrator(SimpleOrchestrator):
         
         print(f"🔄 Pipeline Orchestrator initialized (pipelines: {'enabled' if enable_pipelines else 'disabled'})")
     
-    def _initialize_pipeline_infrastructure(self):
-        """Initialize Haystack agents and context broker"""
-        
+    def _initialize_pipeline_infrastructure(self) -> None:
+        """Initialize Haystack agents and LLM configuration"""
         try:
-            # Try to create Custom GenAI configuration
+            # Create Custom GenAI configuration
             custom_config = create_custom_config()
             global_manager = LLMConfigManager(custom_config)
             set_global_config_manager(global_manager)
-     
-            # Initialize context broker
-            self.context_broker = ContextBroker()
             
-            # Initialize agents
+            # Initialize agents with shared document store to avoid resource conflicts
             scenario_agent = create_scenario_generator_agent()
-            rag_agent = create_rag_retriever_agent(collection_name=self.collection_name)
+            rag_agent = create_rag_retriever_agent(document_store=self.shared_document_store)
             npc_agent = create_npc_controller_agent()
             interface_agent = create_main_interface_agent()
             
@@ -78,6 +83,11 @@ class PipelineOrchestrator(SimpleOrchestrator):
                 "main_interface": interface_agent
             }
             
+            if self.shared_document_store:
+                print(f"📚 Pipeline Orchestrator: Using shared document store for '{self.shared_document_store.collection_name}'")
+            else:
+                print("⚠️ Pipeline Orchestrator: No shared document store provided - RAG will use fallback responses")
+            
             # Initialize pipelines
             self._create_pipelines()
             
@@ -85,15 +95,18 @@ class PipelineOrchestrator(SimpleOrchestrator):
             pipeline_logger.error(f"Failed to initialize pipeline infrastructure: {e}")
             self.enable_pipelines = False
     
-    def _create_pipelines(self):
+    def _create_pipelines(self) -> None:
         """Create Haystack pipelines for different request types"""
-        
         try:
             # Scenario Generation Pipeline
             scenario_pipeline = Pipeline()
-            scenario_pipeline.add_component("rag_retriever", self.agents["rag_retriever"])
             scenario_pipeline.add_component("scenario_generator", self.agents["scenario_generator"])
             self.pipelines["scenario_generation"] = scenario_pipeline
+            
+            # RAG Query Pipeline
+            rag_pipeline = Pipeline()
+            rag_pipeline.add_component("rag_retriever", self.agents["rag_retriever"])
+            self.pipelines["rag_retriever"] = rag_pipeline
             
             # NPC Interaction Pipeline
             npc_pipeline = Pipeline()
@@ -130,9 +143,8 @@ class PipelineOrchestrator(SimpleOrchestrator):
             pipeline_logger.error(f"Failed to create pipelines: {e}")
             raise
     
-    def _register_pipeline_handlers(self):
+    def _register_pipeline_handlers(self) -> None:
         """Register pipeline-specific request handlers"""
-        
         if not self.enable_pipelines:
             return
             
@@ -140,6 +152,7 @@ class PipelineOrchestrator(SimpleOrchestrator):
         pipeline_handlers = {
             'gameplay_turn': self._handle_gameplay_turn_pipeline,
             'scenario_generation': self._handle_scenario_pipeline,
+            'scenario_pipeline_with_rag_context': self._handle_rag_enhanced_scenario_pipeline,
             'npc_interaction': self._handle_npc_pipeline,
             'interface_processing': self._handle_interface_pipeline,
             'rag_query': self._handle_rag_pipeline
@@ -150,12 +163,11 @@ class PipelineOrchestrator(SimpleOrchestrator):
             self.register_handler(handler_type, handler_func)
         self.logger.info(f"Registered {len(pipeline_handlers)} pipeline handlers")
     
-    def process_request(self, request) -> GameResponse:
+    def process_request(self, request: Union[GameRequest, Dict[str, Any], None]) -> GameResponse:
         """
         Enhanced request processing with pipeline integration
         Maintains backward compatibility while adding pipeline capabilities
         """
-        
         try:
             # Defensive programming - handle None request
             if request is None:
@@ -176,26 +188,8 @@ class PipelineOrchestrator(SimpleOrchestrator):
                 }
             else:
                 request_dict = request.copy() if request is not None else {}
-            
-            # Context enrichment if pipelines are enabled
-            if self.enable_pipelines and self.context_broker and request_dict is not None:
-                enriched_request_dict = self.context_broker.enrich_context(request_dict)
-                
-                # Only update if enrichment was successful
-                if enriched_request_dict is not None:
-                    request_dict = enriched_request_dict
                     
             result = self._process_with_pipeline(request_dict)
-            
-            # Determine processing path
-            # use_pipeline = self._should_use_pipeline(request_dict)
-            
-            # if use_pipeline:
-            #     result = self._process_with_pipeline(request_dict)
-            # else:
-            #     # Use existing orchestrator processing
-            #     result = super().process_request(request)
-            
             return result
                 
         except Exception as e:
@@ -203,55 +197,16 @@ class PipelineOrchestrator(SimpleOrchestrator):
             correlation_id = None
             try:
                 correlation_id = request_dict.get("correlation_id") if 'request_dict' in locals() and request_dict else None
-            except:
+            except Exception:
                 pass
             return GameResponse(
-                    success=False,
-                    data={"error": f"Pipeline orchestrator error: {str(e)}"},
-                    correlation_id=correlation_id
-                )
-    
-    def _should_use_pipeline(self, request: Dict[str, Any]) -> bool:
-        """Determine if request should use pipeline processing"""
-        
-        if not self.enable_pipelines or request is None:
-            return False
-            
-        request_type = request.get("request_type", "")
-        
-        # Pipeline-enabled request types
-        pipeline_types = [
-            "gameplay_turn",
-            "scenario_generation",
-            "npc_interaction",
-            "interface_processing",
-            "rag_query"
-        ]
-        
-        # Check if request explicitly requests pipeline
-        explicit_pipeline = request.get("use_pipeline", False)
-        if explicit_pipeline:
-            return True
-            
-        # Check request complexity
-        rag_context_present = bool(request.get("rag_context"))
-        data_size = len(str(request.get("data", {})))
-        context_complex = request.get("context", {}).get("complex", False) if request.get("context") is not None else False
-        
-        complexity_indicators = [
-            rag_context_present,
-            data_size > 100,
-            context_complex
-        ]
-        
-        type_match = request_type in pipeline_types
-        complexity_match = any(complexity_indicators)
-        
-        return type_match or complexity_match
-    
+                success=False,
+                data={"error": f"Pipeline orchestrator error: {str(e)}"},
+                correlation_id=correlation_id
+            )
+     
     def _process_with_pipeline(self, request: Dict[str, Any]) -> GameResponse:
         """Process request using appropriate Haystack pipeline"""
-        
         # Defensive programming - handle None request
         if request is None:
             return GameResponse(
@@ -267,8 +222,10 @@ class PipelineOrchestrator(SimpleOrchestrator):
             # Route to appropriate pipeline
             if request_type == "gameplay_turn":
                 result = self._handle_gameplay_turn_pipeline(request)
-            elif request_type == "scenario_generation" or request_type == "scenario":
+            elif request_type in ["scenario_generation", "scenario"]:
                 result = self._handle_scenario_pipeline(request)
+            elif request_type == "scenario_pipeline_with_rag_context":
+                result = self._handle_rag_enhanced_scenario_pipeline(request)
             elif request_type == "npc_interaction":
                 result = self._handle_npc_pipeline(request)
             elif request_type == "interface_processing":
@@ -276,10 +233,8 @@ class PipelineOrchestrator(SimpleOrchestrator):
             elif request_type == "rag_query":
                 result = self._handle_rag_pipeline(request)
             else:
-                return GameResponse(
-                    success=False,
-                    data={"error": "Error in pipeline processing"}
-                )
+                # Fall back to parent orchestrator for unknown request types
+                return super().process_request(request)
             
             return GameResponse(
                 success=True,
@@ -301,63 +256,85 @@ class PipelineOrchestrator(SimpleOrchestrator):
     
     def _handle_gameplay_turn_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle full gameplay turn using pipeline integration"""
-        
         data = request.get("data", {})
         player_input = data.get("player_input", "")
         context = data.get("context", {})
         
-        # Step 1: Process input through interface agent
-        interface_result = self._run_interface_pipeline({
-            "player_input": player_input,
-            "game_context": context
-        })
-             
-        # Step 2: Determine routing based on interface analysis
-        routing = interface_result.get("routing_strategy", "simple_response")
-        
-        if routing == "scenario_pipeline":
-            # Generate scenario
-            scenario_result = self._run_scenario_pipeline({
-                "player_action": player_input,
-                "game_context": context,
-                "rag_context": request.get("rag_context", "")
+        try:
+            # Step 1: Process input through interface agent
+            interface_result = self._run_interface_pipeline({
+                "player_input": player_input,
+                "game_context": context
             })
-            return scenario_result
             
-        elif routing == "npc_pipeline":
-            # Handle NPC interaction
-            npc_id = context.get("target_npc", "unknown_npc")
-            npc_result = self._run_npc_pipeline({
-                "npc_id": npc_id,
-                "player_action": player_input,
-                "npc_context": context.get("npc_data", {})
-            })
-            return npc_result
-            
-        elif routing == "skill_pipeline":
-            # Process skill check through existing components
-            skill_request = GameRequest(
-                request_type="skill_check",
-                data={
-                    "action": player_input,
-                    "actor": data.get("actor", "player"),
-                    "skill": interface_result.get("primary_skill"),
-                    "context": context
+            # Check for interface processing error
+            if interface_result is None or "error" in interface_result:
+                error_msg = interface_result.get("error", "Interface processing returned None") if interface_result else "Interface processing returned None"
+                return {
+                    "response": f"You {player_input}. The world responds accordingly.",
+                    "processed_by": "fallback_pipeline",
+                    "interface_error": error_msg
                 }
-            )
-            skill_response = super().process_request(skill_request)
-            return skill_response.data
             
-        else:
-            # Simple response
+            # Step 2: Determine routing based on interface analysis
+            routing = interface_result.get("routing_strategy", "simple_response") if interface_result else "simple_response"
+            
+            if routing == "scenario_pipeline":
+                return self._run_scenario_pipeline({
+                    "player_action": player_input,
+                    "game_context": context,
+                    "rag_context": request.get("rag_context", "")
+                })
+                
+            elif routing == "npc_pipeline":
+                npc_id = context.get("target_npc", "unknown_npc")
+                return self._run_npc_pipeline({
+                    "npc_id": npc_id,
+                    "player_action": player_input,
+                    "npc_context": context.get("npc_data", {})
+                })
+                
+            elif routing == "skill_pipeline":
+                # Process skill check through existing components
+                primary_skill = interface_result.get("primary_skill", "investigation")  # Default skill
+                skill_request = GameRequest(
+                    request_type="skill_check",
+                    data={
+                        "action": player_input,
+                        "actor": data.get("actor", "player"),
+                        "skill": primary_skill,
+                        "context": context
+                    }
+                )
+                skill_response = super().process_request(skill_request)
+                return skill_response.data if skill_response.success else {
+                    "error": "Skill check failed",
+                    "attempted_skill": primary_skill,
+                    "fallback_response": f"You attempt to {player_input} but encounter difficulties."
+                }
+                
+            else:
+                # Simple response
+                return {
+                    "response": f"You {player_input}. The world responds accordingly.",
+                    "processed_by": "simple_pipeline"
+                }
+                
+        except Exception as e:
+            pipeline_logger.error(f"Gameplay turn pipeline failed: {e}")
             return {
                 "response": f"You {player_input}. The world responds accordingly.",
-                "processed_by": "simple_pipeline"
+                "processed_by": "error_fallback",
+                "error": str(e)
             }
     
     def _handle_scenario_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle scenario generation pipeline"""
         return self._run_scenario_pipeline(request.get("data", {}))
+    
+    def _handle_rag_enhanced_scenario_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle RAG-enhanced scenario generation pipeline"""
+        return self._run_rag_enhanced_scenario_pipeline(request)
     
     def _handle_npc_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle NPC interaction pipeline"""
@@ -369,28 +346,10 @@ class PipelineOrchestrator(SimpleOrchestrator):
     
     def _handle_rag_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle RAG query pipeline"""
-        
-        agent = self.agents["rag_retriever"]
-        query = request.get("data", {}).get("query", "")
-        
-        try:
-            result = agent.run(messages=[ChatMessage.from_user(f"Retrieve documents for: {query}")])
-            
-            # Use state schema for easy access to RAG results
-            if "formatted_context" in result:
-                return {"rag_result": result["formatted_context"]}
-            elif "rag_assessment" in result:
-                return {"rag_result": result["rag_assessment"]}
-            else:
-                return {"rag_result": result}
-        except Exception as e:
-            return {"error": f"RAG pipeline failed: {e}"}
+        return self._run_rag_pipeline(request.get("data", {}))
     
     def _run_scenario_pipeline(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Run scenario generation pipeline using Haystack tool framework with connected components"""
-        
-        pipeline_start = time.time()
-        
         try:
             player_action = data.get("player_action", "")
             game_context = data.get("game_context", {})
@@ -403,151 +362,216 @@ class PipelineOrchestrator(SimpleOrchestrator):
                 "type": "scenario"
             })
             
-            # Step 3: Create chat generator with RAG tools
-            config_manager = get_global_config_manager()
-            chat_generator = config_manager.create_generator("rag_retriever")
-            # chat_generator.tools = assess_rag_need
+            # Ensure debug field exists for the tool
+            if "debug" not in request_dto:
+                request_dto["debug"] = {}
             
-            # Step 4: Create ToolInvoker with RAG tools
-            tool_invoker = ToolInvoker(tools=[assess_rag_need])
+            # Get scenario agent
+            scenario_agent = self.agents.get("scenario_generator")
+            if not scenario_agent:
+                return {"error": "Scenario generator agent not available"}
             
-            # Step 5: Define routing conditions based on tool call results
-            routes = [
-                {
-                    "condition": "{{ tool_calls|length > 0 }}",
-                    "output": "{{ messages }}",
-                    "output_name": "rag_needed_path",
-                    "output_type": List[ChatMessage],
-                },
-                {
-                    "condition": "{{ tool_calls|length == 0 }}",
-                    "output": "{{ messages }}",
-                    "output_name": "no_rag_path",
-                    "output_type": List[ChatMessage],
-                },
-            ]
+            # Create scenario generation message with DTO data
+            scenario_message = ChatMessage.from_user(f"""
+            Player Action: {player_action}
+            Game Context: {game_context}
+            DTO: {request_dto}
             
-            # Step 6: Create ConditionalRouter for RAG routing
-            rag_router = ConditionalRouter(routes, unsafe=True)
+            Use the create_scenario_from_dto tool to generate a validated D&D scenario.
+            """)
             
-            # Step 7: Create the RAG assessment pipeline
-            scenario_gen_pipeline = Pipeline()
-            scenario_gen_pipeline.add_component("generator", chat_generator)
-            scenario_gen_pipeline.add_component("router", rag_router)
-            scenario_gen_pipeline.add_component("tool_invoker", tool_invoker)
-            scenario_gen_pipeline.add_component("rag_retriever", self.agents["rag_retriever"])
-            scenario_gen_pipeline.add_component("scenario_generator", self.agents["scenario_generator"])
+            # Run scenario generation
+            scenario_result = scenario_agent.run(messages=[scenario_message])
             
+            # Extract scenario from agent state (using outputs_to_state feature)
+            if "scenario_result" in scenario_result:
+                scenario_dto = scenario_result["scenario_result"]
+                if "scenario" in scenario_dto:
+                    scenario = scenario_dto["scenario"]
+                    return {
+                        "scene": scenario.get("scene", f"You {player_action}. The world responds accordingly."),
+                        "choices": scenario.get("choices", []),
+                        "effects": scenario.get("effects", {}),
+                        "hooks": scenario.get("hooks", []),
+                        "fallback_used": scenario_dto.get("fallback", False),
+                        "processing_metadata": {
+                            "pipeline_path": "standard_scenario",
+                            "haystack_pipeline_used": True,
+                            "pipeline_components": ["ScenarioGenerator"],
+                            "validation_applied": True
+                        }
+                    }
             
-            scenario_gen_pipeline.add_component("assessment_prompt", ChatPromptBuilder(
-                template=[ChatMessage.from_user("""
-                Please use assess_rag_need tool to evaluate if RAG retrieval is needed for:
-                Action: {{ player_action }}
-                Context: {{ game_context }}
-                
-                """)],
-                required_variables=["player_action", "game_context"]
-            ))
-            
-            scenario_gen_pipeline.add_component("rag_prompt", ChatPromptBuilder(
-                template=[ChatMessage.from_user("""
-                Player Action: {{ player_action }}
-                Game Context: {{ game_context }}
-                
-                Retrieve the relevant rules, context, or lore for the following D&D scenario:
-                """)],
-                required_variables=["player_action", "game_context"]
-            ))
-            
-            scenario_gen_pipeline.add_component("rag_scenario_prompt", ChatPromptBuilder(
-                template=[ChatMessage.from_user("""
-                Player Action: {{ player_action }}
-                Game Context: {{ game_context }}
-                RAG Context: {{ rag_data }}
-                
-                Use the provided RAG context, Game context, and player action to generate a detailed D&D scenario:
-                """)],
-                required_variables=["player_action", "game_context", "rag_data"]
-            ))
-            
-            scenario_gen_pipeline.add_component("standard_prompt", ChatPromptBuilder(
-                template=[ChatMessage.from_user("""
-                Player Action: {{ player_action }}
-                Game Context: {{ game_context }}
-                
-                Generate detailed D&D scenario using the player action and game context:
-                """)],
-                required_variables=["player_action", "game_context"]
-            ))
-            
-             # Connect components in proper flow
-            scenario_gen_pipeline.connect("assessment_prompt.prompt", "generator.messages")
-            scenario_gen_pipeline.connect("generator.replies", "tool_invoker.messages")
-            scenario_gen_pipeline.connect("tool_invoker.tool_calls", "router.tool_calls")
-            
-            scenario_gen_pipeline.connect("router.rag_needed_path", "rag_prompt.player_action")
-            scenario_gen_pipeline.connect("rag_prompt.prompt", "rag_retriever")
-            scenario_gen_pipeline.connect("rag_retriever.formatted_context", "rag_scenario_prompt.rag_data")
-            scenario_gen_pipeline.connect("rag_scenario_prompt.prompt", "scenario_generator")
-            
-            scenario_gen_pipeline.connect("router.no_rag_path", "standard_prompt.player_action")
-            scenario_gen_pipeline.connect("standard_prompt.prompt", "scenario_generator")
-            
-            scenario_result = scenario_gen_pipeline.run({
-                "assessment_prompt": {
-                    "player_action": player_action,
-                    "game_context": game_context
-                },
-                "rag_prompt": {
-                    "player_action": player_action,
-                    "game_context": game_context
-                },
-                "rag_scenario_prompt": {
-                    "player_action": player_action,
-                    "game_context": game_context
-                },
-                "standard_prompt": {
-                    "player_action": player_action,
-                    "game_context": game_context
-                }
-            })
-            
-            # Extract scenario text
-            scenario_text = f"You {player_action}. The world responds with mysterious energy."
-            if "scenario_generator" in scenario_result:
-                scenario_data = scenario_result["scenario_generator"]
-                if isinstance(scenario_data, dict) and "replies" in scenario_data:
-                    replies = scenario_data["replies"]
-                    if replies and len(replies) > 0:
-                        scenario_text = replies[0].content
-                elif isinstance(scenario_data, dict) and "scene" in scenario_data:
-                    scenario_text = scenario_data["scene"]
-            
-            # Determine which path was used
-            pipeline_path = "standard"
-            if "router" in scenario_result:
-                router_result = scenario_result["router"]
-                if "rag_needed_path" in router_result:
-                    pipeline_path = "rag_enhanced"
-            
-            # Build response
+            # Fallback if no scenario in state
             return {
-                "scene": scenario_text,
+                "scene": f"You {player_action}. The world responds accordingly.",
                 "processing_metadata": {
-                    "pipeline_path": pipeline_path,
-                    "haystack_pipeline_used": True,
-                    "pipeline_components": ["ConditionalRouter", "ChatPromptBuilder", "Generator"]
+                    "pipeline_path": "fallback_scenario",
+                    "haystack_pipeline_used": False,
+                    "error": "No scenario result in agent state"
                 }
             }
                 
         except Exception as e:
-            pipeline_logger.error(f"Haystack pipeline-based scenario generation failed: {e}")
-            pipeline_logger.error(f"Full traceback: {traceback.format_exc()}")
+            pipeline_logger.error(f"Scenario pipeline failed: {e}")
             return {"error": f"Haystack pipeline-based scenario generation failed: {e}"}
+    
+    def _run_rag_enhanced_scenario_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle RAG-enhanced scenario generation pipeline"""
+        data = request.get("data", {})
+        player_action = data.get("player_action", "")
+        game_context = data.get("game_context", {})
+        rag_assessment = data.get("rag_assessment", {})
+        
+        try:
+            # Step 1: Use RAG retriever to get relevant documents
+            rag_agent = self.agents.get("rag_retriever")
+            if not rag_agent:
+                return {"error": "RAG retriever agent not available"}
+            
+            # Determine query and context type from RAG assessment
+            rag_type = rag_assessment.get("rag_type", "general")
+            query_suggestions = rag_assessment.get("query_suggestions", [player_action])
+            query = query_suggestions[0] if query_suggestions else player_action
+            
+            # Get RAG context
+            rag_message = ChatMessage.from_user(f"Query: {query}, Context Type: {rag_type}")
+            rag_result = rag_agent.run(messages=[rag_message])
+            
+            # Extract formatted context
+            rag_context = ""
+            if "formatted_context" in rag_result:
+                rag_context = rag_result["formatted_context"].get("context", "")
+            
+            # Step 2: Create enhanced DTO with RAG context
+            enhanced_dto = normalize_incoming({
+                "action": player_action,
+                "player_input": player_action,
+                "context": game_context,
+                "type": "scenario"
+            })
+            # Add RAG context to the DTO after normalization
+            enhanced_dto["rag_blocks"] = [{"context": rag_context, "type": rag_type}]
+            
+            # Ensure debug field exists for the tool
+            if "debug" not in enhanced_dto:
+                enhanced_dto["debug"] = {}
+            
+            # Step 3: Generate scenario with RAG context using scenario agent
+            scenario_agent = self.agents.get("scenario_generator")
+            if not scenario_agent:
+                return {"error": "Scenario generator agent not available"}
+            
+            scenario_message = ChatMessage.from_user(f"""
+            Player Action: {player_action}
+            Game Context: {game_context}
+            RAG Context: {rag_context}
+            DTO: {enhanced_dto}
+            
+            Use the create_scenario_from_dto tool to generate a RAG-enhanced D&D scenario.
+            """)
+            
+            scenario_result = scenario_agent.run(messages=[scenario_message])
+            
+            # Extract scenario from agent state (using outputs_to_state feature)
+            if "scenario_result" in scenario_result:
+                scenario_dto = scenario_result["scenario_result"]
+                if "scenario" in scenario_dto:
+                    scenario = scenario_dto["scenario"]
+                    return {
+                        "scene": scenario.get("scene", "You take action in the world..."),
+                        "choices": scenario.get("choices", []),
+                        "effects": scenario.get("effects", {}),
+                        "hooks": scenario.get("hooks", []),
+                        "rag_context_used": rag_context,
+                        "fallback_used": scenario_dto.get("fallback", False),
+                        "processing_metadata": {
+                            "pipeline_type": "rag_enhanced_scenario",
+                            "rag_type": rag_type,
+                            "query_used": query,
+                            "haystack_pipeline_used": True,
+                            "validation_applied": True
+                        }
+                    }
+            
+            # Fallback if no scenario in state
+            return {
+                "scene": f"You {player_action}. Something happens in response.",
+                "rag_context_used": rag_context,
+                "processing_metadata": {
+                    "pipeline_type": "rag_enhanced_scenario_fallback",
+                    "rag_type": rag_type,
+                    "query_used": query,
+                    "error": "No scenario result in agent state"
+                }
+            }
+            
+        except Exception as e:
+            pipeline_logger.error(f"RAG-enhanced scenario pipeline failed: {e}")
+            return {
+                "error": f"RAG-enhanced scenario generation failed: {e}",
+                "fallback_scene": f"You {player_action}. Something happens in response."
+            }
+    
+    def _run_rag_pipeline(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Run RAG query pipeline for pure knowledge retrieval"""
+        try:
+            query = data.get("query", "")
+            context_type = data.get("context_type", "general")
+            filters = data.get("filters", {})
+            
+            if not query:
+                return {
+                    "error": "No query provided for RAG pipeline",
+                    "rag_result": None
+                }
+            
+            # Use RAG retriever agent for document retrieval and formatting
+            rag_agent = self.agents.get("rag_retriever")
+            if not rag_agent:
+                return {"error": "RAG retriever agent not available"}
+            
+            # Create message for RAG agent
+            rag_message = ChatMessage.from_user(f"""
+            Query: {query}
+            Context Type: {context_type}
+            Filters: {filters}
+            
+            Retrieve relevant documents for this query and format them appropriately.
+            """)
+            
+            # Run RAG retrieval
+            rag_result = rag_agent.run(messages=[rag_message])
+            
+            # Extract and format results
+            formatted_context = {}
+            if "formatted_context" in rag_result:
+                formatted_context = rag_result["formatted_context"]
+            
+            # Build comprehensive response
+            return {
+                "query": query,
+                "context_type": context_type,
+                "rag_context": formatted_context.get("context", ""),
+                "source_count": formatted_context.get("source_count", 0),
+                "relevance": formatted_context.get("relevance", "none"),
+                "processing_metadata": {
+                    "pipeline_type": "rag_query",
+                    "haystack_pipeline_used": True,
+                    "filters_applied": filters
+                }
+            }
+            
+        except Exception as e:
+            pipeline_logger.error(f"RAG pipeline failed: {e}")
+            return {
+                "error": f"RAG query pipeline failed: {e}",
+                "query": data.get("query", ""),
+                "rag_result": None
+            }
     
     def _run_npc_pipeline(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Run NPC interaction pipeline"""
-        
         pipeline = self.pipelines.get("npc_interaction")
         if not pipeline:
             return {"error": "NPC pipeline not available"}
@@ -571,17 +595,16 @@ class PipelineOrchestrator(SimpleOrchestrator):
                 return {"error": "No NPC controller result"}
                 
         except Exception as e:
+            pipeline_logger.error(f"NPC pipeline failed: {e}")
             return {"error": f"NPC pipeline failed: {e}"}
     
     def _run_interface_pipeline(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Run interface processing pipeline"""
-        
         pipeline = self.pipelines.get("interface_processing")
         if not pipeline:
             return {"error": "Interface pipeline not available"}
         
         try:
-            
             result = pipeline.run({
                 "player_input": data.get("player_input", ""),
                 "game_context": data.get("game_context", {})
@@ -597,9 +620,11 @@ class PipelineOrchestrator(SimpleOrchestrator):
                     # Extract routing strategy from the routing decision
                     if isinstance(routing_decision, dict):
                         # Map agent route to pipeline routing strategy
-                        route = routing_decision['route']
+                        route = routing_decision.get('route', 'simple_response')
                         route_mapping = {
                             "scenario": "scenario_pipeline",
+                            "scenario_pipeline_with_rag_context": "scenario_pipeline_with_rag_context",
+                            "rag_query": "rag_query",
                             "npc": "npc_pipeline",
                             "rules": "skill_pipeline",
                             "meta": "orchestrator_direct"
@@ -617,60 +642,12 @@ class PipelineOrchestrator(SimpleOrchestrator):
             pipeline_logger.error(f"Interface pipeline failed: {e}")
             return {"error": f"Interface pipeline failed: {e}"}
     
-    def _register_fallback_handlers(self):
-        """Register fallback handlers when pipeline infrastructure fails"""
-        
-        fallback_handlers = {
-            'gameplay_turn': self._handle_gameplay_turn_fallback,
-            'scenario_generation': self._handle_scenario_fallback,
-            'npc_interaction': self._handle_npc_fallback,
-            'interface_processing': self._handle_interface_fallback,
-        }
-        
-        # Register handlers with base orchestrator
-        for handler_type, handler_func in fallback_handlers.items():
-            self.register_handler(handler_type, handler_func)
-        self.logger.info(f"Registered {len(fallback_handlers)} fallback handlers")
-    
-    def _handle_gameplay_turn_fallback(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Fallback gameplay turn handler when pipelines are unavailable"""
-        
-        data = request.get("data", {})
-        player_input = data.get("player_input", "")
-        
-        # Simple scenario generation fallback
-        from agents.scenario_generator_agent import create_fallback_scenario
-        scenario = create_fallback_scenario(player_input, {"difficulty": "medium"})
-        
-        return {
-            "success": True,
-            "data": scenario,
-            "processed_by": "fallback_handler"
-        }
-    
-    def _handle_scenario_fallback(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Fallback scenario handler"""
-        data = request.get("data", {})
-        from agents.scenario_generator_agent import create_fallback_scenario
-        scenario = create_fallback_scenario(data.get("player_action", ""), data.get("game_context", {}))
-        return {"success": True, "data": scenario}
-    
-    def _handle_npc_fallback(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Fallback NPC handler"""
-        return {"success": True, "data": {"response": "The NPC responds thoughtfully to your words."}}
-    
-    def _handle_interface_fallback(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Fallback interface handler"""
-        return {"success": True, "data": {"routing_strategy": "simple_response"}}
-
     def get_pipeline_status(self) -> Dict[str, Any]:
         """Get comprehensive pipeline status"""
-        
         status = {
             "pipelines_enabled": self.enable_pipelines,
             "available_pipelines": list(self.pipelines.keys()),
             "available_agents": list(self.agents.keys()),
-            "context_broker_active": self.context_broker is not None
         }
         
         # Add initialization metrics if available
@@ -682,79 +659,72 @@ class PipelineOrchestrator(SimpleOrchestrator):
             base_status = super().get_orchestrator_status()
             status.update(base_status)
         except Exception as e:
-            pass
+            pipeline_logger.warning(f"Could not get base orchestrator status: {e}")
         
         return status
 
 
-# Factory functions for different configurations
-
-def create_pipeline_orchestrator(policy_profile=PolicyProfile.RAW, enable_stage3=True,
-                               enable_pipelines=True) -> PipelineOrchestrator:
-    """Factory function to create pipeline-integrated orchestrator"""
-    return PipelineOrchestrator(policy_profile, enable_stage3, enable_pipelines)
-
-def create_full_haystack_orchestrator(collection_name=None) -> PipelineOrchestrator:
+def create_full_haystack_orchestrator(collection_name: Optional[str] = None,
+                                     shared_document_store: Optional[Any] = None) -> PipelineOrchestrator:
     """Create orchestrator with all Haystack features enabled"""
     return PipelineOrchestrator(
         policy_profile=PolicyProfile.HOUSE,  # Use house rules for enhanced experience
         enable_stage3=True,
         enable_pipelines=True,
-        collection_name=collection_name
+        collection_name=collection_name,
+        shared_document_store=shared_document_store
     )
-
-def create_backward_compatible_orchestrator() -> PipelineOrchestrator:
-    """Create orchestrator that maintains backward compatibility"""
-    return PipelineOrchestrator(
-        policy_profile=PolicyProfile.RAW,
-        enable_stage3=True,
-        enable_pipelines=False  # Disable pipelines for compatibility
-    )
-
 
 # Example usage and testing
-if __name__ == "__main__":
+def main() -> None:
+    """Main function for testing the pipeline orchestrator"""
     import logging
     logging.basicConfig(level=logging.INFO)
     
     print("=== Pipeline Orchestrator Test ===")
     
-    # Create pipeline orchestrator
-    orchestrator = create_full_haystack_orchestrator()
-    
-    # Test pipeline status
-    status = orchestrator.get_pipeline_status()
-    print(f"Pipeline Status: {status}")
-    
-    # Test gameplay turn with pipeline
-    gameplay_request = GameRequest(
-        request_type="gameplay_turn",
-        data={
-            "player_input": "I want to search the ancient library for dragon lore",
-            "actor": "player",
-            "context": {
-                "location": "Ancient Library",
-                "difficulty": "medium",
-                "complex": True
-            }
-        }
-    )
-    
     try:
+        # Create pipeline orchestrator
+        orchestrator = create_full_haystack_orchestrator()
+        
+        # Test pipeline status
+        status = orchestrator.get_pipeline_status()
+        print(f"Pipeline Status: {status}")
+        
+        # Test gameplay turn with pipeline
+        gameplay_request = GameRequest(
+            request_type="gameplay_turn",
+            data={
+                "player_input": "I want to search the ancient library for dragon lore",
+                "actor": "player",
+                "context": {
+                    "location": "Ancient Library",
+                    "difficulty": "medium",
+                    "complex": True
+                }
+            }
+        )
+        
         response = orchestrator.process_request(gameplay_request)
         print(f"Pipeline Response: {response.success}")
         print(f"Response Data: {response.data}")
         
+        # Test backward compatibility
+        print("\n=== Backward Compatibility Test ===")
+        
+        simple_request = GameRequest(
+            request_type="dice_roll",
+            data={"dice": "1d20", "modifier": 3}
+        )
+        
+        compat_response = orchestrator.process_request(simple_request)
+        print(f"Compatibility Response: {compat_response.success}")
+        
     except Exception as e:
         print(f"Pipeline test failed: {e}")
-    
-    # Test backward compatibility
-    print("\n=== Backward Compatibility Test ===")
-    
-    simple_request = GameRequest(
-        request_type="dice_roll",
-        data={"dice": "1d20", "modifier": 3}
-    )
-    
-    compat_response = orchestrator.process_request(simple_request)
-    print(f"Compatibility Response: {compat_response.success}")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()

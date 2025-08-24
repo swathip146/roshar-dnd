@@ -21,6 +21,7 @@ from haystack.components.agents import Agent
 from haystack.tools import tool
 
 from config.llm_config import get_global_config_manager
+from storage.simple_document_store import SimpleDocumentStore
 
 
 @dataclass
@@ -31,6 +32,7 @@ class GameInitConfig:
     campaign_data: Optional[Dict[str, Any]] = None
     save_file: Optional[str] = None
     player_name: Optional[str] = None
+    shared_document_store: Optional[Any] = None  # Shared SimpleDocumentStore instance
 
 
 class GameInitializationSystem:
@@ -42,6 +44,7 @@ class GameInitializationSystem:
     def __init__(self):
         """Initialize the game setup system"""
         self.saves_dir = "game_saves"
+        self.simple_doc_store = None
         self.embedder = None
         self.document_store = None
         
@@ -72,7 +75,8 @@ class GameInitializationSystem:
             return GameInitConfig(
                 collection_name=collection_name,
                 game_mode="load_saved",
-                save_file=save_file
+                save_file=save_file,
+                shared_document_store=self.simple_doc_store
             )
         else:
             # New campaign flow
@@ -83,7 +87,8 @@ class GameInitializationSystem:
                 collection_name=collection_name,
                 game_mode="new_campaign",
                 campaign_data=campaign_data,
-                player_name=player_name
+                player_name=player_name,
+                shared_document_store=self.simple_doc_store
             )
     
     def _prompt_for_collection_name(self) -> str:
@@ -125,24 +130,16 @@ class GameInitializationSystem:
         return bool(re.match(r'^[a-zA-Z0-9_]+$', name)) and len(name) > 0 and len(name) <= 64
     
     def _initialize_document_system(self, collection_name: str):
-        """Initialize document system for campaign discovery"""
+        """Initialize document system for campaign discovery using existing SimpleDocumentStore"""
         
         print(f"\n🔍 Initializing document system for collection: {collection_name}")
         try:
-            # Initialize embedder
-            self.embedder = SentenceTransformersTextEmbedder(
-                model="sentence-transformers/all-MiniLM-L6-v2"
-            )
-            self.embedder.warm_up()
+            # Use existing SimpleDocumentStore instead of creating duplicate initialization
+            self.simple_doc_store = SimpleDocumentStore(collection_name=collection_name)
             
-            # Initialize document store (temporary for campaign discovery)
-            storage_path = f"temp_init_{collection_name}_{int(time.time())}"
-            self.document_store = QdrantDocumentStore(
-                path=storage_path,
-                index=collection_name,
-                embedding_dim=384,
-                recreate_index=False  # Don't recreate if exists
-            )
+            # Extract the components we need for campaign discovery
+            self.embedder = self.simple_doc_store.embedder
+            self.document_store = self.simple_doc_store.document_store
             
             print("✅ Document system ready for campaign discovery")
             
@@ -352,41 +349,136 @@ class GameInitializationSystem:
             return campaigns
         
         try:
-            # Use retriever to find documents with campaign tags
+            # Use retriever to find documents with folder_tags containing "current_campaign"
             retriever = QdrantEmbeddingRetriever(
                 document_store=self.document_store,
-                top_k=10  # Get up to 10 campaigns
+                top_k=100  # Get all current_campaign documents
             )
             
-            # Create search query for campaign documents
-            campaign_query = "campaign resources current_campaign"
+            # Create a general query but rely on filters for accuracy
+            campaign_query = "campaign"
             query_embedding = self.embedder.run(text=campaign_query)["embedding"]
             
-            # Retrieve campaign documents
-            retrieved_docs = retriever.run(
-                query_embedding=query_embedding,
-                filters={
-                    "must": [
-                        {"key": "type", "match": {"value": "campaign"}},
-                        {"key": "source", "match": {"any": ["resources", "current_campaign"]}}
-                    ]
-                }
-            )
+            # Try to use folder_tags filter - if it fails, fall back to retrieval without filters
+            retrieved_docs = None
+            try:
+                # Method 1: Try filter using folder_tags array (correct Qdrant syntax)
+                retrieved_docs = retriever.run(
+                    query_embedding=query_embedding,
+                    filters={
+                        "must": [
+                            {"key": "folder_tags", "match": {"any": ["current_campaign"]}}
+                        ]
+                    }
+                )
+            except Exception as filter_error:
+                print(f"⚠️ Folder_tags filter failed: {filter_error}")
+                try:
+                    # Method 2: Try filter using document_tag (correct Qdrant syntax)
+                    retrieved_docs = retriever.run(
+                        query_embedding=query_embedding,
+                        filters={
+                            "must": [
+                                {"key": "document_tag", "match": {"value": "current_campaign"}}
+                            ]
+                        }
+                    )
+                except Exception as tag_error:
+                    print(f"⚠️ Document_tag filter failed: {tag_error}")
+                    try:
+                        # Method 3: Try simplified filter syntax
+                        retrieved_docs = retriever.run(
+                            query_embedding=query_embedding,
+                            filters={"document_tag": "current_campaign"}
+                        )
+                    except Exception as simple_filter_error:
+                        print(f"⚠️ Simple filter failed: {simple_filter_error}")
+                        # Method 4: Fallback to no filters and programmatic filtering
+                        retrieved_docs = retriever.run(
+                            query_embedding=query_embedding,
+                            top_k=100
+                        )
+            
+            # Group documents by source file to create campaign entries
+            campaigns_by_file = {}
             
             for doc in retrieved_docs.get("documents", []):
-                campaign_info = {
-                    "name": doc.meta.get("name", "Unknown Campaign"),
-                    "source": "qdrant",
-                    "document_id": doc.id,
-                    "description": doc.content[:200] if doc.content else "",
-                    "metadata": doc.meta
-                }
-                campaigns.append(campaign_info)
+                source_file = doc.meta.get("source_file", "Unknown File")
+                document_tag = doc.meta.get("document_tag", "")
+                
+                # Filter for current_campaign documents
+                folder_tags = doc.meta.get("folder_tags", [])
+                if "current_campaign" not in folder_tags and "current_campaign" != document_tag:
+                    continue
+                
+                # Extract campaign name from filename or content
+                campaign_name = self._extract_campaign_name_from_doc(doc, source_file)
+                
+                if source_file not in campaigns_by_file:
+                    campaigns_by_file[source_file] = {
+                        "name": campaign_name,
+                        "source": "qdrant",
+                        "source_file": source_file,
+                        "document_tag": document_tag,
+                        "description": "",
+                        "content_chunks": [],
+                        "metadata": doc.meta
+                    }
+                
+                # Accumulate content from multiple chunks
+                campaigns_by_file[source_file]["content_chunks"].append(doc.content)
+                
+                # Use first non-empty content as description
+                if not campaigns_by_file[source_file]["description"] and doc.content:
+                    campaigns_by_file[source_file]["description"] = doc.content[:300]
+            
+            # Convert to list format
+            for file_campaigns in campaigns_by_file.values():
+                # Combine all content chunks for comprehensive data
+                file_campaigns["full_content"] = "\n\n".join(file_campaigns["content_chunks"])
+                campaigns.append(file_campaigns)
                 
         except Exception as e:
             print(f"⚠️ Could not search Qdrant for campaigns: {e}")
         
         return campaigns
+    
+    def _extract_campaign_name_from_doc(self, doc, source_file: str) -> str:
+        """Extract campaign name from document content or filename"""
+        
+        # Try to extract from content first
+        content = doc.content or ""
+        
+        # Look for title patterns in structured content
+        if "TITLE:" in content:
+            for line in content.split('\n'):
+                if line.strip().startswith("TITLE:"):
+                    return line.split("TITLE:", 1)[1].strip()
+        
+        # Look for campaign name patterns
+        if "CAMPAIGN:" in content:
+            for line in content.split('\n'):
+                if line.strip().startswith("CAMPAIGN:"):
+                    return line.split("CAMPAIGN:", 1)[1].strip()
+        
+        # Try JSON format (for campaign.json files)
+        if source_file.endswith('.json'):
+            try:
+                import json
+                # Try to parse if it looks like JSON
+                if content.strip().startswith('{'):
+                    data = json.loads(content)
+                    if 'title' in data:
+                        return data['title']
+                    elif 'name' in data:
+                        return data['name']
+            except:
+                pass
+        
+        # Extract from filename as fallback
+        name = source_file.replace('.json', '').replace('.txt', '').replace('.md', '')
+        name = name.replace('_', ' ').replace(':', ' - ')
+        return name.title()
     
     
     def _load_campaign_data(self, campaign: Dict[str, Any]) -> Dict[str, Any]:
@@ -394,20 +486,25 @@ class GameInitializationSystem:
         
         try:
             if campaign["source"] == "qdrant":
-                # Extract raw content for parsing
-                raw_content = campaign.get("description", "")
+                # Use full content from all chunks for comprehensive parsing
+                raw_content = campaign.get("full_content", campaign.get("description", ""))
                 metadata = campaign.get("metadata", {})
+                source_file = campaign.get("source_file", "")
                 
                 # Parse campaign data based on format
                 parsed_data = self._parse_campaign_content(raw_content)
                 
+                # Determine if this is a JSON file for different parsing approach
+                is_json_file = source_file.endswith('.json')
+                
                 # Build comprehensive campaign configuration
                 campaign_config = {
                     "name": campaign.get("name", "Unknown Campaign"),
-                    "description": self._extract_field(parsed_data, ["overview", "description"], raw_content[:300]),
+                    "description": self._extract_field(parsed_data, ["overview", "description", "title"], raw_content[:300]),
                     "story": self._extract_story_content(parsed_data, raw_content),
                     "metadata": metadata,
                     "source": "qdrant_collection",
+                    "source_file": source_file,
                     
                     # Game Configuration Fields
                     "level_range": self._extract_field(parsed_data, ["level_range", "LEVEL_RANGE"], "1-5"),
@@ -421,7 +518,7 @@ class GameInitializationSystem:
                     "recommended_party_size": self._extract_party_size(parsed_data),
                     
                     # Story Elements
-                    "main_plot": self._extract_field(parsed_data, ["main_plot", "MAIN PLOT"], ""),
+                    "main_plot": self._extract_field(parsed_data, ["main_plot", "main plot"], ""),
                     "campaign_hooks": self._extract_hooks(parsed_data),
                     "key_npcs": self._extract_npcs(parsed_data),
                     "locations": self._extract_locations(parsed_data),
@@ -432,7 +529,7 @@ class GameInitializationSystem:
                     "treasure_types": self._extract_treasure_types(parsed_data),
                     
                     # DM Information
-                    "dm_notes": self._extract_field(parsed_data, ["dm_notes", "DM NOTES"], ""),
+                    "dm_notes": self._extract_field(parsed_data, ["dm_notes", "dm notes"], ""),
                     "generated_on": self._extract_field(parsed_data, ["generated_on", "GENERATED_ON"], ""),
                     
                     # Enhanced Game Features
@@ -441,14 +538,23 @@ class GameInitializationSystem:
                         "has_structured_content": len(parsed_data) > 3,
                         "content_complexity": self._assess_content_complexity(parsed_data),
                         "npc_count": len(self._extract_npcs(parsed_data)),
-                        "location_count": len(self._extract_locations(parsed_data))
+                        "location_count": len(self._extract_locations(parsed_data)),
+                        "source_format": "json" if is_json_file else "structured_text",
+                        "total_content_length": len(raw_content),
+                        "chunk_count": len(campaign.get("content_chunks", []))
                     }
                 }
+                
+                print(f"✅ Loaded campaign '{campaign_config['name']}' from {source_file}")
+                print(f"   📊 Content: {len(raw_content)} chars, {len(parsed_data)} sections")
+                print(f"   🏰 Features: {campaign_config['enhanced_features']['npc_count']} NPCs, {campaign_config['enhanced_features']['location_count']} locations")
                 
                 return campaign_config
                 
         except Exception as e:
             print(f"⚠️ Could not load campaign data: {e}")
+            import traceback
+            traceback.print_exc()
         
         return self._create_default_campaign()
     

@@ -3,18 +3,22 @@
 Simple Haystack document store setup - Stage 2 Week 5-6
 Provides basic RAG capabilities for campaign context
 """
+
+# Set tokenizers parallelism to avoid fork warnings - MUST be set before any imports
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 from haystack.components.embedders import SentenceTransformersTextEmbedder
 from haystack import Document, Pipeline
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-import os
 
 class SimpleDocumentStore:
     """Basic Haystack document store setup"""
     
-    def __init__(self, collection_name: str = "simple_dnd"):
+    def __init__(self, collection_name: str = "dnd_documents"):
         """Initialize the document store"""
         self.collection_name = collection_name
         self.model_name = "sentence-transformers/all-MiniLM-L6-v2"  # For RAGScenarioGenerator compatibility
@@ -27,15 +31,14 @@ class SimpleDocumentStore:
         self.embedder.warm_up()
         
         # Initialize Qdrant document store with unique storage path to avoid conflicts
-        import time
-        storage_path = f"qdrant_storage_{collection_name}_{int(time.time())}"
+        storage_path = "./qdrant_storage"
         
         # Initialize Qdrant document store with correct embedding dimension (384 for all-MiniLM-L6-v2)
         self.document_store = QdrantDocumentStore(
             path=storage_path,
             index=collection_name,
             embedding_dim=384,
-            recreate_index=True  # Recreate to ensure clean state
+            recreate_index=False  # Don't recreate - preserve existing indexed documents
         )
         
         # Initialize retriever

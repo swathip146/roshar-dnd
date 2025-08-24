@@ -2,7 +2,11 @@
 Batch PDF and Text Document to Vector Database Converter
 Combines PDF and text processing with Qdrant Vector Storage
 """
+
+# Set tokenizers parallelism to avoid fork warnings - MUST be set before any imports
 import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from haystack import Document, Pipeline
@@ -13,7 +17,7 @@ from haystack.components.embedders import SentenceTransformersDocumentEmbedder
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 
 
-def clear_qdrant_collection(collection_name: str, storage_path: str = "../qdrant_storage"):
+def clear_qdrant_collection(collection_name: str, storage_path: str = "./qdrant_storage"):
     """Clear all documents from a local Qdrant collection"""
     import shutil
     

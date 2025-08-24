@@ -4,9 +4,12 @@ Uses full Haystack architecture with orchestrator and pipeline integration
 Maintains backward compatibility while adding sophisticated D&D mechanics
 """
 
+# Set tokenizers parallelism to avoid fork warnings - MUST be set before any imports
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import json
 import time
-import os
 import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -46,8 +49,11 @@ class HaystackDnDGame:
         
         try:
             # Core orchestrator with all Stage 3 components + Pipeline integration
-            # The orchestrator includes its own GameEngine with policy profile
-            self.orchestrator = create_full_haystack_orchestrator(collection_name=config.collection_name)
+            # Pass the shared document store to avoid resource conflicts
+            self.orchestrator = create_full_haystack_orchestrator(
+                collection_name=config.collection_name,
+                shared_document_store=config.shared_document_store
+            )
         except Exception as e:
             raise
         

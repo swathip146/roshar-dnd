@@ -20,9 +20,7 @@ from .context_broker import ContextBroker, create_context_broker
 
 from .pipeline_integration import (
     PipelineOrchestrator,
-    create_pipeline_orchestrator,
-    create_full_haystack_orchestrator,
-    create_backward_compatible_orchestrator
+    create_full_haystack_orchestrator
 )
 
 __all__ = [

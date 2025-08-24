@@ -176,112 +176,16 @@ def format_context_for_scenario(documents: List[Dict[str, Any]], query: str) -> 
     }
 
 
-@tool(
-    outputs_to_state={"rag_assessment": {"source": "."}}
-)
-def assess_rag_need(action: str, context: Dict[str, Any], filters: Dict[str, Any] = None) -> Dict[str, Any]:
-    """
-    Determine if RAG retrieval is needed for the given action and context with filter awareness.
-    
-    Args:
-        action: Player action
-        context: Game context (dict or string representation)
-        filters: Optional contextual filters to consider in assessment
-        
-    Returns:
-        Assessment of whether RAG is needed and what type including filter recommendations
-    """
-    # Handle case where context is passed as string (from pipeline serialization)
-    if isinstance(context, str):
-        import json
-        try:
-            context = json.loads(context.replace("'", '"'))
-        except (json.JSONDecodeError, TypeError):
-            # Fallback to basic parsing or empty dict
-            context = {}
-    
-    action_lower = action.lower()
-    
-    # Define RAG triggers
-    lore_triggers = ["history", "lore", "legend", "story", "past", "ancient", "who are", "what is", "tell me about", "information about", "know about"]
-    # Add entity/proper noun detection for Roshar/Stormlight Archive content
-    entity_triggers = ["alethi", "veden", "roshar", "shardbearer", "knight radiant", "herald", "spren", "vorin", "parshendi", "listener", "storm", "highstorm", "kaladin", "shallan", "dalinar", "adolin", "navani", "gavilar", "elhokar", "sadeas", "kholin", "davar", "honor", "cultivation", "odium"]
-    rule_triggers = ["spell", "magic", "cast", "ability", "rule", "mechanic"]
-    monster_triggers = ["creature", "monster", "beast", "dragon", "demon"]
-    location_triggers = ["place", "location", "city", "dungeon", "area"]
-    
-    rag_needed = False
-    rag_type = "general"
-    confidence = 0.0
-    
-    if any(trigger in action_lower for trigger in lore_triggers):
-        rag_needed = True
-        rag_type = "lore"
-        confidence = 0.8
-    elif any(entity in action_lower for entity in entity_triggers):
-        rag_needed = True
-        rag_type = "lore"
-        confidence = 0.9  # High confidence for known entities
-    elif any(trigger in action_lower for trigger in rule_triggers):
-        rag_needed = True
-        rag_type = "rules"
-        confidence = 0.9
-    elif any(trigger in action_lower for trigger in monster_triggers):
-        rag_needed = True
-        rag_type = "monsters"
-        confidence = 0.7
-    elif any(trigger in action_lower for trigger in location_triggers):
-        rag_needed = True
-        rag_type = "locations"
-        confidence = 0.6
-    
-    # Check context for additional hints
-    if context.get("environment", {}).get("type") in ["library", "archive", "study"]:
-        rag_needed = True
-        rag_type = "lore"
-        confidence = max(confidence, 0.7)
-    
-    # Include filter recommendations in assessment
-    filter_recommendations = {}
-    if rag_needed:
-        if rag_type == "lore":
-            filter_recommendations = {
-                "document_type": ["lore", "history", "background"],
-                "content_category": ["world_building", "narrative"]
-            }
-        elif rag_type == "rules":
-            filter_recommendations = {
-                "document_type": ["rules", "mechanics"],
-                "content_category": ["game_rules", "abilities"]
-            }
-        elif rag_type == "monsters":
-            filter_recommendations = {
-                "document_type": ["bestiary", "creatures"],
-                "content_category": ["creatures", "combat"]
-            }
-        elif rag_type == "locations":
-            filter_recommendations = {
-                "document_type": ["locations", "places"],
-                "content_category": ["world_geography", "locations"]
-            }
-    
-    return {
-        "rag_needed": rag_needed,
-        "rag_type": rag_type,
-        "confidence": confidence,
-        "reasoning": f"Action contains {rag_type} triggers" if rag_needed else "No RAG triggers found",
-        "recommended_filters": filter_recommendations,
-        "current_filters": filters or {}
-    }
-
-
-def create_rag_retriever_agent(chat_generator: Optional[Any] = None, collection_name=None) -> Agent:
+def create_rag_retriever_agent(chat_generator: Optional[Any] = None,
+                               collection_name=None,
+                               document_store=None) -> Agent:
     """
     Create a Haystack Agent for RAG document retrieval and context enhancement.
     
     Args:
         chat_generator: Optional chat generator (uses LLM config if None)
-        collection_name: Optional collection name for document store creation
+        collection_name: Optional collection name for document store creation (legacy)
+        document_store: Existing document store instance to use (preferred)
         
     Returns:
         Configured Haystack Agent for RAG retrieval
@@ -294,9 +198,16 @@ def create_rag_retriever_agent(chat_generator: Optional[Any] = None, collection_
     else:
         generator = chat_generator
     
-    # Create document store from collection name if provided
+    # Set global document store reference
     global _global_document_store
-    if collection_name is not None:
+    
+    if document_store is not None:
+        # Use existing document store instance (preferred approach)
+        _global_document_store = document_store
+        print(f"📚 RAG Agent: Using existing document store for collection '{document_store.collection_name}'")
+    elif collection_name is not None:
+        # Legacy fallback: create new document store (not recommended due to resource conflicts)
+        print(f"⚠️ RAG Agent: Creating new document store for '{collection_name}' - may cause resource conflicts")
         try:
             from storage.simple_document_store import SimpleDocumentStore
             _global_document_store = SimpleDocumentStore(collection_name=collection_name)
@@ -307,20 +218,18 @@ def create_rag_retriever_agent(chat_generator: Optional[Any] = None, collection_
             _global_document_store = None
     else:
         _global_document_store = None
-        print("⚠️ RAG Agent: No collection name provided - will use fallback responses")
+        print("⚠️ RAG Agent: No document store provided - will use fallback responses")
     
     system_prompt = """
 You are a RAG (Retrieval-Augmented Generation) assistant for a D&D game system.
 
 Your role is to:
-1. Assess whether document retrieval is needed for player actions
-2. Retrieve relevant documents from the knowledge base
-3. Format retrieved content for use in scenario generation
+1. Retrieve relevant documents from the knowledge base based on provided queries and context
+2. Format retrieved content for use in scenario generation
 
 WORKFLOW:
-1. First, use assess_rag_need to determine if retrieval is necessary
-2. If needed, use retrieve_documents with appropriate query and context type
-3. IMPORTANT: Use format_context_for_scenario with the documents and query from step 2
+1. Use retrieve_documents with appropriate query and context type (provided by the main interface agent)
+2. IMPORTANT: Use format_context_for_scenario with the documents and query from step 1
 
 CONTEXT TYPES:
 - "lore": Game world history, legends, background information
@@ -330,28 +239,29 @@ CONTEXT TYPES:
 - "general": Catch-all for other content
 
 GUIDELINES:
-- Only retrieve when action suggests need for external knowledge
 - Use specific, targeted queries for better results
 - Summarize and format content to be useful for scenario generation
 - Limit context length to avoid overwhelming the scenario generator
+- Apply contextual filters when provided to enhance retrieval accuracy
 
 TOOL PARAMETER RULES:
 - When using format_context_for_scenario, you MUST pass the "documents" list and "query" string from retrieve_documents
 - Example: If retrieve_documents returns {"documents": [...], "query": "Alethi"}, then call format_context_for_scenario with documents=[...] and query="Alethi"
+
+NOTE: RAG assessment is now handled by the main interface agent. This agent focuses purely on document retrieval and formatting.
 
 Always use the tools provided to complete your tasks and pass parameters correctly between tool calls.
 """
 
     agent = Agent(
         chat_generator=generator,
-        tools=[assess_rag_need, retrieve_documents, format_context_for_scenario],
+        tools=[retrieve_documents, format_context_for_scenario],
         system_prompt=system_prompt,
-        exit_conditions=["format_context_for_scenario", "assess_rag_need"],
-        max_agent_steps=3,
+        exit_conditions=["format_context_for_scenario"],
+        max_agent_steps=2,
         raise_on_tool_invocation_failure=False,
         state_schema={
-            "formatted_context": {"type": dict},
-            "rag_assessment": {"type": dict}
+            "formatted_context": {"type": dict}
         }
     )
     
@@ -383,19 +293,19 @@ if __name__ == "__main__":
     # Create the agent
     agent = create_rag_retriever_agent()
     
-    # Test RAG assessment and retrieval
+    # Test document retrieval and formatting
     test_cases = [
         {
-            "action": "I want to research the history of the ancient dragon kings",
-            "context": {"location": "Library", "environment": {"type": "archive"}}
+            "query": "history of ancient dragon kings",
+            "context_type": "lore"
         },
         {
-            "action": "I cast fireball at the goblins", 
-            "context": {"location": "Combat", "environment": {"type": "battlefield"}}
+            "query": "fireball spell mechanics",
+            "context_type": "rules"
         },
         {
-            "action": "I look around the room",
-            "context": {"location": "Tavern", "environment": {"type": "social"}}
+            "query": "tavern atmosphere and NPCs",
+            "context_type": "locations"
         }
     ]
     
@@ -403,10 +313,10 @@ if __name__ == "__main__":
         print(f"\n=== RAG Agent Test {i+1} ===")
         
         user_message = f"""
-        Player Action: {test_case['action']}
-        Game Context: {test_case['context']}
+        Query: {test_case['query']}
+        Context Type: {test_case['context_type']}
         
-        Assess if RAG retrieval is needed and retrieve relevant documents if necessary.
+        Retrieve relevant documents for this query and format them for scenario generation.
         """
         
         try:

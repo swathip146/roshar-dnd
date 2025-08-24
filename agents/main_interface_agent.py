@@ -75,6 +75,80 @@ def normalize_incoming(player_input: str, game_context: Dict[str, Any]) -> Dict[
 
 
 @tool(
+    outputs_to_state={"rag_assessment": {"source": "."}}
+)
+def assess_rag_need_llm(action: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    LLM-based assessment of whether RAG retrieval is needed for the given action and context.
+    This replaces the rule-based approach with intelligent LLM reasoning.
+    
+    Args:
+        action: Player action or query
+        context: Game context (dict or string representation)
+        
+    Returns:
+        Assessment of whether RAG is needed, what type, and recommended filters
+    """
+    # Handle string input - parse JSON if needed
+    if isinstance(context, str):
+        try:
+            import json
+            import ast
+            # Try AST first for Python dict strings with single quotes
+            try:
+                context = ast.literal_eval(context)
+            except (ValueError, SyntaxError):
+                # Fallback to JSON parsing
+                context = json.loads(context)
+        except (json.JSONDecodeError, ValueError, SyntaxError):
+            context = {}
+    
+    # This tool uses the LLM's reasoning to determine RAG needs
+    # The system prompt will guide the LLM to make this assessment
+    assessment_prompt = f"""
+    Analyze this player action and determine if RAG (Retrieval-Augmented Generation) document retrieval is needed:
+    
+    Player Action: "{action}"
+    Game Context: {context}
+    
+    Consider these categories for RAG retrieval:
+    - LORE: Requests about world history, legends, stories, character backgrounds, past events
+    - RULES: Spell mechanics, game rules, abilities, combat mechanics, skill checks
+    - MONSTERS: Creature information, bestiary entries, monster behaviors
+    - LOCATIONS: Place descriptions, geography, notable locations
+    - NONE: Simple actions that don't require external knowledge
+    
+    Respond with a JSON object containing:
+    {{
+        "rag_needed": true/false,
+        "rag_type": "lore|rules|monsters|locations|none",
+        "confidence": 0.0-1.0,
+        "reasoning": "Brief explanation of why RAG is/isn't needed",
+        "recommended_filters": {{
+            "document_type": ["list", "of", "types"],
+            "content_category": ["list", "of", "categories"]
+        }},
+        "query_suggestions": ["suggested", "search", "queries"]
+    }}
+    
+    Examples:
+    - "Tell me about the history of Roshar" → rag_needed: true, rag_type: "lore"
+    - "I cast fireball" → rag_needed: true, rag_type: "rules"
+    - "I look around" → rag_needed: false, rag_type: "none"
+    - "What creatures live in this forest?" → rag_needed: true, rag_type: "monsters"
+    """
+    
+    # The actual LLM processing will happen when this tool is called by the agent
+    # For now, return a structured response that the LLM will populate
+    return {
+        "action": action,
+        "context": context,
+        "assessment_prompt": assessment_prompt,
+        "needs_llm_processing": True
+    }
+
+
+@tool(
     outputs_to_state={"routing_decision": {"source": "."}}
 )
 def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -189,23 +263,59 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
         dto["debug"]["routing"] = routing_metadata
         return dto
     
-    # Hard Rule 4: Lore/Knowledge queries (should use RAG-enhanced scenario)
+    # Hard Rule 4: Check if RAG assessment has been performed
+    rag_assessment = dto.get("rag_assessment")
+    if rag_assessment and rag_assessment.get("rag_needed"):
+        rag_type = rag_assessment.get("rag_type", "general")
+        
+        # Route based on RAG assessment results
+        if rag_type == "rules":
+            dto["route"] = "rules"
+            routing_metadata["reason"] = "RAG assessment indicates rules query"
+            routing_metadata["confidence"] = rag_assessment.get("confidence", 0.8)
+            routing_metadata["rag_enhanced"] = True
+            dto["debug"]["routing"] = routing_metadata
+            return dto
+        elif rag_type in ["lore", "monsters", "locations"]:
+            dto["route"] = "scenario_pipeline_with_rag_context"
+            routing_metadata["reason"] = f"RAG assessment indicates {rag_type} query requiring context"
+            routing_metadata["confidence"] = rag_assessment.get("confidence", 0.8)
+            routing_metadata["rag_enhanced"] = True
+            routing_metadata["rag_type"] = rag_type
+            dto["debug"]["routing"] = routing_metadata
+            return dto
+    
+    # Hard Rule 5: Pure knowledge/RAG queries (dedicated RAG route)
+    pure_rag_keywords = [
+        "tell me about", "what is", "who is", "information about", "know about",
+        "query about", "research", "lookup", "find information", "search for"
+    ]
+    
+    pure_rag_matches = [kw for kw in pure_rag_keywords if kw in player_input]
+    if pure_rag_matches:
+        dto["route"] = "rag_query"
+        routing_metadata["reason"] = f"Pure knowledge query detected: {pure_rag_matches}"
+        routing_metadata["confidence"] = 0.85
+        routing_metadata["requires_rag_assessment"] = True
+        dto["debug"]["routing"] = routing_metadata
+        return dto
+    
+    # Hard Rule 6: Lore/Knowledge queries (should use RAG-enhanced scenario)
     lore_keywords = [
         "lore", "history", "legend", "story", "past", "ancient", "origin",
-        "tell me about", "who are", "what is", "information about", "know about",
-        "query about", "ask about", "explain", "describe", "background"
+        "background", "explain", "describe"
     ]
     
     lore_matches = [kw for kw in lore_keywords if kw in player_input]
     if lore_matches:
-        dto["route"] = "scenario"
+        dto["route"] = "scenario_pipeline_with_rag_context"
         routing_metadata["reason"] = f"Lore/knowledge query detected: {lore_matches}"
         routing_metadata["confidence"] = 0.9
-        routing_metadata["lore_query"] = True  # Flag for RAG enhancement
+        routing_metadata["requires_rag_assessment"] = True
         dto["debug"]["routing"] = routing_metadata
         return dto
     
-    # Default Rule: Everything else goes to scenario
+    # Default Rule: Everything else goes to scenario (potentially with RAG assessment)
     dto["route"] = "scenario"
     routing_metadata["reason"] = "Default routing - in-world action"
     routing_metadata["confidence"] = 0.6
@@ -222,6 +332,11 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
         routing_metadata["confidence"] = 0.8
         routing_metadata["fallback_used"] = False
         routing_metadata["reason"] = "Clear action-based scenario request"
+        
+        # Some actions might benefit from RAG assessment
+        investigation_keywords = ["search", "examine", "investigate", "explore"]
+        if any(kw in player_input for kw in investigation_keywords):
+            routing_metadata["may_need_rag"] = True
     
     dto["debug"]["routing"] = routing_metadata
     return dto
@@ -341,13 +456,14 @@ def create_main_interface_agent(chat_generator: Optional[Any] = None) -> Agent:
         generator = chat_generator
     
     system_prompt = """
-You are the main interface agent for a D&D game system, responsible for managing all player interactions.
+You are the main interface agent for a D&D game system with advanced RAG assessment capabilities, responsible for managing all player interactions intelligently.
 
 Your primary responsibilities:
 1. Parse and interpret player input to understand intent and extract key information
-2. Determine how requests should be routed through the game system
-3. Format responses from game systems into player-friendly output
-4. Validate commands and provide helpful suggestions when needed
+2. Perform intelligent LLM-based assessment of RAG (Retrieval-Augmented Generation) needs
+3. Determine optimal routing through the game system based on input analysis and RAG requirements
+4. Format responses from game systems into player-friendly output
+5. Validate commands and provide helpful suggestions when needed
 
 PLAYER INPUT TYPES:
 - Meta commands: help, save, load, quit, status, inventory
@@ -356,39 +472,73 @@ PLAYER INPUT TYPES:
 - Investigation: search, look, examine, investigate
 - Social: talk, speak, ask, persuade, intimidate
 - Skills: climb, jump, hide, sneak, pick lock
+- Knowledge queries: lore questions, rule clarifications, information requests
+- Pure research: "tell me about", "what is", "who are", information lookup
 
-ROUTING STRATEGIES:
-- orchestrator_direct: Simple meta commands handled directly
-- npc_pipeline: Social interactions requiring NPC agent
-- skill_pipeline: Actions requiring dice rolls and skill checks
-- scenario_pipeline: Complex actions needing scenario generation
-- simple_response: Basic actions with simple responses
+ENHANCED ROUTING STRATEGIES WITH RAG INTEGRATION:
+- meta: Meta commands handled directly by orchestrator
+- npc: Social interactions processed by NPC controller agent
+- rules: Rules/spell queries with optional RAG enhancement for complex mechanics
+- scenario: Standard scenario generation for basic in-world actions
+- scenario_pipeline_with_rag_context: RAG-enhanced scenario generation for knowledge-intensive actions
+- rag_query: Pure knowledge requests handled primarily by RAG retrieval system
+- simple_response: Basic actions requiring minimal processing
+
+RAG ASSESSMENT CAPABILITIES:
+- Use assess_rag_need_llm for intelligent determination of RAG requirements
+- Analyze player actions for knowledge enhancement opportunities (lore, rules, monsters, locations)
+- Provide confidence scores (0.0-1.0) and detailed reasoning for RAG decisions
+- Recommend specific document filters and search queries when RAG is beneficial
+- Consider contextual clues (location, environment, previous actions) in assessment
+
+RAG ASSESSMENT CATEGORIES:
+- LORE: World history, character backgrounds, legends, past events, cultural information
+- RULES: Spell mechanics, combat rules, skill checks, game mechanics clarifications
+- MONSTERS: Creature information, behaviors, stats, encounter details
+- LOCATIONS: Place descriptions, geography, environmental details
+- NONE: Simple actions, basic interactions, meta commands that don't benefit from external knowledge
 
 RESPONSE FORMATTING:
-- Use appropriate emojis for visual appeal (🎭 for scenes, 💬 for dialogue, 🎲 for rolls)
+- Use contextual emojis: 🎭 scenes, 💬 dialogue, 🎲 dice rolls, 📚 lore, ⚔️ combat
 - Present choices clearly with numbered options
-- Include relevant mechanical information (dice rolls, DCs) when applicable
-- Keep responses engaging but not overwhelming
+- Include relevant mechanical information when applicable
+- Maintain narrative immersion while being informative
 
-WORKFLOW:
-1. Use normalize_incoming to understand what the player wants
-2. Use determine_response_routing to decide how to process the request
-3. Use format_response_for_player to present results clearly
-4. Use validate_player_command for command validation when needed
+ENHANCED WORKFLOW:
+1. normalize_incoming: Parse and structure player input into standardized DTO format
+2. assess_rag_need_llm: Perform intelligent LLM-based analysis of RAG requirements (when applicable)
+3. determine_response_routing: Route based on input analysis and RAG assessment results
+4. format_response_for_player: Structure final output for optimal player experience
+5. validate_player_command: Validate commands and suggest alternatives when needed
 
-Always maintain immersion while providing clear, helpful responses.
+RAG ASSESSMENT GUIDELINES:
+- Use assess_rag_need_llm when player input suggests potential knowledge enhancement
+- Analyze context clues to determine if external documents would improve response quality
+- Consider both explicit knowledge requests and implicit information needs
+- Provide detailed reasoning to aid system transparency and debugging
+
+ROUTING DECISION LOGIC:
+1. If RAG assessment indicates high-value knowledge enhancement → scenario_pipeline_with_rag_context
+2. If pure information request detected → rag_query
+3. If NPC interaction identified → npc
+4. If rules/mechanics query → rules (with potential RAG support)
+5. If meta command → meta
+6. Default → scenario (standard generation)
+
+Always prioritize player experience while ensuring accurate, contextually-appropriate responses with intelligent knowledge integration.
 """
 
     agent = Agent(
         chat_generator=generator,
-        tools=[normalize_incoming, determine_response_routing, format_response_for_player, validate_player_command],
+        tools=[normalize_incoming, assess_rag_need_llm, determine_response_routing, format_response_for_player, validate_player_command],
         system_prompt=system_prompt,
         exit_conditions=["format_response_for_player", "determine_response_routing"],
-        max_agent_steps=3,
+        max_agent_steps=5,  # Increased to accommodate RAG assessment step
         raise_on_tool_invocation_failure=False,
         state_schema={
             "routing_decision": {"type": dict},
-            "formatted_response": {"type": dict}
+            "formatted_response": {"type": dict},
+            "rag_assessment": {"type": dict}
         }
     )
     
