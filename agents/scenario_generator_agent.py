@@ -12,7 +12,9 @@ from config.llm_config import get_global_config_manager
 from shared_contract import Scenario, Choice, validate_scenario, repair_scenario, minimal_fallback
 
 
-@tool
+@tool(
+    outputs_to_state={"scenario_result": {"source": "."}}
+)
 def create_scenario_from_dto(dto: Dict[str, Any]) -> Dict[str, Any]:
     """
     Create scenario from DTO with integrated validation and repair.
@@ -168,7 +170,10 @@ Always use this tool - never return raw JSON directly.
         system_prompt=system_prompt,
         exit_conditions=["create_scenario_from_dto"],
         max_agent_steps=3,
-        raise_on_tool_invocation_failure=False
+        raise_on_tool_invocation_failure=False,
+        state_schema={
+            "scenario_result": {"type": dict}
+        }
     )
     
     return agent

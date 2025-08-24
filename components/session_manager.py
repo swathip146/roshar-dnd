@@ -31,7 +31,7 @@ class SessionManager:
     Handles save/load operations with full state integration
     """
     
-    def __init__(self, save_directory: str = "saves"):
+    def __init__(self, save_directory: str = "game_saves"):
         self.save_directory = Path(save_directory)
         self.save_directory.mkdir(exist_ok=True)
         

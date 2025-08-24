@@ -74,7 +74,9 @@ def normalize_incoming(player_input: str, game_context: Dict[str, Any]) -> Dict[
     return dto
 
 
-@tool
+@tool(
+    outputs_to_state={"routing_decision": {"source": "."}}
+)
 def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Determine routing for the request based on DTO content using hard rules.
@@ -92,10 +94,10 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
             import json
             dto = json.loads(dto)
         except (json.JSONDecodeError, TypeError):
-            return {"error": "Invalid DTO format", "routing_strategy": "simple_response"}
+            return {"error": "Invalid DTO format", "route": "simple_response"}
     
     if not isinstance(dto, dict):
-        return {"error": "DTO must be dict or JSON string", "routing_strategy": "simple_response"}
+        return {"error": "DTO must be dict or JSON string", "route": "simple_response"}
     
     # Initialize routing metadata
     routing_metadata = {
@@ -225,7 +227,9 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
     return dto
 
 
-@tool
+@tool(
+    outputs_to_state={"formatted_response": {"source": "."}}
+)
 def format_response_for_player(response_data: Dict[str, Any], player_preferences: Dict[str, Any]) -> Dict[str, str]:
     """
     Format system responses into player-friendly output.
@@ -381,7 +385,11 @@ Always maintain immersion while providing clear, helpful responses.
         system_prompt=system_prompt,
         exit_conditions=["format_response_for_player", "determine_response_routing"],
         max_agent_steps=3,
-        raise_on_tool_invocation_failure=False
+        raise_on_tool_invocation_failure=False,
+        state_schema={
+            "routing_decision": {"type": dict},
+            "formatted_response": {"type": dict}
+        }
     )
     
     return agent

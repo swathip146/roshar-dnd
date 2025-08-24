@@ -140,7 +140,9 @@ def retrieve_documents(query: str, top_k: int = 3, context_type: str = "general"
     }
 
 
-@tool
+@tool(
+    outputs_to_state={"formatted_context": {"source": "."}}
+)
 def format_context_for_scenario(documents: List[Dict[str, Any]], query: str) -> Dict[str, str]:
     """
     Format retrieved documents into context suitable for scenario generation.
@@ -174,7 +176,9 @@ def format_context_for_scenario(documents: List[Dict[str, Any]], query: str) -> 
     }
 
 
-@tool
+@tool(
+    outputs_to_state={"rag_assessment": {"source": "."}}
+)
 def assess_rag_need(action: str, context: Dict[str, Any], filters: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Determine if RAG retrieval is needed for the given action and context with filter awareness.
@@ -344,7 +348,11 @@ Always use the tools provided to complete your tasks and pass parameters correct
         system_prompt=system_prompt,
         exit_conditions=["format_context_for_scenario", "assess_rag_need"],
         max_agent_steps=3,
-        raise_on_tool_invocation_failure=False
+        raise_on_tool_invocation_failure=False,
+        state_schema={
+            "formatted_context": {"type": dict},
+            "rag_assessment": {"type": dict}
+        }
     )
     
     return agent

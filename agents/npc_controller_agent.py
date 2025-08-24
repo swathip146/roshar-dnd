@@ -10,7 +10,9 @@ from haystack.tools import tool
 from config.llm_config import get_global_config_manager
 
 
-@tool
+@tool(
+    outputs_to_state={"npc_response": {"source": "."}}
+)
 def generate_npc_response(npc_id: str, player_action: str, npc_context: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generate an NPC's response to a player action.
@@ -233,7 +235,10 @@ Always use the available tools to process NPC interactions systematically.
         system_prompt=system_prompt,
         exit_conditions=["generate_npc_response"],
         max_agent_steps=4,
-        raise_on_tool_invocation_failure=False
+        raise_on_tool_invocation_failure=False,
+        state_schema={
+            "npc_response": {"type": dict}
+        }
     )
     
     return agent

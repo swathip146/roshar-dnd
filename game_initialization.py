@@ -188,7 +188,7 @@ class GameInitializationSystem:
                 return "new_campaign"
     
     def _list_saved_games(self) -> List[Dict[str, Any]]:
-        """List available saved games with metadata"""
+        """List available SessionManager format saved games only"""
         
         saved_games = []
         
@@ -202,14 +202,25 @@ class GameInitializationSystem:
                     with open(filepath, 'r') as f:
                         save_data = json.load(f)
                     
-                    # Extract metadata
+                    # Only accept SessionManager format saves
+                    if not self._is_session_manager_save(save_data):
+                        print(f"⚠️ Skipping legacy save file: {filename}")
+                        continue
+                    
+                    # Extract metadata from SessionManager format
+                    session_metadata = save_data["session_metadata"]
+                    game_state = save_data.get("game_state", {})
+                    
                     save_info = {
                         "filename": filename,
-                        "player_name": save_data.get("player_name", "Unknown"),
-                        "location": save_data.get("location", "Unknown"),
-                        "turns": len(save_data.get("history", [])),
-                        "save_time": save_data.get("save_time", 0),
-                        "enhanced": save_data.get("enhanced_features_active", False)
+                        "player_name": session_metadata.get("player_name", "Unknown"),
+                        "session_id": session_metadata.get("session_id", ""),
+                        "location": game_state.get("location", "Unknown"),
+                        "turns": len(game_state.get("history", [])),
+                        "created_time": session_metadata.get("created_time", 0),
+                        "save_time": session_metadata.get("last_save_time", 0),
+                        "save_version": session_metadata.get("save_version", "2.0_haystack"),
+                        "enhanced": True  # All SessionManager saves are enhanced
                     }
                     
                     saved_games.append(save_info)
@@ -220,6 +231,26 @@ class GameInitializationSystem:
         # Sort by save time (most recent first)
         saved_games.sort(key=lambda x: x["save_time"], reverse=True)
         return saved_games
+    
+    def _is_session_manager_save(self, save_data: Dict[str, Any]) -> bool:
+        """Check if save file is in SessionManager format"""
+        
+        # Must have session_metadata with required fields
+        if "session_metadata" not in save_data:
+            return False
+            
+        metadata = save_data["session_metadata"]
+        required_fields = ["session_id", "player_name", "save_version"]
+        
+        for field in required_fields:
+            if field not in metadata:
+                return False
+        
+        # Must have game_state
+        if "game_state" not in save_data:
+            return False
+            
+        return True
     
     def _prompt_for_saved_game(self) -> str:
         """Prompt user to select a saved game"""
@@ -233,12 +264,12 @@ class GameInitializationSystem:
             print("❌ No saved games found. Starting new campaign instead.")
             return None
         
-        print("Available saved games:")
+        print("Available saved games (SessionManager format only):")
         for i, save_info in enumerate(saved_games, 1):
-            enhanced_flag = "✨" if save_info["enhanced"] else "📜"
+            enhanced_flag = "✨"  # All SessionManager saves are enhanced
             save_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(save_info["save_time"]))
             print(f"{i}. {enhanced_flag} {save_info['player_name']} - {save_info['location']}")
-            print(f"   📅 {save_time} | 🎲 {save_info['turns']} turns")
+            print(f"   📅 {save_time} | 🎲 {save_info['turns']} turns | 🆔 {save_info['session_id'][:8]}...")
         
         print()
         

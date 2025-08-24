@@ -255,7 +255,7 @@ def load_config_from_environment() -> AgentLLMConfig:
 
 
 # Factory functions for easy configuration
-def create_apple_genai_config(model: str = "aws:anthropic.claude-sonnet-4-20250514-v1:0") -> AgentLLMConfig:
+def create_custom_config(model: str = "aws:anthropic.claude-sonnet-4-20250514-v1:0") -> AgentLLMConfig:
     """Create configuration using Apple GenAI for all agents"""
     if not APPLE_AVAILABLE:
         raise ImportError("Apple GenAI not available. Install hwtgenielib.")
@@ -352,12 +352,3 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"❌ Generator creation failed: {e}")
-    
-    # Test Apple GenAI specific config if available
-    if APPLE_AVAILABLE:
-        try:
-            apple_config = create_apple_genai_config()
-            apple_manager = LLMConfigManager(apple_config)
-            print(f"\n✅ Apple GenAI config created")
-        except Exception as e:
-            print(f"❌ Apple GenAI config failed: {e}")
