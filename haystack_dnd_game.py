@@ -237,7 +237,8 @@ class HaystackDnDGame:
         The orchestrator and main_interface_agent handle all routing and processing decisions
         """
         
-        if not player_input.strip():
+        # Handle None or invalid input
+        if not player_input or not isinstance(player_input, str) or not player_input.strip():
             return "The world waits for your action..."
         
         try:
@@ -279,20 +280,23 @@ class HaystackDnDGame:
             else:
                 error_msg = response.data.get("error", "Unknown error")
                 print(f"⚠️ Processing failed: {error_msg}")
-                return
+                return "The world seems momentarily confused by your action. Try something else..."
                 
         except Exception as e:
             print(f"❌ Error processing turn: {e}")
-            return
+            return "Something unexpected happened. The adventure continues nonetheless..."
     
     
     def _format_enhanced_response(self, response_data: Dict[str, Any]) -> Dict[str, str]:
-        """Format enhanced response data for display"""
+        """Format enhanced response data for display with comprehensive fallback handling"""
         
         formatted_response = ""
         
+        # Debug: Log what we received for troubleshooting
+        print(f"🔍 Debug: Response data keys: {list(response_data.keys()) if response_data else 'None'}")
+        
         # Handle scenario-style responses
-        if "scene" in response_data:
+        if response_data and "scene" in response_data:
             formatted_response = response_data["scene"]
             
             # Add choices
@@ -305,7 +309,7 @@ class HaystackDnDGame:
                     formatted_response += f"\n• {title}: {description}"
                     
         # Handle skill check results
-        elif "skill_check_result" in response_data:
+        elif response_data and "skill_check_result" in response_data:
             skill_result = response_data["skill_check_result"]
             success = skill_result.get("success", False)
             total = skill_result.get("roll_total", 0)
@@ -318,18 +322,43 @@ class HaystackDnDGame:
                 formatted_response += f"\n🎲 {skill_result['roll_breakdown']}"
                 
         # Handle NPC responses
-        elif "npc_response" in response_data:
+        elif response_data and "npc_response" in response_data:
             npc_data = response_data["npc_response"]
             dialogue = npc_data.get("dialogue", "The NPC responds...")
             formatted_response = f"💬 {dialogue}"
             
-        # Handle general responses  
-        elif "response" in response_data:
+        # Handle general responses
+        elif response_data and "response" in response_data:
             formatted_response = response_data["response"]
             
-        # Fallback
+        # Handle orchestrator error responses
+        elif response_data and "error" in response_data:
+            error_msg = response_data["error"]
+            print(f"⚠️ Orchestrator error: {error_msg}")
+            formatted_response = f"The world pauses as mysterious forces interfere... ({error_msg[:50]}...)"
+            
+        # Handle pipeline processing responses with fallback_scene
+        elif response_data and "fallback_scene" in response_data:
+            formatted_response = response_data["fallback_scene"]
+            print(f"⚠️ Using fallback scene due to: {response_data.get('error', 'unknown error')}")
+            
+        # Handle empty or invalid response data
+        elif not response_data or not isinstance(response_data, dict):
+            print(f"⚠️ Invalid response data: {type(response_data)} - {response_data}")
+            formatted_response = "The world seems uncertain how to respond to your action. Try something else..."
+            
+        # Fallback for unrecognized response format
         else:
-            formatted_response = "The adventure continues in ways you never expected..."
+            print(f"⚠️ Unrecognized response format with keys: {list(response_data.keys())}")
+            # Try to extract any text content from the response
+            if isinstance(response_data, dict):
+                for key in ["scene", "message", "text", "content", "result"]:
+                    if key in response_data and isinstance(response_data[key], str):
+                        formatted_response = response_data[key]
+                        break
+            
+            if not formatted_response:
+                formatted_response = "The adventure continues in ways you never expected..."
         
         return {
             "formatted_response": formatted_response,
@@ -486,16 +515,19 @@ class HaystackDnDGame:
             except Exception as e:
                 print(f"⚠️ Could not get orchestrator state: {e}")
             
+            # Add game engine data to orchestrator state before saving
+            enhanced_orchestrator_state = orchestrator_state.copy() if orchestrator_state else {}
+            enhanced_orchestrator_state.update({
+                "game_engine_state": game_engine_state,
+                "game_engine_statistics": self.orchestrator.game_engine.get_game_statistics(),
+                "policy_profile": game_engine_state.get("policy_profile", "house"),
+                "save_version": "2.0_with_game_engine"
+            })
+            
             # Use SessionManager for comprehensive saving with GameEngine state
             result = self.session_manager.save_session(
                 filename=filename,
-                orchestrator_state=orchestrator_state,
-                additional_data={
-                    "game_engine_state": game_engine_state,
-                    "game_engine_statistics": self.orchestrator.game_engine.get_game_statistics(),
-                    "policy_profile": game_engine_state.get("policy_profile", "house"),
-                    "save_version": "2.0_with_game_engine"
-                }
+                orchestrator_state=enhanced_orchestrator_state
             )
             
             if result["success"]:
@@ -632,11 +664,13 @@ class HaystackDnDGame:
                 elif player_input.lower() == "stats":
                     stats = self.get_game_stats()
                     print(f"\n📊 Enhanced Game Stats:")
-                    print(f"Location: {stats['location']}")
-                    print(f"Turns: {stats['turns_played']}")
-                    print(f"Session time: {stats['session_time']:.1f}s")
+                    print(f"Location: {stats.get('location', 'Unknown')}")
+                    print(f"Turns: {stats.get('turns_played', 0)}")
+                    session_duration = stats.get('session_duration', 0)
+                    print(f"Session time: {session_duration:.1f}s")
                     if stats.get("enhanced_mode"):
                         print(f"Enhanced Features: ✅ Active")
+                        print(f"GameEngine: {'✅ Active' if stats.get('game_engine_active') else '❌ Inactive'}")
                         if "orchestrator_stats" in stats:
                             orch_stats = stats["orchestrator_stats"]
                             if "game_statistics" in orch_stats:

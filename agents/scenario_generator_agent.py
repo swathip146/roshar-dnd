@@ -3,13 +3,30 @@ Scenario Generator Agent - Creative scenario generation following revised plan c
 Uses proper Haystack Agent framework with tools and system prompts
 """
 
+# DEBUG CONTROL - Set to True to enable detailed debugging
+DEBUG_SCENARIO_AGENT = True
+DEBUG_SCENARIO_TOOLS = True
+DEBUG_VALIDATION = True
+
 import json
+import time
 from typing import Dict, Any, List, Optional
 from haystack.components.agents import Agent
 from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
 from config.llm_config import get_global_config_manager
 from shared_contract import Scenario, Choice, validate_scenario, repair_scenario, minimal_fallback
+
+def debug_scenario_print(category: str, message: str, data: Any = None):
+    """Centralized debug printing for scenario agent"""
+    if DEBUG_SCENARIO_AGENT:
+        timestamp = time.strftime('%H:%M:%S')
+        print(f"🐛 SCENARIO [{timestamp}] {category}: {message}")
+        if data is not None and DEBUG_SCENARIO_TOOLS:
+            if isinstance(data, dict) and len(str(data)) > 300:
+                print(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+            else:
+                print(f"    📊 Data: {data}")
 
 
 @tool(
@@ -20,24 +37,67 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> Dict[str, Any]:
     Create scenario from DTO with integrated validation and repair.
     
     Args:
-        dto: Request DTO with action, context, and RAG data
+        dto: Request DTO with action, context, and RAG data (can be dict or JSON string)
         
     Returns:
         Updated DTO with validated scenario or fallback
     """
-    # Extract information from DTO
+    debug_scenario_print("TOOL", "🎭 create_scenario_from_dto called", {"dto_type": type(dto), "dto_preview": str(dto)[:100] if dto else None})
+    
+    # Handle string representation of DTO (parse JSON)
+    if isinstance(dto, str):
+        debug_scenario_print("TOOL", "🔄 Converting string DTO to dict")
+        try:
+            import json
+            dto = json.loads(dto.replace("'", '"'))  # Handle single quotes
+            debug_scenario_print("TOOL", "✅ String DTO conversion successful")
+        except (json.JSONDecodeError, ValueError) as e:
+            debug_scenario_print("TOOL", f"💥 Failed to parse DTO string: {e}")
+            return {
+                "scenario": minimal_fallback({}),
+                "fallback": True,
+                "debug": {"error": f"Failed to parse DTO string: {e}", "original_dto": str(dto)[:200]}
+            }
+    
+    # Handle None or invalid DTO
+    if not dto or not isinstance(dto, dict):
+        debug_scenario_print("TOOL", f"❌ Invalid DTO: {type(dto)}")
+        return {
+            "scenario": minimal_fallback({}),
+            "fallback": True,
+            "debug": {"error": f"Invalid DTO type: {type(dto)}, expected dict", "dto_content": str(dto)[:200]}
+        }
+    
+    # Ensure debug section exists
+    if "debug" not in dto:
+        dto["debug"] = {}
+    
+    # Extract information from DTO with null safety
     player_action = dto.get("player_input", dto.get("action", ""))
     game_context = dto.get("context", {})
     rag_blocks = dto.get("rag_blocks", [])
     
-    # Build context for scenario generation
+    # Ensure context is a dict
+    if not isinstance(game_context, dict):
+        game_context = {}
+    
+    # Ensure rag_blocks is a list
+    if not isinstance(rag_blocks, list):
+        rag_blocks = []
+    
+    debug_scenario_print("TOOL", f"📋 Extracted DTO data", {"player_action": player_action, "context_keys": list(game_context.keys()) if game_context else [], "rag_blocks_count": len(rag_blocks)})
+    
+    # Build context for scenario generation with null safety
     context_info = []
-    if game_context.get("location"):
-        context_info.append(f"Location: {game_context['location']}")
-    if game_context.get("difficulty"):
-        context_info.append(f"Difficulty: {game_context['difficulty']}")
-    if rag_blocks:
+    if game_context and isinstance(game_context, dict):
+        if game_context.get("location"):
+            context_info.append(f"Location: {game_context['location']}")
+        if game_context.get("difficulty"):
+            context_info.append(f"Difficulty: {game_context['difficulty']}")
+    if rag_blocks and isinstance(rag_blocks, list):
         context_info.append(f"Retrieved context: {len(rag_blocks)} relevant documents")
+    
+    debug_scenario_print("TOOL", f"🏗️ Building scenario with context", {"context_info": context_info})
     
     # Generate raw scenario (this would normally call LLM)
     # For now, create a structured example that follows the schema
@@ -65,27 +125,40 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> Dict[str, Any]:
         "hooks": []
     }
     
+    debug_scenario_print("TOOL", f"🎯 Raw scenario created", {"scene_length": len(raw_scenario["scene"]), "choices_count": len(raw_scenario["choices"])})
+    
     # Phase 3: Scenario Schema Validation with single repair attempt
+    if DEBUG_VALIDATION:
+        debug_scenario_print("VALIDATION", "🔍 Starting scenario validation")
     errors = validate_scenario(raw_scenario)
     
     if errors:
+        debug_scenario_print("VALIDATION", f"⚠️ Validation errors found: {errors}")
         # Single repair attempt
         raw_scenario = repair_scenario(raw_scenario, errors)
         dto["debug"]["scenario_repaired"] = True
+        debug_scenario_print("VALIDATION", "🔧 Scenario repair attempted")
         
         # Validate again after repair
         errors = validate_scenario(raw_scenario)
+        if errors:
+            debug_scenario_print("VALIDATION", f"❌ Validation still failing after repair: {errors}")
+        else:
+            debug_scenario_print("VALIDATION", "✅ Scenario repair successful")
         
     if errors:
         # Still invalid after repair - use fallback
+        debug_scenario_print("TOOL", "🆘 Using minimal fallback due to persistent validation errors")
         dto["debug"]["scenario_errors"] = errors
         dto["fallback"] = True
         dto["scenario"] = minimal_fallback(dto)
     else:
         # Valid scenario
+        debug_scenario_print("TOOL", "✅ Valid scenario created")
         dto["scenario"] = raw_scenario
         dto["fallback"] = False
     
+    debug_scenario_print("TOOL", f"🏁 Scenario creation complete", {"fallback_used": dto.get("fallback", False)})
     return dto
 
 
@@ -100,14 +173,18 @@ def validate_scenario_output(scenario: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Validation results with errors and repair suggestions
     """
-    errors = validate_scenario(scenario)
+    debug_scenario_print("TOOL", "🔍 validate_scenario_output called", {"scenario_keys": list(scenario.keys()) if scenario else None})
     
-    return {
+    errors = validate_scenario(scenario)
+    result = {
         "valid": len(errors) == 0,
         "errors": errors,
         "can_repair": True,
         "repair_available": len(errors) > 0
     }
+    
+    debug_scenario_print("TOOL", f"✅ Validation complete", {"valid": result["valid"], "error_count": len(errors)})
+    return result
 
 
 def create_scenario_generator_agent(chat_generator: Optional[Any] = None) -> Agent:

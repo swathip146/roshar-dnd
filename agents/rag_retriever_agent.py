@@ -3,11 +3,28 @@ RAG Retriever Agent - Semantic document retrieval
 Integrates with existing document store for context enhancement using Haystack Agent framework
 """
 
+# DEBUG CONTROL - Set to True to enable detailed debugging
+DEBUG_RAG_AGENT = True
+DEBUG_TOOLS = True
+DEBUG_RETRIEVAL = True
+
+import time
 from typing import Dict, Any, List, Optional
 from haystack.components.agents import Agent
 from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
 from config.llm_config import get_global_config_manager
+
+def debug_rag_print(category: str, message: str, data: Any = None):
+    """Centralized debug printing for RAG agent"""
+    if DEBUG_RAG_AGENT:
+        timestamp = time.strftime('%H:%M:%S')
+        print(f"🐛 RAG [{timestamp}] {category}: {message}")
+        if data is not None and DEBUG_RETRIEVAL:
+            if isinstance(data, dict) and len(str(data)) > 300:
+                print(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+            else:
+                print(f"    📊 Data: {data}")
 
 # Global document store reference for tools
 _global_document_store = None
@@ -27,10 +44,13 @@ def retrieve_documents(query: str, top_k: int = 3, context_type: str = "general"
     Returns:
         Retrieved documents with content and metadata including filter information
     """
+    debug_rag_print("TOOL", "🔍 retrieve_documents called", {"query": query, "top_k": top_k, "context_type": context_type, "filters": filters})
+    
     global _global_document_store
     
     # Non-None store guard - explicit validation
     if _global_document_store is None:
+        debug_rag_print("TOOL", "❌ Document store is None")
         return {
             "query": query,
             "documents": [],
@@ -53,12 +73,14 @@ def retrieve_documents(query: str, top_k: int = 3, context_type: str = "general"
     
     # Use actual document store if available
     if _global_document_store:
+        debug_rag_print("TOOL", f"✅ Document store available: {_global_document_store.collection_name}")
         try:
             # Apply contextual filters if provided
             enhanced_query = query
             filter_metadata = {}
             
             if filters:
+                debug_rag_print("TOOL", f"📊 Applying contextual filters", filters)
                 # Log filter usage
                 print(f"📊 RAG Retrieval: Applying contextual filters: {filters}")
                 
@@ -83,9 +105,12 @@ def retrieve_documents(query: str, top_k: int = 3, context_type: str = "general"
                     "original_query": query,
                     "enhanced_query": enhanced_query
                 }
+                debug_rag_print("TOOL", f"🔍 Enhanced query", {"original": query, "enhanced": enhanced_query})
             
             # Use SimpleDocumentStore's search_with_metadata method for full results
+            debug_rag_print("TOOL", f"🔎 Searching document store", {"enhanced_query": enhanced_query, "top_k": top_k})
             search_results = _global_document_store.search_with_metadata(enhanced_query, top_k)
+            debug_rag_print("TOOL", f"📋 Search results", {"count": len(search_results), "results_type": type(search_results)})
             
             # Convert to expected format with filter information
             documents = []
@@ -117,6 +142,7 @@ def retrieve_documents(query: str, top_k: int = 3, context_type: str = "general"
             }
             
         except Exception as e:
+            debug_rag_print("TOOL", f"💥 Document store search exception: {e}")
             # Fallback if document store fails
             return {
                 "query": query,
@@ -143,37 +169,57 @@ def retrieve_documents(query: str, top_k: int = 3, context_type: str = "general"
 @tool(
     outputs_to_state={"formatted_context": {"source": "."}}
 )
-def format_context_for_scenario(documents: List[Dict[str, Any]], query: str) -> Dict[str, str]:
+def format_context_for_scenario(documents: List[Dict[str, Any]] = None, query: str = "") -> Dict[str, str]:
     """
     Format retrieved documents into context suitable for scenario generation.
     
     Args:
-        documents: List of retrieved documents
-        query: Original query for context
+        documents: List of retrieved documents (optional, defaults to empty list)
+        query: Original query for context (optional, defaults to empty string)
         
     Returns:
         Formatted context string and metadata
     """
-    if not documents:
+    debug_rag_print("TOOL", "📝 format_context_for_scenario called", {"documents_count": len(documents) if documents else 0, "query": query})
+    
+    # Handle None or invalid documents with default parameters
+    if not documents or not isinstance(documents, list):
+        debug_rag_print("TOOL", "⚠️ No valid documents provided")
         return {
-            "context": "",
+            "context": f"No relevant documents found for query: '{query}'" if query else "No documents available",
             "source_count": 0,
-            "relevance": "none"
+            "relevance": "none",
+            "query": query
         }
     
     context_parts = []
+    valid_doc_count = 0
+    
     for i, doc in enumerate(documents):
+        # Handle None documents or non-dict documents
+        if not doc or not isinstance(doc, dict):
+            continue
+            
         content = doc.get("content", "")
+        
+        # Handle None or non-string content
+        if not content or not isinstance(content, str):
+            continue
+            
         # Truncate long content
         if len(content) > 200:
             content = content[:200] + "..."
-        context_parts.append(f"Source {i+1}: {content}")
+            
+        context_parts.append(f"Source {valid_doc_count + 1}: {content}")
+        valid_doc_count += 1
     
-    return {
+    result = {
         "context": "\n".join(context_parts),
-        "source_count": len(documents),
-        "relevance": "high" if documents else "none"
+        "source_count": valid_doc_count,
+        "relevance": "high" if valid_doc_count > 0 else "none"
     }
+    debug_rag_print("TOOL", f"✅ Context formatting complete", {"source_count": valid_doc_count, "context_length": len(result["context"])})
+    return result
 
 
 def create_rag_retriever_agent(chat_generator: Optional[Any] = None,
@@ -249,6 +295,11 @@ TOOL PARAMETER RULES:
 - Example: If retrieve_documents returns {"documents": [...], "query": "Alethi"}, then call format_context_for_scenario with documents=[...] and query="Alethi"
 
 NOTE: RAG assessment is now handled by the main interface agent. This agent focuses purely on document retrieval and formatting.
+
+CRITICAL: When calling format_context_for_scenario, you MUST:
+1. First call retrieve_documents to get results
+2. Extract 'documents' list and 'query' string from the retrieve_documents response
+3. Pass these as separate parameters to format_context_for_scenario(documents=docs_list, query=query_string)
 
 Always use the tools provided to complete your tasks and pass parameters correctly between tool calls.
 """

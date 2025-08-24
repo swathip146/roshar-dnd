@@ -4,12 +4,29 @@ Handles player input parsing, command interpretation, and response formatting us
 Updated to use shared DTO contract for predictable data flow
 """
 
+# DEBUG CONTROL - Set to True to enable detailed debugging
+DEBUG_INTERFACE_AGENT = True
+DEBUG_INTERFACE_TOOLS = True
+DEBUG_ROUTING = True
+
+import time
 from typing import Dict, Any, Optional, List
 from haystack.components.agents import Agent
 from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
 from config.llm_config import get_global_config_manager
 from shared_contract import RequestDTO, new_dto
+
+def debug_interface_print(category: str, message: str, data: Any = None):
+    """Centralized debug printing for interface agent"""
+    if DEBUG_INTERFACE_AGENT:
+        timestamp = time.strftime('%H:%M:%S')
+        print(f"🐛 INTERFACE [{timestamp}] {category}: {message}")
+        if data is not None and DEBUG_INTERFACE_TOOLS:
+            if isinstance(data, dict) and len(str(data)) > 300:
+                print(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+            else:
+                print(f"    📊 Data: {data}")
 
 
 @tool
@@ -24,18 +41,24 @@ def normalize_incoming(player_input: str, game_context: Dict[str, Any]) -> Dict[
     Returns:
         Normalized DTO with parsed action and intent
     """
+    debug_interface_print("TOOL", "🔄 normalize_incoming called", {"player_input": player_input, "context_type": type(game_context)})
+    
     # Handle string input - parse JSON if needed
     if isinstance(game_context, str):
+        debug_interface_print("TOOL", "🔄 Converting string game_context to dict")
         try:
             import json
             import ast
             # Try AST first for Python dict strings with single quotes
             try:
                 game_context = ast.literal_eval(game_context)
+                debug_interface_print("TOOL", "✅ AST parsing successful")
             except (ValueError, SyntaxError):
                 # Fallback to JSON parsing
                 game_context = json.loads(game_context)
+                debug_interface_print("TOOL", "✅ JSON parsing successful")
         except (json.JSONDecodeError, ValueError, SyntaxError):
+            debug_interface_print("TOOL", "⚠️ Context parsing failed, using empty dict")
             game_context = {}
     
     # Create new DTO
@@ -162,15 +185,28 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
     Returns:
         Updated DTO with routing decision and routing metadata
     """
-    # Handle string input - parse JSON if needed
+    debug_interface_print("TOOL", "🎯 determine_response_routing called", {"dto_type": type(dto), "world_state": bool(world_state)})
+    
+    # Handle string input - parse both Python dict strings and JSON
     if isinstance(dto, str):
+        debug_interface_print("TOOL", "🔄 Converting string DTO to dict")
         try:
             import json
-            dto = json.loads(dto)
-        except (json.JSONDecodeError, TypeError):
+            import ast
+            # Try AST first for Python dict strings with single quotes
+            try:
+                dto = ast.literal_eval(dto)
+                debug_interface_print("TOOL", "✅ AST parsing successful")
+            except (ValueError, SyntaxError):
+                # Fallback to JSON parsing
+                dto = json.loads(dto)
+                debug_interface_print("TOOL", "✅ JSON parsing successful")
+        except (json.JSONDecodeError, ValueError, SyntaxError, TypeError):
+            debug_interface_print("TOOL", "❌ Invalid DTO format - could not parse string")
             return {"error": "Invalid DTO format", "route": "simple_response"}
     
     if not isinstance(dto, dict):
+        debug_interface_print("TOOL", f"❌ Invalid DTO type: {type(dto)}")
         return {"error": "DTO must be dict or JSON string", "route": "simple_response"}
     
     # Initialize routing metadata
@@ -194,6 +230,7 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
     
     rules_matches = [kw for kw in rules_keywords if kw in player_input or kw in action]
     if rules_matches or request_type == "rules_lookup":
+        debug_interface_print("ROUTING", f"📜 Rules route selected", {"matches": rules_matches})
         dto["route"] = "rules"
         routing_metadata["rules_checked"] = rules_matches
         routing_metadata["confidence"] = 0.9
@@ -247,6 +284,7 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
         routing_metadata["confidence"] = 0.8
     
     if npc_interaction:
+        debug_interface_print("ROUTING", f"👥 NPC route selected", {"reason": npc_reason})
         dto["route"] = "npc"
         routing_metadata["reason"] = npc_reason
         dto["debug"]["routing"] = routing_metadata
@@ -257,6 +295,7 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
     meta_matches = [kw for kw in meta_keywords if kw in player_input or kw in action]
     
     if meta_matches:
+        debug_interface_print("ROUTING", f"⚙️ Meta route selected", {"matches": meta_matches})
         dto["route"] = "meta"
         routing_metadata["reason"] = f"Meta command detected: {meta_matches}"
         routing_metadata["confidence"] = 0.95
@@ -293,6 +332,7 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
     
     pure_rag_matches = [kw for kw in pure_rag_keywords if kw in player_input]
     if pure_rag_matches:
+        debug_interface_print("ROUTING", f"🔍 RAG query route selected", {"matches": pure_rag_matches})
         dto["route"] = "rag_query"
         routing_metadata["reason"] = f"Pure knowledge query detected: {pure_rag_matches}"
         routing_metadata["confidence"] = 0.85
@@ -308,6 +348,7 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
     
     lore_matches = [kw for kw in lore_keywords if kw in player_input]
     if lore_matches:
+        debug_interface_print("ROUTING", f"📚 RAG-enhanced scenario route selected", {"matches": lore_matches})
         dto["route"] = "scenario_pipeline_with_rag_context"
         routing_metadata["reason"] = f"Lore/knowledge query detected: {lore_matches}"
         routing_metadata["confidence"] = 0.9
@@ -316,6 +357,7 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
         return dto
     
     # Default Rule: Everything else goes to scenario (potentially with RAG assessment)
+    debug_interface_print("ROUTING", "🎭 Default scenario route selected")
     dto["route"] = "scenario"
     routing_metadata["reason"] = "Default routing - in-world action"
     routing_metadata["confidence"] = 0.6
@@ -328,7 +370,9 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
         "open", "close", "take", "drop", "use", "interact", "touch"
     ]
     
-    if any(kw in player_input for kw in action_keywords):
+    action_matches = [kw for kw in action_keywords if kw in player_input]
+    if action_matches:
+        debug_interface_print("ROUTING", f"🎯 Action keywords found, enhancing confidence", {"matches": action_matches})
         routing_metadata["confidence"] = 0.8
         routing_metadata["fallback_used"] = False
         routing_metadata["reason"] = "Clear action-based scenario request"
@@ -336,9 +380,11 @@ def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] 
         # Some actions might benefit from RAG assessment
         investigation_keywords = ["search", "examine", "investigate", "explore"]
         if any(kw in player_input for kw in investigation_keywords):
+            debug_interface_print("ROUTING", "🔍 Investigation keywords detected, may need RAG")
             routing_metadata["may_need_rag"] = True
     
     dto["debug"]["routing"] = routing_metadata
+    debug_interface_print("ROUTING", f"✅ Routing decision complete", {"route": dto["route"], "confidence": routing_metadata["confidence"]})
     return dto
 
 
