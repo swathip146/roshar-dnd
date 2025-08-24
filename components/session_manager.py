@@ -1,6 +1,7 @@
 """
-Session Manager - Persistent game session handling
+Session Manager - Persistent game session handling with Fixed System Support
 Integrates with orchestrator for complete state management using Haystack component patterns
+Enhanced for Fixed System DTO compatibility and routing history tracking
 """
 
 import json
@@ -9,6 +10,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from haystack import component
+
+# Import Fixed System components
+try:
+    from shared_contract import FixedSystemDTO, new_fixed_dto
+    FIXED_SYSTEM_AVAILABLE = True
+except ImportError:
+    FIXED_SYSTEM_AVAILABLE = False
 
 
 @dataclass
@@ -122,21 +130,45 @@ class SessionManager:
             
             self.current_session.last_save_time = time.time()
             
-            # Prepare save data
+            # Enhanced save data with Fixed System support
             save_data = {
                 "session_metadata": {
                     "session_id": self.current_session.session_id,
                     "player_name": self.current_session.player_name,
                     "created_time": self.current_session.created_time,
                     "last_save_time": self.current_session.last_save_time,
-                    "save_version": "2.0_haystack",
-                    "session_manager_version": "1.0"
+                    "save_version": "3.0_fixed_system",  # Updated version
+                    "session_manager_version": "2.0",
+                    "fixed_system_compatible": FIXED_SYSTEM_AVAILABLE
                 },
                 "game_state": self.current_session.game_state,
                 "character_data": self.current_session.character_data,
                 "orchestrator_state": self.current_session.orchestrator_state,
                 "statistics": self.current_session.statistics,
-                "session_stats": self.session_stats
+                "session_stats": self.session_stats,
+                
+                # Enhanced world state for Fixed System
+                "world_state": {
+                    "current_location": self.current_session.game_state.get("location", "Unknown"),
+                    "npcs": self.current_session.game_state.get("npcs", {}),
+                    "environment": self.current_session.game_state.get("environment", {}),
+                    "campaign_info": self.current_session.game_state.get("campaign_info", {}),
+                    "locations_visited": self.current_session.game_state.get("session_stats", {}).get("locations_visited", []),
+                    "npcs_encountered": self.current_session.game_state.get("session_stats", {}).get("npcs_encountered", [])
+                },
+                
+                # Fixed System routing history
+                "fixed_system_data": {
+                    "routing_history": getattr(self, '_routing_history', [])[-20:],  # Last 20 decisions
+                    "world_state_snapshot": {
+                        "npc_count": len(self.current_session.game_state.get("npcs", {})),
+                        "location_count": len(self.current_session.game_state.get("session_stats", {}).get("locations_visited", [])),
+                        "current_context": {
+                            "location": self.current_session.game_state.get("location", "Unknown"),
+                            "active_npcs": list(self.current_session.game_state.get("npcs", {}).keys())[:5]
+                        }
+                    }
+                }
             }
             
             # Write to file
@@ -265,6 +297,7 @@ class SessionManager:
                             "created_time": metadata.get("created_time", 0),
                             "last_save_time": metadata.get("last_save_time", 0),
                             "save_version": metadata.get("save_version", "1.0"),
+                            "fixed_system_compatible": metadata.get("fixed_system_compatible", False),
                             "file_size": filepath.stat().st_size
                         })
                     else:
@@ -336,7 +369,49 @@ class SessionManager:
             "session_stats": self.session_stats,
             "current_session": current_session_info,
             "save_directory": str(self.save_directory),
-            "available_saves": len(list(self.save_directory.glob("*.json")))
+            "available_saves": len(list(self.save_directory.glob("*.json"))),
+            "fixed_system_enabled": FIXED_SYSTEM_AVAILABLE,
+            "routing_history_entries": len(getattr(self, '_routing_history', []))
+        }
+    
+    def add_routing_decision(self, routing_data: Dict[str, Any]):
+        """Add routing decision to history for Fixed System tracking"""
+        if not hasattr(self, '_routing_history'):
+            self._routing_history = []
+        
+        routing_entry = {
+            "timestamp": time.time(),
+            "route": routing_data.get("route", "unknown"),
+            "confidence": routing_data.get("confidence", 0.0),
+            "player_input": routing_data.get("player_input", ""),
+            "type": routing_data.get("type", "unknown")
+        }
+        
+        self._routing_history.append(routing_entry)
+        
+        # Keep only last 50 entries to manage memory
+        if len(self._routing_history) > 50:
+            self._routing_history = self._routing_history[-50:]
+    
+    def get_routing_statistics(self) -> Dict[str, Any]:
+        """Get routing decision statistics for Fixed System analysis"""
+        if not hasattr(self, '_routing_history'):
+            return {"total_decisions": 0, "route_distribution": {}}
+        
+        total = len(self._routing_history)
+        route_counts = {}
+        confidence_sum = 0
+        
+        for entry in self._routing_history:
+            route = entry.get("route", "unknown")
+            route_counts[route] = route_counts.get(route, 0) + 1
+            confidence_sum += entry.get("confidence", 0)
+        
+        return {
+            "total_decisions": total,
+            "route_distribution": route_counts,
+            "average_confidence": confidence_sum / total if total > 0 else 0,
+            "fixed_system_tracking": True
         }
 
 

@@ -247,7 +247,9 @@ class HaystackDnDGame:
             if not session_state.get("session_active"):
                 return "No active session to process."
             
-            # Create comprehensive request with full session context
+            # Create comprehensive request with enhanced world state context for fixed system
+            game_state = session_state.get("game_state", {})
+            
             request = GameRequest(
                 request_type="gameplay_turn",
                 data={
@@ -257,14 +259,28 @@ class HaystackDnDGame:
                 context={
                     # Full session state for orchestrator and interface agent
                     "session_state": session_state,
-                    "game_state": session_state.get("game_state", {}),
+                    "game_state": game_state,
                     "character_data": session_state.get("character_data", {}),
                     "player_name": session_state.get("player_name", "Player"),
                     
-                    # Additional context for enhanced processing
+                    # Enhanced context for fixed system routing
                     "collection_name": self.config.collection_name,
                     "recent_history": self._format_recent_history(),
-                    "session_duration": session_state.get("session_duration", 0)
+                    "session_duration": session_state.get("session_duration", 0),
+                    
+                    # World state context for fixed system integration
+                    "world_state": {
+                        "current_location": game_state.get("location", "Unknown"),
+                        "npcs": game_state.get("npcs", {}),
+                        "environment": game_state.get("environment", {}),
+                        "campaign_info": game_state.get("campaign_info", {}),
+                        "locations_visited": game_state.get("session_stats", {}).get("locations_visited", []),
+                        "npcs_encountered": game_state.get("session_stats", {}).get("npcs_encountered", [])
+                    },
+                    
+                    # Fixed system compatibility flags
+                    "fixed_system_enabled": True,
+                    "enhanced_routing": True
                 }
             )
             
@@ -288,12 +304,19 @@ class HaystackDnDGame:
     
     
     def _format_enhanced_response(self, response_data: Dict[str, Any]) -> Dict[str, str]:
-        """Format enhanced response data for display with comprehensive fallback handling"""
+        """Format enhanced response data for display with comprehensive fallback handling and fixed system integration"""
         
         formatted_response = ""
         
         # Debug: Log what we received for troubleshooting
         print(f"🔍 Debug: Response data keys: {list(response_data.keys()) if response_data else 'None'}")
+        
+        # Check if this came from fixed system
+        routing_context = response_data.get("routing_context", {})
+        fixed_system_used = response_data.get("fixed_system_used", False)
+        
+        if fixed_system_used:
+            print(f"✅ Response generated using fixed routing system (route: {routing_context.get('route', 'unknown')})")
         
         # Handle scenario-style responses
         if response_data and "scene" in response_data:
@@ -307,6 +330,12 @@ class HaystackDnDGame:
                     title = choice.get("title", "Action")
                     description = choice.get("description", "")
                     formatted_response += f"\n• {title}: {description}"
+            
+            # Add routing info if available
+            if routing_context:
+                confidence = routing_context.get("confidence", 0)
+                if confidence > 0:
+                    print(f"🎯 Routing confidence: {confidence:.1%}")
                     
         # Handle skill check results
         elif response_data and "skill_check_result" in response_data:
@@ -327,6 +356,11 @@ class HaystackDnDGame:
             dialogue = npc_data.get("dialogue", "The NPC responds...")
             formatted_response = f"💬 {dialogue}"
             
+            # Show NPC resolution if from fixed system
+            if routing_context and routing_context.get("target"):
+                resolved_npc = routing_context["target"]
+                print(f"👥 NPC interaction with: {resolved_npc}")
+                
         # Handle general responses
         elif response_data and "response" in response_data:
             formatted_response = response_data["response"]
@@ -360,10 +394,16 @@ class HaystackDnDGame:
             if not formatted_response:
                 formatted_response = "The adventure continues in ways you never expected..."
         
-        return {
+        # Enhanced response metadata
+        response_metadata = {
             "formatted_response": formatted_response,
-            "raw_data": response_data
+            "raw_data": response_data,
+            "fixed_system_used": fixed_system_used,
+            "routing_confidence": routing_context.get("confidence", 0) if routing_context else 0,
+            "processing_route": routing_context.get("route", "unknown") if routing_context else "legacy"
         }
+        
+        return response_metadata
     
     def _update_game_state(self, player_input: str, response_data: Dict[str, Any]):
         """Update game state using GameEngine's authoritative state management"""

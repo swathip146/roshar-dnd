@@ -39,7 +39,9 @@ from agents.scenario_generator_agent import create_scenario_generator_agent
 from agents.rag_retriever_agent import create_rag_retriever_agent
 from agents.npc_controller_agent import create_npc_controller_agent
 from agents.main_interface_agent import create_main_interface_agent
+from main_interface_agent_fixed import create_fixed_interface_agent
 from shared_contract import normalize_incoming
+from adapters.world_state_adapter import WorldStateAdapter, MockWorldStateAdapter
 from config.llm_config import (
     create_custom_config,
     LLMConfigManager,
@@ -72,6 +74,7 @@ class PipelineOrchestrator(SimpleOrchestrator):
         # Initialize pipeline infrastructure
         self.pipelines: Dict[str, Pipeline] = {}
         self.agents: Dict[str, Any] = {}
+        self.world_state_adapter: Optional[WorldStateAdapter] = None
         
         if enable_pipelines:
             self._initialize_pipeline_infrastructure()
@@ -80,24 +83,35 @@ class PipelineOrchestrator(SimpleOrchestrator):
         print(f"🔄 Pipeline Orchestrator initialized (pipelines: {'enabled' if enable_pipelines else 'disabled'})")
     
     def _initialize_pipeline_infrastructure(self) -> None:
-        """Initialize Haystack agents and LLM configuration"""
+        """Initialize Haystack agents and LLM configuration with fixed system integration"""
         try:
             # Create Custom GenAI configuration
             custom_config = create_custom_config()
             global_manager = LLMConfigManager(custom_config)
             set_global_config_manager(global_manager)
             
-            # Initialize agents with shared document store to avoid resource conflicts
+            # Create world state adapter for fixed system integration
+            if hasattr(self, 'game_engine') and self.game_engine:
+                self.world_state_adapter = WorldStateAdapter(self.game_engine)
+                debug_print("ORCHESTRATOR", "✅ Created WorldStateAdapter with GameEngine")
+            else:
+                self.world_state_adapter = MockWorldStateAdapter()
+                debug_print("ORCHESTRATOR", "⚠️ Created MockWorldStateAdapter (no GameEngine)")
+            
+            # Initialize agents - use fixed interface agent for improved performance
             scenario_agent = create_scenario_generator_agent()
             rag_agent = create_rag_retriever_agent(document_store=self.shared_document_store)
             npc_agent = create_npc_controller_agent()
-            interface_agent = create_main_interface_agent()
+            
+            # Use the new fixed interface agent
+            interface_agent = create_fixed_interface_agent()
+            debug_print("ORCHESTRATOR", "✅ Created fixed interface agent")
             
             self.agents = {
                 "scenario_generator": scenario_agent,
                 "rag_retriever": rag_agent,
                 "npc_controller": npc_agent,
-                "main_interface": interface_agent
+                "main_interface": interface_agent  # Fixed system agent
             }
             
             if self.shared_document_store:
@@ -286,77 +300,113 @@ class PipelineOrchestrator(SimpleOrchestrator):
             )
     
     def _handle_gameplay_turn_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle full gameplay turn using pipeline integration"""
+        """Handle full gameplay turn using fixed system integration"""
         data = request.get("data", {})
         player_input = data.get("player_input", "")
         context = data.get("context", {})
         
+        debug_print("GAMEPLAY", f"🎮 Starting gameplay turn", {"input": player_input})
+        
         try:
-            # Step 1: Process input through interface agent
+            # Step 1: Process input through fixed interface agent
             interface_result = self._run_interface_pipeline({
                 "player_input": player_input,
                 "game_context": context
             })
             
+            debug_print("GAMEPLAY", f"📋 Interface result", {"routing": interface_result.get("routing_strategy"), "route": interface_result.get("route")})
+            
             # Check for interface processing error
             if interface_result is None or "error" in interface_result:
-                error_msg = interface_result.get("error", "Interface processing returned None") if interface_result else "Interface processing returned None"
+                error_msg = interface_result.get("error", "Interface processing failed") if interface_result else "Interface processing returned None"
+                debug_print("GAMEPLAY", f"❌ Interface error: {error_msg}")
                 return {
                     "response": f"You {player_input}. The world responds accordingly.",
                     "processed_by": "fallback_pipeline",
                     "interface_error": error_msg
                 }
             
-            # Step 2: Determine routing based on interface analysis
-            routing = interface_result.get("routing_strategy", "simple_response") if interface_result else "simple_response"
+            # Step 2: Route based on fixed system routing decision
+            routing_strategy = interface_result.get("routing_strategy", "scenario_pipeline")
+            route = interface_result.get("route", "scenario")
             
-            if routing == "scenario_pipeline":
-                return self._run_scenario_pipeline({
+            debug_print("GAMEPLAY", f"🎯 Routing decision", {"strategy": routing_strategy, "route": route})
+            
+            # Enhanced routing with fixed system data
+            if routing_strategy == "scenario_pipeline":
+                scenario_data = {
                     "player_action": player_input,
                     "game_context": context,
-                    "rag_context": request.get("rag_context", "")
-                })
+                    "routing_context": interface_result,  # Pass routing context
+                    "rag_assessment": interface_result.get("rag", {})
+                }
+                return self._run_scenario_pipeline(scenario_data)
                 
-            elif routing == "npc_pipeline":
-                npc_id = context.get("target_npc", "unknown_npc")
-                return self._run_npc_pipeline({
-                    "npc_id": npc_id,
+            elif routing_strategy == "npc_pipeline":
+                # Use resolved target from fixed system
+                target_npc = interface_result.get("target", "unknown_npc")
+                npc_data = {
+                    "npc_id": target_npc,
                     "player_action": player_input,
-                    "npc_context": context.get("npc_data", {})
-                })
+                    "npc_context": context.get("npc_data", {}),
+                    "routing_context": interface_result
+                }
+                return self._run_npc_pipeline(npc_data)
                 
-            elif routing == "skill_pipeline":
-                # Process skill check through existing components
-                primary_skill = interface_result.get("primary_skill", "investigation")  # Default skill
+            elif routing_strategy == "rules_pipeline":
+                # Enhanced skill check with fixed system context
                 skill_request = GameRequest(
                     request_type="skill_check",
                     data={
                         "action": player_input,
                         "actor": data.get("actor", "player"),
-                        "skill": primary_skill,
-                        "context": context
+                        "skill": interface_result.get("suggested_skill", "investigation"),
+                        "context": context,
+                        "routing_context": interface_result
                     }
                 )
                 skill_response = super().process_request(skill_request)
                 return skill_response.data if skill_response.success else {
                     "error": "Skill check failed",
-                    "attempted_skill": primary_skill,
-                    "fallback_response": f"You attempt to {player_input} but encounter difficulties."
+                    "attempted_skill": interface_result.get("suggested_skill", "investigation"),
+                    "fallback_response": f"You attempt to {player_input} but encounter difficulties.",
+                    "routing_context": interface_result
+                }
+                
+            elif routing_strategy == "orchestrator_direct":
+                # Handle meta commands directly through orchestrator
+                meta_request = GameRequest(
+                    request_type="meta_command",
+                    data={
+                        "command": player_input,
+                        "context": context,
+                        "routing_context": interface_result
+                    }
+                )
+                meta_response = super().process_request(meta_request)
+                return meta_response.data if meta_response.success else {
+                    "response": f"Meta command '{player_input}' processed.",
+                    "processed_by": "orchestrator_meta"
                 }
                 
             else:
-                # Simple response
+                # Enhanced fallback with routing context
+                debug_print("GAMEPLAY", f"🔄 Using enhanced fallback for strategy: {routing_strategy}")
                 return {
-                    "response": f"You {player_input}. The world responds accordingly.",
-                    "processed_by": "simple_pipeline"
+                    "response": f"You {player_input}. The world responds in unexpected ways.",
+                    "processed_by": "enhanced_fallback",
+                    "routing_context": interface_result,
+                    "confidence": interface_result.get("confidence", 0.5)
                 }
                 
         except Exception as e:
+            debug_print("GAMEPLAY", f"💥 Gameplay pipeline exception: {e}")
             pipeline_logger.error(f"Gameplay turn pipeline failed: {e}")
             return {
                 "response": f"You {player_input}. The world responds accordingly.",
                 "processed_by": "error_fallback",
-                "error": str(e)
+                "error": str(e),
+                "debug_trace": traceback.format_exc()
             }
     
     def _handle_scenario_pipeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -706,64 +756,90 @@ class PipelineOrchestrator(SimpleOrchestrator):
             return {"error": f"NPC pipeline failed: {e}"}
     
     def _run_interface_pipeline(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Run interface processing directly with agent (bypassing complex pipeline)"""
+        """Run interface processing with fixed system integration"""
         
         try:
-            # Get interface agent directly
+            # Get fixed interface agent
             interface_agent = self.agents.get("main_interface")
             if not interface_agent:
+                debug_print("INTERFACE", "❌ Interface agent not available")
                 return {"error": "Interface agent not available"}
             
             player_input = data.get("player_input", "")
             game_context = data.get("game_context", {})
             
-            # Create direct message for interface agent
+            debug_print("INTERFACE", f"🎯 Processing input: {player_input}")
+            
+            # Add world state adapter to context for fixed system
+            enhanced_context = game_context.copy()
+            enhanced_context["world_state_adapter"] = self.world_state_adapter
+            
+            # Create message for fixed interface agent
             interface_message = ChatMessage.from_user(f"""
             Player Input: {player_input}
-            Game Context: {game_context}
+            Game Context: {enhanced_context}
             
-            Analyze this player input and determine the appropriate processing route.
-            Use the analyze_player_input tool to provide routing decisions.
+            Process this input using execute_deterministic_routing.
             """)
             
-            # Run interface agent directly
+            # Run fixed interface agent (single step execution)
             result = interface_agent.run(messages=[interface_message])
+            debug_print("INTERFACE", f"📥 Agent result keys: {list(result.keys()) if isinstance(result, dict) else type(result)}")
             
-            # Check for routing decision in agent state
-            if "routing_decision" in result:
-                routing_decision = result["routing_decision"]
+            # Extract routing result from agent state
+            if "routing_result" in result:
+                routing_result = result["routing_result"]
+                debug_print("INTERFACE", f"✅ Got routing result: {routing_result.get('route', 'unknown')}")
                 
-                if isinstance(routing_decision, dict):
-                    # Map agent route to pipeline routing strategy
-                    route = routing_decision.get('route', 'simple_response')
+                if isinstance(routing_result, dict):
+                    # Map fixed system route to pipeline routing strategy
+                    route = routing_result.get('route', 'scenario')
                     route_mapping = {
                         "scenario": "scenario_pipeline",
-                        "scenario_pipeline_with_rag_context": "scenario_pipeline_with_rag_context",
-                        "rag_query": "rag_query",
                         "npc": "npc_pipeline",
-                        "rules": "skill_pipeline",
+                        "rules": "rules_pipeline",
                         "meta": "orchestrator_direct"
                     }
-                    routing_strategy = route_mapping.get(route, "scenario_pipeline")  # Default to scenario
-                    routing_decision['routing_strategy'] = routing_strategy
-                    return routing_decision
+                    routing_strategy = route_mapping.get(route, "scenario_pipeline")
+                    
+                    # Enhanced routing decision with fixed system data
+                    enhanced_result = routing_result.copy()
+                    enhanced_result['routing_strategy'] = routing_strategy
+                    enhanced_result['fixed_system_used'] = True
+                    
+                    return enhanced_result
             
-            # If no routing decision, default to scenario generation for better gameplay
-            return {
-                "routing_strategy": "scenario_pipeline",
-                "route": "scenario",
-                "confidence": 0.8,
-                "reasoning": "Default routing to scenario generation for interactive gameplay"
+            # If no routing result, use execute_deterministic_routing_direct
+            debug_print("INTERFACE", "⚠️ No routing_result in agent state, using direct execution")
+            from main_interface_agent_fixed import execute_deterministic_routing_direct
+            routing_result = execute_deterministic_routing_direct(player_input, enhanced_context)
+            
+            # Map route to strategy
+            route = routing_result.get('route', 'scenario')
+            route_mapping = {
+                "scenario": "scenario_pipeline",
+                "npc": "npc_pipeline",
+                "rules": "rules_pipeline",
+                "meta": "orchestrator_direct"
             }
+            routing_result['routing_strategy'] = route_mapping.get(route, "scenario_pipeline")
+            routing_result['fixed_system_used'] = True
+            
+            return routing_result
                 
         except Exception as e:
-            pipeline_logger.error(f"Interface pipeline failed: {e}")
-            # Return scenario routing as fallback for better gameplay than simple responses
+            debug_print("INTERFACE", f"💥 Interface pipeline exception: {e}")
+            pipeline_logger.error(f"Fixed interface pipeline failed: {e}")
+            
+            # Enhanced fallback with graceful degradation
             return {
                 "routing_strategy": "scenario_pipeline",
                 "route": "scenario",
-                "confidence": 0.5,
-                "reasoning": f"Error fallback - routing to scenario generation: {str(e)}"
+                "type": "scenario_action",
+                "confidence": 0.3,
+                "rationale": f"Error fallback - routing to scenario: {str(e)}",
+                "fixed_system_used": False,
+                "fallback_used": True
             }
     
     def get_pipeline_status(self) -> Dict[str, Any]:

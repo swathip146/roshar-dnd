@@ -1,9 +1,10 @@
 
 """
-Deterministic Interface Agent (Intent → RAG need → Route)
-- Replaces brittle keyword checks and LLM-freeform tool usage.
-- Uses a constrained JSON intent classifier (temperature=0) and a sequential, code-driven pipeline.
-- Optionally falls back to an embeddings router when confidence is low.
+Deterministic Interface Agent - Haystack Integration
+Enhanced version of the original fixed system integrated with Haystack Agent framework
+- Uses a constrained JSON intent classifier (temperature=0) and sequential pipeline
+- Integrates with WorldStateAdapter for entity resolution
+- Provides single-tool routing for maximum performance
 """
 
 from __future__ import annotations
@@ -12,111 +13,38 @@ import json
 import time
 import uuid
 
-# Keep compatibility with your config manager
-try:
-    from config.llm_config import get_global_config_manager
-except Exception:  # pragma: no cover
-    def get_global_config_manager():
-        raise RuntimeError("get_global_config_manager() not available in this environment.")
+# Haystack imports
+from haystack.components.agents import Agent
+from haystack.dataclasses import ChatMessage
+from haystack.tools import tool
+
+# Local imports
+from config.llm_config import get_global_config_manager
+from shared_contract import new_fixed_dto, FixedSystemDTO
+from adapters.world_state_adapter import WorldStateAdapter, MockWorldStateAdapter
+
+# Debug control
+DEBUG_FIXED_AGENT = True
+
+def _log_event(dto: Dict[str, Any], event: str, data: Dict[str, Any]):
+    """Log events for debugging"""
+    if DEBUG_FIXED_AGENT:
+        print(f"🔧 FIXED_AGENT [{event}]: {data}")
+        if "debug" not in dto:
+            dto["debug"] = {}
+        if "events" not in dto["debug"]:
+            dto["debug"]["events"] = []
+        dto["debug"]["events"].append({"event": event, "data": data, "ts": time.time()})
 
 
 # --- DTO (shared contract-lite) ------------------------------------------------------------------
 
-def _new_dto(player_input: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "correlation_id": str(uuid.uuid4()),
-        "ts": time.time(),
-        "type": "meta",                     # will become rules_lookup | npc_interaction | scenario | meta
-        "player_input": player_input,
-        "action": "",
-        "target": None,
-        "context": ctx or {},
-        "arguments": {},
-        "rag": {"needed": False, "query": "", "filters": {}, "docs": []},
-        "route": None,
-        "debug": {},
-    }
+# Use shared contract DTO creation
+def _new_dto(player_input: str, ctx: Dict[str, Any]) -> FixedSystemDTO:
+    """Create new DTO using shared contract"""
+    return new_fixed_dto(player_input, ctx)
 
-# --- LLM helpers ----------------------------------------------------------------------------------
-
-def _call_llm_text(llm, prompt: str, temperature: float = 0.0, max_tokens: Optional[int] = None) -> str:
-    """Adapter for different llm client shapes."""
-    # Try common call shapes
-    if hasattr(llm, "invoke"):
-        return llm.invoke(prompt, temperature=temperature, max_tokens=max_tokens)  # type: ignore
-    if hasattr(llm, "generate"):
-        out = llm.generate(prompt=prompt, temperature=temperature, max_tokens=max_tokens)  # type: ignore
-        # try to extract text
-        if isinstance(out, dict) and "text" in out:  # custom wrapper
-            return out["text"]
-        return str(out)
-    if callable(llm):
-        return llm(prompt, temperature=temperature, max_tokens=max_tokens)  # type: ignore
-    raise RuntimeError("Unsupported LLM client interface")
-
-def _safe_load_json(raw: str) -> dict:
-    raw = raw.strip()
-    # Strip code fences if present
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1] if len(parts) >= 2 else raw
-    try:
-        return json.loads(raw)
-    except Exception:
-        # last resort: try to locate first and last braces
-        try:
-            start = raw.find("{")
-            end = raw.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                return json.loads(raw[start:end+1])
-        except Exception:
-            pass
-    return {"primary":"meta","secondary":[],"action_verb":"","target_string":"","target_kind":"unknown","arguments":{},"confidence":0.0,"rationale":"parse_error"}
-
-# --- Intent classification ------------------------------------------------------------------------
-
-_INTENT_SYSTEM = (
-    "You are an intent router for a D&D 5e game. "
-    "Output ONLY valid JSON using this schema: "
-    '{ "primary": "rules_lookup|npc_interaction|scenario_action|world_lore|inventory_management|party_management|meta", '
-    '"secondary": ["..."], "action_verb": "...", "target_string": "...", '
-    '"target_kind": "npc|object|place|unknown", "arguments": {}, "confidence": 0..1, "rationale": "..." } '
-    "Do not add commentary."
-)
-
-_INTENT_FEWSHOTS = [
-    {
-        "in": "cast fireball at level 5",
-        "out": {"primary":"rules_lookup","secondary":[],"action_verb":"cast","target_string":"fireball","target_kind":"object","arguments":{"spell":"fireball","level":5},"confidence":0.9,"rationale":"spell inquiry"}
-    },
-    {
-        "in": "ask the bartender about rumors",
-        "out": {"primary":"npc_interaction","secondary":[],"action_verb":"ask","target_string":"bartender","target_kind":"npc","arguments":{},"confidence":0.85,"rationale":"npc talk"}
-    },
-    {
-        "in": "search the alcove for hidden levers",
-        "out": {"primary":"scenario_action","secondary":[],"action_verb":"search","target_string":"alcove","target_kind":"object","arguments":{},"confidence":0.8,"rationale":"environment action"}
-    },
-    {
-        "in": "what is the Dragonbone Spire?",
-        "out": {"primary":"world_lore","secondary":[],"action_verb":"query","target_string":"Dragonbone Spire","target_kind":"place","arguments":{},"confidence":0.8,"rationale":"lore query"}
-    },
-]
-
-def _render_intent_prompt(player_input: str, ctx: Dict[str, Any], npc_names: List[str], place_names: List[str]) -> str:
-    few = "\n".join([
-        f'Example:\nUser: {ex["in"]}\nJSON: {json.dumps(ex["out"], ensure_ascii=False)}'
-        for ex in _INTENT_FEWSHOTS
-    ])
-    return (
-        f"{_INTENT_SYSTEM}\n\n"
-        f"{few}\n\n"
-        f"User Input: {player_input}\n"
-        f"Game Context JSON: {json.dumps(ctx, ensure_ascii=False)}\n"
-        f"Known NPC Names: {', '.join(npc_names) if npc_names else ''}\n"
-        f"Known Places: {', '.join(place_names) if place_names else ''}\n"
-        f"JSON:"
-    )
+# --- Intent classification helpers ---------------------------------------------------------------
 
 def _map_primary_to_type(primary: str) -> str:
     m = {
@@ -130,31 +58,7 @@ def _map_primary_to_type(primary: str) -> str:
     }
     return m.get(primary, "scenario")
 
-# --- Embedding router (optional) ------------------------------------------------------------------
-
-# --- RAG need prediction --------------------------------------------------------------------------
-
-_RAG_PREDICTOR_PROMPT = (
-    "Decide if the user's request needs external knowledge. Output JSON: "
-    '{ "needed": true|false, "category": "rules|lore|statblock|none", "confidence": 0..1 }.\n'
-    "User: {text}\n"
-)
-
-def _predict_rag_need(dto: Dict[str, Any], llm) -> Dict[str, Any]:
-    text = dto["player_input"]
-    raw = _call_llm_text(llm, _RAG_PREDICTOR_PROMPT.format(text=text), temperature=0.0)
-    data = _safe_load_json(raw)
-    needed = bool(data.get("needed", False))
-    cat = data.get("category", "none")
-    conf = float(max(0.0, min(1.0, data.get("confidence", 0.0))))
-    dto["rag"]["needed"] = needed
-    dto["rag"]["query"] = text if needed else ""
-    dto["rag"]["filters"] = {}
-    # refine file_type filter
-    if needed and cat in ("rules","lore","statblock"):
-        dto["rag"]["filters"]["file_type"] = [cat if cat != "none" else "lore"]
-    dto["debug"]["rag_predictor"] = {"category": cat, "confidence": conf}
-    return dto
+# --- Helper functions -----------------------------------------------------------------------------
 
 # --- Target resolution (simple fuzzy) -------------------------------------------------------------
 
@@ -181,68 +85,324 @@ def _resolve_target(target_string: Optional[str], world_state) -> Tuple[Optional
             return str(p), "place"
     return target_string, "unknown"
 
-# --- Public API -----------------------------------------------------------------------------------
+# --- Haystack Agent Integration ------------------------------------------------------------------
 
-def build_interface_agent(world_state, *, use_embeddings_router: bool = True, intent_conf_thresh: float = 0.35):
+def _create_intent_classification_dto(intent_data: Dict[str, Any], player_input: str, game_context: Dict[str, Any]) -> Dict[str, Any]:
+    """Process LLM intent classification result into routing DTO"""
+    
+    # Get world state adapter from context
+    world_state_adapter = game_context.get("world_state_adapter")
+    if not world_state_adapter:
+        world_state_adapter = MockWorldStateAdapter()
+    
+    # Create base DTO
+    dto = _new_dto(player_input, game_context)
+    _log_event(dto, "start", {"text": player_input})
+    
+    # Extract and validate intent data
+    conf = float(max(0.0, min(1.0, intent_data.get("confidence", 0.0))))
+    primary = str(intent_data.get("primary", "scenario_action") or "scenario_action")
+    
+    # Map to fixed system types
+    dto["type"] = _map_primary_to_type(primary)
+    dto["action"] = intent_data.get("action_verb", "") or ""
+    dto["target"] = intent_data.get("target_string") or None
+    dto["target_kind"] = intent_data.get("target_kind", "unknown") or "unknown"
+    dto["arguments"] = intent_data.get("arguments", {}) or {}
+    dto["confidence"] = conf
+    dto["rationale"] = intent_data.get("rationale", "") or ""
+    dto["debug"]["intent"] = {"primary": primary, "confidence": conf, "raw": intent_data}
+
+    # Debug output
+    print(f"🔧 INTENT CLASSIFICATION DEBUG:")
+    print(f"   Input: {player_input}")
+    print(f"   Primary: {primary}")
+    print(f"   Mapped Type: {dto['type']}")
+    print(f"   Confidence: {conf}")
+    print(f"   Action Verb: {intent_data.get('action_verb', 'N/A')}")
+    print(f"   Target: {intent_data.get('target_string', 'N/A')}")
+    print(f"   Rationale: {intent_data.get('rationale', 'N/A')}")
+
+    _log_event(dto, "intent", {"type": dto["type"], "conf": conf})
+
+    # Deterministic target resolution
+    resolved_id, resolved_kind = _resolve_target(dto.get("target"), world_state_adapter)
+    dto["target"] = resolved_id
+    dto["target_kind"] = resolved_kind
+    dto["debug"]["target_resolution"] = {"original": intent_data.get("target_string"), "resolved": resolved_id, "kind": resolved_kind}
+
+    # Route determination (simplified - no RAG prediction for now)
+    route = _determine_final_route(intent_data, resolved_kind, {"needed": False})
+    dto["route"] = route
+    
+    _log_event(dto, "route", {"route": route})
+    
+    return dto
+
+
+@tool(outputs_to_state={"routing_result": {"source": "routing_result"}})
+def classify_player_intent(player_input: str, game_context: Any, intent_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Returns a callable `decide(player_input: str, game_context: dict) -> dict (DTO)`.
-    Sequences: normalize → intent (LLM) → (embed fallback) → resolve target → rag predictor (LLM) → route.
+    Process LLM intent classification result into routing decision
+    
+    Args:
+        player_input: Raw player input text
+        game_context: Current game context (may be serialized as string)
+        intent_data: LLM classification result with primary, confidence, etc.
+        
+    Returns:
+        Complete routing DTO with decision data
     """
-    cfg = get_global_config_manager()
-    llm = getattr(cfg, "llm", None) or getattr(cfg, "intent_llm", None)
-    embedder = getattr(cfg, "embedder", None)
-    centroids = getattr(cfg, "intent_centroids", None) or {}  # dict[str, list[float]]
+    print(f"🔧 TOOL CALLED: classify_player_intent")
+    print(f"   Input: {player_input}")
+    print(f"   Intent data: {intent_data}")
+    
+    # Handle serialization issue
+    if isinstance(game_context, str):
+        print(f"🔧 FIXING: game_context received as string")
+        actual_context = {"location": "unknown", "world_state_adapter": None}
+    elif isinstance(game_context, dict):
+        actual_context = game_context
+    else:
+        actual_context = {}
+    
+    # Process intent classification into routing DTO
+    routing_result = _create_intent_classification_dto(intent_data, player_input, actual_context)
+    
+    print(f"🔧 TOOL RESULT: {routing_result.get('route', 'unknown')} (confidence: {routing_result.get('confidence', 0)})")
+    print(f"   Classification: {routing_result.get('type', 'unknown')}")
+    
+    return {"routing_result": routing_result}
 
-    if llm is None:
-        raise RuntimeError("Interface agent: LLM is not configured (cfg.llm or cfg.intent_llm).")
 
-    def decide(player_input: str, game_context: Dict[str, Any]) -> Dict[str, Any]:
-        dto = _new_dto(player_input, game_context)
-        _log_event(dto, "start", {"text": player_input})
+@tool(outputs_to_state={"routing_result": {"source": "routing_result"}})
+def execute_deterministic_routing_fallback(player_input: str, game_context: Any) -> Dict[str, Any]:
+    """
+    Fallback routing using keyword-based classification when LLM fails
+    
+    Args:
+        player_input: Raw player input text
+        game_context: Current game context (may be serialized as string)
+        
+    Returns:
+        Basic routing DTO with keyword-based decision
+    """
+    print(f"🔧 FALLBACK TOOL CALLED: execute_deterministic_routing_fallback")
+    print(f"   Input: {player_input}")
+    
+    # Handle serialization issue
+    if isinstance(game_context, str):
+        actual_context = {"location": "unknown", "world_state_adapter": None}
+    elif isinstance(game_context, dict):
+        actual_context = game_context
+    else:
+        actual_context = {}
+    
+    # Keyword-based classification for fallback
+    input_lower = player_input.lower()
+    
+    if any(word in input_lower for word in ["damage", "rule", "spell", "cast", "mechanics", "how does", "what does"]):
+        intent_data = {
+            "primary": "rules_lookup",
+            "action_verb": "query",
+            "target_string": "rules",
+            "target_kind": "object",
+            "arguments": {},
+            "confidence": 0.9,
+            "rationale": "Rules or mechanics question (keyword-based)"
+        }
+    elif any(word in input_lower for word in ["bartender", "talk to", "ask", "speak to"]):
+        intent_data = {
+            "primary": "npc_interaction",
+            "action_verb": "talk",
+            "target_string": "bartender" if "bartender" in input_lower else "npc",
+            "target_kind": "npc",
+            "arguments": {},
+            "confidence": 0.85,
+            "rationale": "NPC interaction (keyword-based)"
+        }
+    elif any(word in input_lower for word in ["what is", "who are", "tell me about", "explain"]):
+        intent_data = {
+            "primary": "world_lore",
+            "action_verb": "query",
+            "target_string": player_input,
+            "target_kind": "place",
+            "arguments": {},
+            "confidence": 0.8,
+            "rationale": "World lore query (keyword-based)"
+        }
+    else:
+        intent_data = {
+            "primary": "scenario_action",
+            "action_verb": "act",
+            "target_string": "",
+            "target_kind": "unknown",
+            "arguments": {},
+            "confidence": 0.7,
+            "rationale": "General scenario action (keyword-based)"
+        }
+    
+    # Process into routing DTO
+    routing_result = _create_intent_classification_dto(intent_data, player_input, actual_context)
+    
+    print(f"🔧 FALLBACK RESULT: {routing_result.get('route', 'unknown')} (confidence: {routing_result.get('confidence', 0)})")
+    
+    return {"routing_result": routing_result}
 
-        # 1) Intent classification
-        prompt = _render_intent_prompt(
-            player_input=player_input,
-            ctx=game_context,
-            npc_names=list(getattr(world_state, "npcs", {}).keys()),
-            place_names=list(getattr(world_state, "places", []) or []),
-        )
-        raw = _call_llm_text(llm, prompt, temperature=0.0)
-        data = _safe_load_json(raw)
-        conf = float(max(0.0, min(1.0, data.get("confidence", 0.0))))
-        primary = str(data.get("primary", "scenario") or "scenario")
-        dto["type"] = _map_primary_to_type(primary)
-        dto["action"] = data.get("action_verb", "") or ""
-        dto["target"] = data.get("target_string") or None
-        dto["arguments"] = data.get("arguments", {}) or {}
-        dto["debug"]["intent"] = {"primary": primary, "confidence": conf, "raw": data}
+# Direct callable version for orchestrator integration
+def execute_deterministic_routing_direct(player_input: str, game_context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Direct callable version for orchestrator and testing using keyword-based classification
+    
+    Args:
+        player_input: Raw player input text
+        game_context: Current game context including world_state_adapter
+        
+    Returns:
+        Complete routing DTO with decision data
+    """
+    print(f"🔧 DIRECT CALL: execute_deterministic_routing_direct")
+    print(f"   Input: {player_input}")
+    
+    # Use keyword-based classification
+    input_lower = player_input.lower()
+    
+    if any(word in input_lower for word in ["damage", "rule", "spell", "cast", "mechanics", "how does", "what does"]):
+        intent_data = {
+            "primary": "rules_lookup",
+            "action_verb": "query",
+            "target_string": "rules",
+            "target_kind": "object",
+            "arguments": {},
+            "confidence": 0.9,
+            "rationale": "Rules or mechanics question (keyword-based)"
+        }
+    elif any(word in input_lower for word in ["bartender", "talk to", "ask", "speak to"]):
+        intent_data = {
+            "primary": "npc_interaction",
+            "action_verb": "talk",
+            "target_string": "bartender" if "bartender" in input_lower else "npc",
+            "target_kind": "npc",
+            "arguments": {},
+            "confidence": 0.85,
+            "rationale": "NPC interaction (keyword-based)"
+        }
+    elif any(word in input_lower for word in ["what is", "who are", "tell me about", "explain"]):
+        intent_data = {
+            "primary": "world_lore",
+            "action_verb": "query",
+            "target_string": player_input,
+            "target_kind": "place",
+            "arguments": {},
+            "confidence": 0.8,
+            "rationale": "World lore query (keyword-based)"
+        }
+    else:
+        intent_data = {
+            "primary": "scenario_action",
+            "action_verb": "act",
+            "target_string": "",
+            "target_kind": "unknown",
+            "arguments": {},
+            "confidence": 0.7,
+            "rationale": "General scenario action (keyword-based)"
+        }
+    
+    # Process into routing DTO
+    routing_result = _create_intent_classification_dto(intent_data, player_input, game_context)
+    
+    print(f"🔧 DIRECT RESULT: {routing_result.get('route', 'unknown')} (confidence: {routing_result.get('confidence', 0)})")
+    
+    return routing_result
 
-        _log_event(dto, "intent", {"type": dto["type"], "conf": conf, "embed": dto["debug"].get("embed_router")})
+def _determine_final_route(intent_data: Dict[str, Any], resolved_kind: str, rag_data: Dict[str, Any]) -> str:
+    """Determine final route based on intent analysis"""
+    
+    primary = intent_data.get("primary", "scenario_action")
+    
+    # Rules lookup route
+    if primary == "rules_lookup":
+        return "rules"
+    
+    # NPC interaction route
+    if primary == "npc_interaction" or resolved_kind == "npc":
+        return "npc"
+    
+    # Meta commands route
+    if primary == "meta":
+        return "meta"
+    
+    # Everything else goes to scenario (potentially with RAG)
+    return "scenario"
 
-        # 3) Target resolution (no LLM; deterministic)
-        resolved_id, resolved_kind = _resolve_target(dto.get("target"), world_state)
-        dto["target"] = resolved_id
-        dto["debug"]["target_kind"] = resolved_kind
+def create_fixed_interface_agent(chat_generator=None) -> Agent:
+    """
+    Create Haystack Agent using fixed system logic with proper LLM integration
+    
+    Args:
+        chat_generator: Optional Haystack chat generator
+        
+    Returns:
+        Configured Haystack Agent with deterministic routing
+    """
+    
+    # Use LLM config manager to get appropriate generator
+    if chat_generator is None:
+        config_manager = get_global_config_manager()
+        generator = config_manager.create_generator("main_interface")
+    else:
+        generator = chat_generator
+    
+    system_prompt = """
+You are a D&D intent classification agent that analyzes player input and determines routing decisions.
 
-        # 4) RAG need prediction (LLM, temp 0)
-        dto = _predict_rag_need(dto, llm)
+WORKFLOW:
+1. Analyze the player input for intent classification
+2. Extract key information: action verb, target, arguments
+3. Use classify_player_intent tool with your analysis
+4. If classification fails, use execute_deterministic_routing_fallback
 
-        # 5) Route
-        if dto["type"] == "rules_lookup":
-            dto["route"] = "rules"
-        elif dto["type"] == "npc_interaction" or resolved_kind == "npc":
-            dto["route"] = "npc"
-        else:
-            dto["route"] = "scenario"
-            # force RAG on for lore-like intents mapped to scenario
-            if (data.get("primary") == "world_lore") and not dto["rag"]["needed"]:
-                dto["rag"]["needed"] = True
-                dto["rag"]["query"] = dto["player_input"]
+INTENT CATEGORIES:
+- rules_lookup: Questions about game mechanics, spells, damage, stats, rules
+- npc_interaction: Talking to, asking, or interacting with NPCs
+- scenario_action: Physical actions in the game world
+- world_lore: Questions about places, history, or world information
+- inventory_management: Managing items, equipment
+- party_management: Group actions, character management
+- meta: Out-of-character commands
 
-        _log_event(dto, "route", {"route": dto["route"]})
-        return dto
+OUTPUT FORMAT (for classify_player_intent tool):
+{
+  "primary": "category_name",
+  "action_verb": "verb describing the action",
+  "target_string": "what the action targets",
+  "target_kind": "npc|object|place|unknown",
+  "arguments": {},
+  "confidence": 0.0-1.0,
+  "rationale": "brief explanation"
+}
 
-    return decide
+EXAMPLES:
+- "what is the damage of longsword" → rules_lookup, high confidence
+- "ask the bartender about rumors" → npc_interaction, target="bartender"
+- "search the room for traps" → scenario_action, target="room"
+- "what are the ideals of Knights Radiant" → world_lore, target="Knights Radiant"
+
+Always analyze the input first, then call the appropriate tool. Use high confidence for clear classifications.
+"""
+
+    agent = Agent(
+        chat_generator=generator,
+        tools=[classify_player_intent, execute_deterministic_routing_fallback],
+        system_prompt=system_prompt,
+        exit_conditions=["classify_player_intent", "execute_deterministic_routing_fallback"],
+        max_agent_steps=2,  # Allow for analysis then tool call
+        raise_on_tool_invocation_failure=False,
+        state_schema={
+            "routing_result": {"type": dict}
+        }
+    )
+    return agent
 
 # --- Simple smoke test (optional) -----------------------------------------------------------------
 

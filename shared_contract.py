@@ -1,13 +1,24 @@
 """
 Shared D&D Orchestrator Data Contract (DTO)
 Single source of truth for data shapes passed between all components
+Enhanced for Fixed System Integration
 """
 
 from typing import TypedDict, Literal, Optional, List, Dict, Any
 import uuid
 import time
 
+# Legacy type for backward compatibility
 RoleType = Literal["scenario", "npc_interaction", "rules_lookup", "meta"]
+
+# Enhanced intent types for fixed system
+IntentType = Literal[
+    "rules_lookup", "npc_interaction", "scenario_action",
+    "world_lore", "inventory_management", "party_management", "meta"
+]
+
+# Enhanced route types
+RouteType = Literal["rules", "npc", "scenario", "meta"]
 
 class Choice(TypedDict, total=False):
     id: str
@@ -29,6 +40,15 @@ class RAGBlock(TypedDict, total=False):
     filters: Dict[str, Any]
     docs: List[Dict[str, Any]]
 
+class EnhancedRAGBlock(TypedDict, total=False):
+    needed: bool
+    query: str
+    filters: Dict[str, Any]
+    docs: List[Dict[str, Any]]
+    confidence: float        # Assessment confidence
+    category: str           # "rules|lore|statblock|none"
+    reasoning: str          # Assessment reasoning
+
 class RequestDTO(TypedDict, total=False):
     correlation_id: str
     ts: float
@@ -43,6 +63,23 @@ class RequestDTO(TypedDict, total=False):
     fallback: bool
     scenario: Optional[Scenario]
     npc: Optional[Dict[str, Any]]
+
+# Enhanced DTO for Fixed System
+class FixedSystemDTO(TypedDict, total=False):
+    correlation_id: str
+    ts: float
+    type: IntentType                    # Extended intent types
+    player_input: str
+    action: str
+    target: Optional[str]
+    target_kind: str                    # "npc|object|place|unknown"
+    context: Dict[str, Any]
+    arguments: Dict[str, Any]           # Structured action parameters
+    rag: EnhancedRAGBlock              # With confidence scoring
+    route: Optional[RouteType]
+    debug: Dict[str, Any]
+    confidence: float                   # Intent confidence
+    rationale: str                     # Decision reasoning
 
 def new_dto(player_input: str, ctx: Dict[str, Any]) -> RequestDTO:
     """Create a new DTO with default values"""
@@ -60,6 +97,33 @@ def new_dto(player_input: str, ctx: Dict[str, Any]) -> RequestDTO:
         "fallback": False,
         "scenario": None,
         "npc": None,
+    }
+
+def new_fixed_dto(player_input: str, ctx: Dict[str, Any]) -> FixedSystemDTO:
+    """Create DTO compatible with fixed system"""
+    return {
+        "correlation_id": str(uuid.uuid4()),
+        "ts": time.time(),
+        "type": "meta",
+        "player_input": player_input,
+        "action": "",
+        "target": None,
+        "target_kind": "unknown",
+        "context": ctx or {},
+        "arguments": {},
+        "rag": {
+            "needed": False,
+            "query": "",
+            "filters": {},
+            "docs": [],
+            "confidence": 0.0,
+            "category": "none",
+            "reasoning": ""
+        },
+        "route": None,
+        "debug": {},
+        "confidence": 0.0,
+        "rationale": ""
     }
 
 def normalize_incoming(raw_request: Dict[str, Any]) -> RequestDTO:

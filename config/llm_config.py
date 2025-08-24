@@ -269,7 +269,7 @@ def create_custom_config(model: str = "aws:anthropic.claude-sonnet-4-20250514-v1
         scenario_generator=LLMConfig(provider=LLMProvider.APPLE_GENAI, model=model, temperature=0.8, max_tokens=3000),
         rag_retriever=LLMConfig(provider=LLMProvider.APPLE_GENAI, model=model, temperature=0.3, max_tokens=1500),
         npc_controller=LLMConfig(provider=LLMProvider.APPLE_GENAI, model=model, temperature=0.9, max_tokens=2000),
-        main_interface=LLMConfig(provider=LLMProvider.APPLE_GENAI, model=model, temperature=0.5, max_tokens=1000),
+        main_interface=LLMConfig(provider=LLMProvider.APPLE_GENAI, model=model, temperature=0.0, max_tokens=1000),
         default_fallback=base_config
     )
 
