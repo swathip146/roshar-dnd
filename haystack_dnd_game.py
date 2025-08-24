@@ -7,11 +7,16 @@ Maintains backward compatibility while adding sophisticated D&D mechanics
 import json
 import time
 import os
+import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 
 from orchestrator.pipeline_integration import create_full_haystack_orchestrator, GameRequest
 from agents.scenario_generator_agent import create_fallback_scenario
+from game_initialization import initialize_enhanced_dnd_game, GameInitConfig
+
+# Basic logging setup
+logging.basicConfig(level=logging.WARNING)
 
 
 class HaystackDnDGame:
@@ -20,23 +25,33 @@ class HaystackDnDGame:
     Migrated from simple_dnd_game.py with enhanced capabilities
     """
     
-    def __init__(self, policy_profile: str = "house"):
+    def __init__(self, policy_profile: str = "house", config: GameInitConfig = None):
         """Initialize with full Haystack integration"""
         
-        print("🚀 Initializing Haystack D&D Game...")
+        print("🚀 Initializing D&D Game...")
         
-        # Core orchestrator with all Stage 3 components + Pipeline integration
-        self.orchestrator = create_full_haystack_orchestrator()
+        # Track initialization timing
+        init_start = time.time()
         
-        # Game state compatible with original simple_dnd_game.py
-        self.game_state = {
-            "location": "Tavern",
-            "story": "You enter a bustling tavern filled with adventurers, merchants, and locals. The air is thick with pipe smoke and the aroma of roasted meat. A fire crackles in the hearth, casting dancing shadows on weathered faces.",
-            "history": [],
-            "player_name": "Adventurer", 
-            "created_time": time.time(),
-            "enhanced_features": True  # Flag to indicate Haystack features
-        }
+        # Use provided config or initialize interactively
+        if config is None:
+            config = initialize_enhanced_dnd_game()
+        
+        self.config = config
+        
+        print(f"🗄️ Using document collection: {config.collection_name}")
+        
+        try:
+            # Core orchestrator with all Stage 3 components + Pipeline integration
+            self.orchestrator = create_full_haystack_orchestrator(collection_name=config.collection_name)
+        except Exception as e:
+            raise
+        
+        # Initialize game state based on configuration
+        if config.game_mode == "load_saved":
+            self._load_saved_game(config.save_file)
+        else:
+            self._initialize_new_campaign(config)
         
         # Initialize with a default character using the sophisticated character manager
         self._initialize_default_character()
@@ -44,6 +59,79 @@ class HaystackDnDGame:
         print("🎲 Haystack D&D Game initialized with full architecture!")
         print("📍 Starting location:", self.game_state["location"])
         print("🎯 Enhanced features: Orchestrator, Agents, Pipelines & Components")
+        print(f"📚 Document collection: {config.collection_name} for RAG-enhanced gameplay")
+    
+    def _initialize_new_campaign(self, config: GameInitConfig):
+        """Initialize game state from new campaign configuration"""
+        
+        campaign_data = config.campaign_data or {}
+        
+        # Game state compatible with original simple_dnd_game.py
+        self.game_state = {
+            "location": campaign_data.get("location", "Tavern"),
+            "story": campaign_data.get("story", "You enter a bustling tavern filled with adventurers, merchants, and locals. The air is thick with pipe smoke and the aroma of roasted meat. A fire crackles in the hearth, casting dancing shadows on weathered faces."),
+            "history": [],
+            "player_name": config.player_name or "Adventurer",
+            "created_time": time.time(),
+            "enhanced_features": True,  # Flag to indicate Haystack features
+            "document_collection": config.collection_name,
+            "campaign_name": campaign_data.get("name", "Unknown Campaign"),
+            "campaign_source": campaign_data.get("source", "default")
+        }
+        
+        print(f"🗺️ Campaign: {self.game_state['campaign_name']}")
+        print(f"👤 Player: {self.game_state['player_name']}")
+    
+    def _load_saved_game(self, save_file: str):
+        """Load game state from saved game file"""
+        
+        if not save_file:
+            # Fallback to default new campaign
+            self._initialize_new_campaign(GameInitConfig(
+                collection_name=self.config.collection_name,
+                game_mode="new_campaign"
+            ))
+            return
+        
+        try:
+            filepath = os.path.join("game_saves", save_file)
+            
+            if not os.path.exists(filepath):
+                print(f"❌ Save file not found: {filepath}")
+                self._initialize_new_campaign(GameInitConfig(
+                    collection_name=self.config.collection_name,
+                    game_mode="new_campaign"
+                ))
+                return
+            
+            with open(filepath, "r") as f:
+                loaded_data = json.load(f)
+            
+            # Restore game state (backward compatible)
+            self.game_state = {
+                "location": loaded_data.get("location", "Tavern"),
+                "story": loaded_data.get("story", ""),
+                "history": loaded_data.get("history", []),
+                "player_name": loaded_data.get("player_name", "Adventurer"),
+                "created_time": loaded_data.get("created_time", time.time()),
+                "enhanced_features": True,  # Always enable enhanced features
+                "document_collection": self.config.collection_name,
+                "campaign_name": loaded_data.get("campaign_name", "Loaded Campaign"),
+                "campaign_source": loaded_data.get("campaign_source", "saved_game")
+            }
+            
+            print(f"📁 Loaded game: {save_file}")
+            print(f"👤 Player: {self.game_state['player_name']}")
+            print(f"📍 Location: {self.game_state['location']}")
+            print(f"📜 History entries: {len(self.game_state['history'])}")
+            
+        except Exception as e:
+            print(f"❌ Failed to load game: {e}")
+            print("   Starting new campaign instead...")
+            self._initialize_new_campaign(GameInitConfig(
+                collection_name=self.config.collection_name,
+                game_mode="new_campaign"
+            ))
     
     def _initialize_default_character(self):
         """Initialize default character using the character manager"""
@@ -78,6 +166,7 @@ class HaystackDnDGame:
         
         try:
             response = self.orchestrator.process_request(char_request)
+            
             if response.success:
                 print(f"✅ Character '{default_character['name']}' initialized with sophisticated stats")
             else:
@@ -96,10 +185,14 @@ class HaystackDnDGame:
         
         try:
             # Enhanced processing with Haystack pipeline integration
-            if self._should_use_enhanced_processing(player_input):
-                return self._process_enhanced_turn(player_input)
+            use_enhanced = self._should_use_enhanced_processing(player_input)
+            
+            if use_enhanced:
+                result = self._process_enhanced_turn(player_input)
             else:
-                return self._process_simple_turn(player_input)
+                result = self._process_simple_turn(player_input)
+            
+            return result
                 
         except Exception as e:
             print(f"❌ Error processing turn: {e}")
@@ -118,18 +211,20 @@ class HaystackDnDGame:
         ]
         
         input_lower = player_input.lower()
-        return any(trigger in input_lower for trigger in enhanced_triggers)
+        triggered = any(trigger in input_lower for trigger in enhanced_triggers)
+        return triggered
     
     def _process_enhanced_turn(self, player_input: str) -> str:
         """Process turn using full Haystack pipeline integration"""
         
         # Create enhanced gameplay request
+        context = self._get_enhanced_context()
         request = GameRequest(
             request_type="gameplay_turn",
             data={
                 "player_input": player_input,
                 "actor": "player",
-                "context": self._get_enhanced_context()
+                "context": context
             }
         )
         
@@ -143,7 +238,8 @@ class HaystackDnDGame:
                 # Update game state with results
                 self._update_game_state(player_input, result)
                 
-                return result.get("formatted_response", "The adventure continues...")
+                formatted_response = result.get("formatted_response", "The adventure continues...")
+                return formatted_response
             else:
                 error_msg = response.data.get("error", "Unknown error")
                 print(f"⚠️ Enhanced processing failed: {error_msg}")
@@ -157,15 +253,17 @@ class HaystackDnDGame:
         """Process turn using simple scenario generation (fallback/compatibility)"""
         
         # Create simple scenario request
+        game_context = {
+            "location": self.game_state["location"],
+            "difficulty": "medium",
+            "recent_history": self._format_recent_history()
+        }
+        
         request = GameRequest(
             request_type="scenario_generation",
             data={
                 "player_action": player_input,
-                "game_context": {
-                    "location": self.game_state["location"],
-                    "difficulty": "medium",
-                    "recent_history": self._format_recent_history()
-                }
+                "game_context": game_context
             }
         )
         
@@ -187,7 +285,6 @@ class HaystackDnDGame:
                 
                 # Update game state
                 self._update_game_state(player_input, scenario_data)
-                
                 return dm_response
             else:
                 # Use fallback scenario generation
@@ -198,7 +295,6 @@ class HaystackDnDGame:
                 
                 dm_response = fallback_scenario.get("scene", "You consider your options...")
                 self._update_game_state(player_input, fallback_scenario)
-                
                 return dm_response
                 
         except Exception as e:
@@ -358,15 +454,16 @@ class HaystackDnDGame:
         ]
         
         import random
-        return random.choice(fallbacks)
+        selected_fallback = random.choice(fallbacks)
+        return selected_fallback
     
     def save_game(self, filename: str = "haystack_save.json") -> bool:
         """Enhanced save with Haystack architecture data"""
         
         try:
             # Ensure saves directory exists
-            os.makedirs("saves", exist_ok=True)
-            filepath = os.path.join("saves", filename)
+            os.makedirs("game_saves", exist_ok=True)
+            filepath = os.path.join("game_saves", filename)
             
             # Get comprehensive game state from orchestrator
             orchestrator_status = self.orchestrator.get_pipeline_status()
@@ -403,59 +500,7 @@ class HaystackDnDGame:
             print(f"❌ Failed to save game: {e}")
             return False
     
-    def load_game(self, filename: str = "haystack_save.json") -> bool:
-        """Enhanced load with backward compatibility"""
-        
-        try:
-            filepath = os.path.join("saves", filename)
-            
-            if not os.path.exists(filepath):
-                print(f"❌ Save file not found: {filepath}")
-                return False
-            
-            with open(filepath, "r") as f:
-                loaded_data = json.load(f)
-            
-            # Restore game state (backward compatible)
-            original_keys = ["location", "story", "history", "player_name", "created_time"]
-            for key in original_keys:
-                if key in loaded_data:
-                    self.game_state[key] = loaded_data[key]
-            
-            # Check if this is an enhanced save
-            if loaded_data.get("enhanced_features_active", False):
-                print("📁 Loading enhanced Haystack save...")
-                self.game_state["enhanced_features"] = True
-                
-                # Restore enhanced features if available
-                if "session_statistics" in loaded_data:
-                    print("📊 Session statistics restored")
-            else:
-                print("📁 Loading classic save file (enhanced features available)")
-            
-            print(f"📁 Game loaded from {filepath}")
-            print(f"📍 Current location: {self.game_state['location']}")
-            print(f"📜 History entries: {len(self.game_state['history'])}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ Failed to load game: {e}")
-            return False
     
-    def list_saves(self) -> list:
-        """List available save files (original compatibility)"""
-        
-        saves_dir = "saves"
-        if not os.path.exists(saves_dir):
-            return []
-        
-        save_files = []
-        for file in os.listdir(saves_dir):
-            if file.endswith(".json"):
-                save_files.append(file)
-        
-        return sorted(save_files)
     
     def get_game_stats(self) -> Dict[str, Any]:
         """Enhanced game statistics using orchestrator"""
@@ -506,10 +551,9 @@ class HaystackDnDGame:
         """
         
         print("=" * 70)
-        print("🎲 HAYSTACK D&D GAME - Enhanced Architecture Edition")
+        print("🎲 D&D GAME")
         print("=" * 70)
         print("🚀 Powered by: Orchestrator, Agents, Pipelines & Components")
-        print("📖 All original commands work, plus enhanced D&D mechanics!")
         print("Type 'help' for commands, 'quit' to exit")
         print()
         
@@ -554,23 +598,28 @@ class HaystackDnDGame:
                     continue
                 
                 elif player_input.lower() == "load":
-                    saves = self.list_saves()
-                    if not saves:
-                        print("❌ No save files found.")
-                        continue
-                    
-                    print("\n📁 Available saves:")
-                    for i, save in enumerate(saves, 1):
-                        print(f"{i}. {save}")
+                    # Use initialization system for save file selection
+                    from game_initialization import _list_saved_games
                     
                     try:
+                        saves = _list_saved_games()
+                        if not saves:
+                            print("❌ No save files found.")
+                            continue
+                        
+                        print("\n📁 Available saves:")
+                        for i, save in enumerate(saves, 1):
+                            print(f"{i}. {save}")
+                        
                         choice = input("Enter number to load (or press Enter to cancel): ").strip()
                         if choice and choice.isdigit():
                             idx = int(choice) - 1
                             if 0 <= idx < len(saves):
-                                self.load_game(saves[idx])
+                                self._load_saved_game(saves[idx])
                     except (ValueError, KeyboardInterrupt):
                         print("Load cancelled.")
+                    except Exception as e:
+                        print(f"❌ Error loading saves: {e}")
                     continue
                 
                 elif player_input.lower() == "stats":
@@ -642,20 +691,18 @@ class HaystackDnDGame:
 def main():
     """Main function to run the Haystack-integrated D&D game"""
     
-    print("🚀 Initializing Enhanced D&D Game with Haystack Architecture...")
-    
     try:
-        game = HaystackDnDGame()
+        # Initialize game with enhanced setup system
+        config = initialize_enhanced_dnd_game()
+        
+        # Create and run game with configuration
+        game = HaystackDnDGame(config=config)
         game.run_interactive()
         
     except Exception as e:
-        print(f"❌ Failed to start enhanced game: {e}")
-        print("This may be due to missing dependencies or configuration issues.")
-        print("Please ensure all Haystack components are properly installed.")
-        
-        # Fallback suggestion
-        print("\n💡 Tip: You can still run the original simple_dnd_game.py for basic functionality.")
-
+        print(f"❌ Failed to start game: {e}")
+        import traceback
+        print(f"Full error: {traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()

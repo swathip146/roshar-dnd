@@ -5,9 +5,9 @@ Handles creative NPC interactions and responses using Haystack Agent framework
 
 from typing import Dict, Any, Optional
 from haystack.components.agents import Agent
-from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
+from config.llm_config import get_global_config_manager
 
 
 @tool
@@ -175,14 +175,16 @@ def create_npc_controller_agent(chat_generator: Optional[Any] = None) -> Agent:
     Create a Haystack Agent for NPC control and dialogue generation.
     
     Args:
-        chat_generator: Optional chat generator (defaults to OpenAI)
+        chat_generator: Optional chat generator (uses LLM config if None)
         
     Returns:
         Configured Haystack Agent for NPC control
     """
     
+    # Use LLM config manager to get appropriate generator
     if chat_generator is None:
-        generator = OpenAIChatGenerator(model="gpt-4o-mini")
+        config_manager = get_global_config_manager()
+        generator = config_manager.create_generator("npc_controller")
     else:
         generator = chat_generator
     

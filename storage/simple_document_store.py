@@ -26,9 +26,13 @@ class SimpleDocumentStore:
         print("🔥 Warming up embedder model...")
         self.embedder.warm_up()
         
+        # Initialize Qdrant document store with unique storage path to avoid conflicts
+        import time
+        storage_path = f"qdrant_storage_{collection_name}_{int(time.time())}"
+        
         # Initialize Qdrant document store with correct embedding dimension (384 for all-MiniLM-L6-v2)
         self.document_store = QdrantDocumentStore(
-            path="qdrant_storage",
+            path=storage_path,
             index=collection_name,
             embedding_dim=384,
             recreate_index=True  # Recreate to ensure clean state
@@ -281,6 +285,10 @@ class SimpleDocumentStore:
         except Exception as e:
             print(f"❌ Failed to load documents: {e}")
             return False
+    
+    def store_document(self, content: str, metadata: Dict[str, Any]) -> bool:
+        """Store a single document with metadata - for testing"""
+        return self.add_campaign_content(content, metadata)
     
     def retrieve_documents(self, query: str, top_k: int = 3) -> List[Document]:
         """Retrieve documents for RAG - returns Haystack Document objects"""

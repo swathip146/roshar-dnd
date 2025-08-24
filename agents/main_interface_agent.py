@@ -1,122 +1,228 @@
 """
 Main Interface Agent - User interaction management
 Handles player input parsing, command interpretation, and response formatting using Haystack Agent framework
+Updated to use shared DTO contract for predictable data flow
 """
 
 from typing import Dict, Any, Optional, List
 from haystack.components.agents import Agent
-from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
+from config.llm_config import get_global_config_manager
+from shared_contract import RequestDTO, new_dto
 
 
 @tool
-def parse_player_input(player_input: str, game_context: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_incoming(player_input: str, game_context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Parse and interpret player input to determine intent and extract key information.
+    Normalize incoming player input into DTO format.
     
     Args:
         player_input: Raw player input text
-        game_context: Current game state and context
+        game_context: Current game state and context (can be dict or JSON string)
         
     Returns:
-        Parsed input with intent, action type, and extracted parameters
+        Normalized DTO with parsed action and intent
     """
+    # Handle string input - parse JSON if needed
+    if isinstance(game_context, str):
+        try:
+            import json
+            import ast
+            # Try AST first for Python dict strings with single quotes
+            try:
+                game_context = ast.literal_eval(game_context)
+            except (ValueError, SyntaxError):
+                # Fallback to JSON parsing
+                game_context = json.loads(game_context)
+        except (json.JSONDecodeError, ValueError, SyntaxError):
+            game_context = {}
+    
+    # Create new DTO
+    dto = new_dto(player_input.strip(), game_context or {})
+    
     input_lower = player_input.lower().strip()
     
-    # Determine input type and intent
-    intent_mappings = {
-        # Combat actions
-        "combat": ["attack", "fight", "hit", "strike", "cast", "spell", "defend", "dodge"],
-        # Movement actions
-        "movement": ["go", "move", "walk", "run", "travel", "enter", "exit", "leave"],
-        # Investigation actions
-        "investigation": ["search", "look", "examine", "inspect", "investigate", "check"],
-        # Social actions
-        "social": ["talk", "speak", "say", "ask", "tell", "persuade", "intimidate", "negotiate"],
-        # Skill actions
-        "skill": ["climb", "jump", "swim", "hide", "sneak", "pick", "unlock", "disable"],
-        # Meta commands
-        "meta": ["help", "save", "load", "quit", "status", "inventory", "stats"]
-    }
-    
-    # Determine primary intent
-    primary_intent = "general"
-    confidence = 0.0
-    
-    for intent, keywords in intent_mappings.items():
-        matches = sum(1 for keyword in keywords if keyword in input_lower)
-        intent_confidence = matches / len(keywords) if keywords else 0
+    # Extract action verb and target
+    words = input_lower.split()
+    if words:
+        # First word is usually the action
+        dto["action"] = words[0]
         
-        if intent_confidence > confidence:
-            confidence = intent_confidence
-            primary_intent = intent
+        # Look for common targets
+        common_targets = [
+            # NPCs
+            "bartender", "innkeeper", "merchant", "guard", "wizard", "priest",
+            "captain", "noble", "king", "queen", "dragon", "goblin",
+            # Objects
+            "door", "chest", "book", "scroll", "lever", "button", "statue"
+        ]
+        
+        for target in common_targets:
+            if target in input_lower:
+                dto["target"] = target
+                break
     
-    # Extract target/object if present
-    target = None
-    common_targets = ["door", "chest", "npc", "guard", "merchant", "dragon", "goblin", "treasure"]
-    for potential_target in common_targets:
-        if potential_target in input_lower:
-            target = potential_target
-            break
+    # Determine type based on content
+    if any(word in input_lower for word in ["spell", "cast", "magic", "rules", "mechanic"]):
+        dto["type"] = "rules_lookup"
+    elif dto.get("target") in ["bartender", "innkeeper", "merchant", "guard", "wizard", "priest"]:
+        dto["type"] = "npc_interaction"
+    else:
+        dto["type"] = "scenario"
     
-    # Determine if this needs skill check
-    skill_check_needed = primary_intent in ["combat", "skill", "investigation"]
-    
-    return {
-        "original_input": player_input,
-        "primary_intent": primary_intent,
-        "confidence": confidence,
-        "target": target,
-        "skill_check_needed": skill_check_needed,
-        "processed_action": input_lower,
-        "complexity": "complex" if len(player_input.split()) > 5 else "simple"
-    }
+    return dto
 
 
 @tool
-def determine_response_routing(parsed_input: Dict[str, Any], game_context: Dict[str, Any]) -> Dict[str, str]:
+def determine_response_routing(dto: Dict[str, Any], world_state: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    Determine how the parsed input should be routed through the system.
+    Determine routing for the request based on DTO content using hard rules.
     
     Args:
-        parsed_input: Output from parse_player_input
-        game_context: Current game context
+        dto: Request DTO (can be dict or JSON string)
+        world_state: Current world/game state (optional)
         
     Returns:
-        Routing instructions for the orchestrator
+        Updated DTO with routing decision and routing metadata
     """
-    intent = parsed_input.get("primary_intent", "general")
-    complexity = parsed_input.get("complexity", "simple")
-    skill_check_needed = parsed_input.get("skill_check_needed", False)
+    # Handle string input - parse JSON if needed
+    if isinstance(dto, str):
+        try:
+            import json
+            dto = json.loads(dto)
+        except (json.JSONDecodeError, TypeError):
+            return {"error": "Invalid DTO format", "routing_strategy": "simple_response"}
     
-    # Determine routing strategy
-    if intent == "meta":
-        routing = "orchestrator_direct"
-    elif intent == "social" and parsed_input.get("target"):
-        routing = "npc_pipeline"
-    elif skill_check_needed:
-        routing = "skill_pipeline"
-    elif intent in ["investigation", "movement"] and complexity == "complex":
-        routing = "scenario_pipeline"
-    else:
-        routing = "simple_response"
+    if not isinstance(dto, dict):
+        return {"error": "DTO must be dict or JSON string", "routing_strategy": "simple_response"}
     
-    # Determine required components
-    components_needed = []
-    if skill_check_needed:
-        components_needed.extend(["rules_enforcer", "dice_roller", "character_manager"])
-    if intent == "social":
-        components_needed.append("npc_controller")
-    if intent in ["investigation", "movement"]:
-        components_needed.extend(["scenario_generator", "rag_retriever"])
-    
-    return {
-        "routing_strategy": routing,
-        "components_needed": components_needed,
-        "pipeline_type": "full" if len(components_needed) > 2 else "simple",
-        "priority": "high" if intent == "combat" else "normal"
+    # Initialize routing metadata
+    routing_metadata = {
+        "rules_checked": [],
+        "confidence": 0.0,
+        "fallback_used": False
     }
+    
+    player_input = dto.get("player_input", "").lower()
+    action = dto.get("action", "").lower()
+    target = dto.get("target")
+    request_type = dto.get("type")
+    
+    # Hard Rule 1: Explicit rules/spell queries
+    rules_keywords = [
+        "spell", "cast", "magic", "rule", "mechanic", "how does", "what happens if",
+        "stats", "ability", "skill check", "dc", "damage", "range", "duration",
+        "components", "concentration", "ritual", "level", "school"
+    ]
+    
+    rules_matches = [kw for kw in rules_keywords if kw in player_input or kw in action]
+    if rules_matches or request_type == "rules_lookup":
+        dto["route"] = "rules"
+        routing_metadata["rules_checked"] = rules_matches
+        routing_metadata["confidence"] = 0.9
+        routing_metadata["reason"] = "Explicit rules/spell query detected"
+        dto["debug"]["routing"] = routing_metadata
+        return dto
+    
+    # Hard Rule 2: NPC interaction detection
+    npc_keywords = [
+        "talk to", "speak to", "ask", "tell", "say to", "whisper to",
+        "persuade", "intimidate", "deceive", "insight", "conversation"
+    ]
+    
+    # Check for explicit NPC targets
+    common_npcs = [
+        "bartender", "innkeeper", "merchant", "guard", "wizard", "priest",
+        "captain", "noble", "king", "queen", "shopkeeper", "blacksmith",
+        "mayor", "elder", "scout", "sage", "healer", "bard"
+    ]
+    
+    # World state NPC check
+    world_npcs = world_state.get("npcs", []) if world_state else []
+    
+    npc_interaction = False
+    npc_reason = ""
+    
+    # Check for NPC keywords
+    if any(kw in player_input for kw in npc_keywords):
+        npc_interaction = True
+        npc_reason = "NPC interaction keywords detected"
+        routing_metadata["confidence"] = 0.8
+    
+    # Check for known NPC targets
+    elif target and (target in common_npcs or target in world_npcs):
+        npc_interaction = True
+        npc_reason = f"Known NPC target: {target}"
+        routing_metadata["confidence"] = 0.9
+    
+    # Check for common NPC names in input
+    elif any(npc in player_input for npc in common_npcs):
+        npc_interaction = True
+        detected_npc = next(npc for npc in common_npcs if npc in player_input)
+        npc_reason = f"Common NPC detected: {detected_npc}"
+        dto["target"] = detected_npc  # Auto-set target
+        routing_metadata["confidence"] = 0.7
+    
+    # Check request type
+    elif request_type == "npc_interaction":
+        npc_interaction = True
+        npc_reason = "Request type indicates NPC interaction"
+        routing_metadata["confidence"] = 0.8
+    
+    if npc_interaction:
+        dto["route"] = "npc"
+        routing_metadata["reason"] = npc_reason
+        dto["debug"]["routing"] = routing_metadata
+        return dto
+    
+    # Hard Rule 3: Meta commands (should go to orchestrator direct)
+    meta_keywords = ["help", "save", "load", "quit", "status", "inventory", "stats", "info"]
+    meta_matches = [kw for kw in meta_keywords if kw in player_input or kw in action]
+    
+    if meta_matches:
+        dto["route"] = "meta"
+        routing_metadata["reason"] = f"Meta command detected: {meta_matches}"
+        routing_metadata["confidence"] = 0.95
+        dto["debug"]["routing"] = routing_metadata
+        return dto
+    
+    # Hard Rule 4: Lore/Knowledge queries (should use RAG-enhanced scenario)
+    lore_keywords = [
+        "lore", "history", "legend", "story", "past", "ancient", "origin",
+        "tell me about", "who are", "what is", "information about", "know about",
+        "query about", "ask about", "explain", "describe", "background"
+    ]
+    
+    lore_matches = [kw for kw in lore_keywords if kw in player_input]
+    if lore_matches:
+        dto["route"] = "scenario"
+        routing_metadata["reason"] = f"Lore/knowledge query detected: {lore_matches}"
+        routing_metadata["confidence"] = 0.9
+        routing_metadata["lore_query"] = True  # Flag for RAG enhancement
+        dto["debug"]["routing"] = routing_metadata
+        return dto
+    
+    # Default Rule: Everything else goes to scenario
+    dto["route"] = "scenario"
+    routing_metadata["reason"] = "Default routing - in-world action"
+    routing_metadata["confidence"] = 0.6
+    routing_metadata["fallback_used"] = True
+    
+    # Enhance confidence based on action words
+    action_keywords = [
+        "search", "look", "examine", "investigate", "explore", "enter", "exit",
+        "attack", "fight", "defend", "hide", "sneak", "climb", "jump",
+        "open", "close", "take", "drop", "use", "interact", "touch"
+    ]
+    
+    if any(kw in player_input for kw in action_keywords):
+        routing_metadata["confidence"] = 0.8
+        routing_metadata["fallback_used"] = False
+        routing_metadata["reason"] = "Clear action-based scenario request"
+    
+    dto["debug"]["routing"] = routing_metadata
+    return dto
 
 
 @tool
@@ -217,14 +323,16 @@ def create_main_interface_agent(chat_generator: Optional[Any] = None) -> Agent:
     Create a Haystack Agent for main interface and user interaction management.
     
     Args:
-        chat_generator: Optional chat generator (defaults to OpenAI)
+        chat_generator: Optional chat generator (uses LLM config if None)
         
     Returns:
         Configured Haystack Agent for interface management
     """
     
+    # Use LLM config manager to get appropriate generator
     if chat_generator is None:
-        generator = OpenAIChatGenerator(model="gpt-4o-mini")
+        config_manager = get_global_config_manager()
+        generator = config_manager.create_generator("main_interface")
     else:
         generator = chat_generator
     
@@ -259,7 +367,7 @@ RESPONSE FORMATTING:
 - Keep responses engaging but not overwhelming
 
 WORKFLOW:
-1. Use parse_player_input to understand what the player wants
+1. Use normalize_incoming to understand what the player wants
 2. Use determine_response_routing to decide how to process the request
 3. Use format_response_for_player to present results clearly
 4. Use validate_player_command for command validation when needed
@@ -269,7 +377,7 @@ Always maintain immersion while providing clear, helpful responses.
 
     agent = Agent(
         chat_generator=generator,
-        tools=[parse_player_input, determine_response_routing, format_response_for_player, validate_player_command],
+        tools=[normalize_incoming, determine_response_routing, format_response_for_player, validate_player_command],
         system_prompt=system_prompt,
         exit_conditions=["format_response_for_player", "determine_response_routing"],
         max_agent_steps=3,

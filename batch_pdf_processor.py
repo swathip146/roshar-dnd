@@ -29,7 +29,7 @@ def clear_qdrant_collection(collection_name: str, storage_path: str = "../qdrant
 
 def setup_qdrant_store(collection_name: str = "dnd_documents",
                       embedding_dim: int = 384,
-                      storage_path: str = "../qdrant_storage",
+                      storage_path: str = "./qdrant_storage",
                       clear_existing: bool = False) -> QdrantDocumentStore:
     """Set up local Qdrant vector store for document storage"""
     

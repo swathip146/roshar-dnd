@@ -1,10 +1,15 @@
 """
 Context Broker - Decides when to query RAG/Rules based on request context
 Enriches requests with relevant context from RAG and memory systems
+Updated to support shared DTO contract for predictable RAG assessment
 """
 
 from typing import Dict, Any, Optional, List
 import logging
+from shared_contract import RequestDTO
+
+# Configuration constants
+DEFAULT_THRESH = {"lore": 0.35, "rules": 0.35, "world": 0.25}
 
 class ContextBroker:
     """
@@ -17,9 +22,14 @@ class ContextBroker:
         self.memory_manager = memory_manager
         self.logger = logging.getLogger(__name__)
         
-        # Context enrichment rules
+        # Context enrichment rules - enhanced for better matching
         self.rag_triggers = {
-            "lore": ["history", "legend", "lore", "story", "past", "ancient", "origin"],
+            "lore": [
+                "history", "legend", "lore", "story", "past", "ancient", "origin",
+                "tell me about", "who are", "what is", "information about", "know about",
+                "alethi", "veden", "roshar", "shardbearer", "knight radiant", "herald",
+                "spren", "vorin", "parshendi", "listener", "kaladin", "shallan", "dalinar"
+            ],
             "rules": ["spell", "magic", "cast", "ability", "rule", "mechanic", "how does", "what happens if"],
             "monsters": ["creature", "monster", "beast", "dragon", "demon", "undead", "stats"],
             "locations": ["place", "location", "city", "dungeon", "area", "region", "where is"],
@@ -96,17 +106,21 @@ class ContextBroker:
         text_content = self._extract_text_content(request)
         text_lower = text_content.lower()
         
-        # Check for RAG triggers
+        # Check for RAG triggers with case-insensitive matching
         for context_type, triggers in self.rag_triggers.items():
-            trigger_count = sum(1 for trigger in triggers if trigger in text_lower)
+            matched_triggers = []
+            for trigger in triggers:
+                if trigger.lower() in text_lower:
+                    matched_triggers.append(trigger)
             
-            if trigger_count > 0:
-                confidence = min(0.9, trigger_count * 0.3)  # Scale confidence
+            if matched_triggers:
+                # More generous confidence scaling
+                confidence = min(0.9, len(matched_triggers) * 0.3 + 0.3)  # Base confidence of 0.3
                 return {
                     "needed": True,
                     "type": context_type,
                     "confidence": confidence,
-                    "triggers": [t for t in triggers if t in text_lower],
+                    "triggers": matched_triggers,
                     "query": self._build_rag_query(text_content, context_type)
                 }
         
@@ -129,6 +143,32 @@ class ContextBroker:
                 "triggers": [request_type],
                 "query": text_content
             }
+        
+        # Enhanced environment-based triggering
+        context = request.get("context", {}) if request else {}
+        if context:
+            environment = context.get("environment", {})
+            location = context.get("location", "").lower()
+            
+            # Location-based RAG triggers
+            if any(loc in location for loc in ["library", "archive", "study", "temple", "ruins"]):
+                return {
+                    "needed": True,
+                    "type": "lore",
+                    "confidence": 0.7,
+                    "triggers": ["location_context"],
+                    "query": self._build_rag_query(text_content, "lore")
+                }
+            
+            # Environment-based triggers
+            if environment.get("type") in ["archive", "library", "study", "magical"]:
+                return {
+                    "needed": True,
+                    "type": "lore",
+                    "confidence": 0.7,
+                    "triggers": ["environment_context"],
+                    "query": self._build_rag_query(text_content, "lore")
+                }
         
         return {
             "needed": False,
@@ -206,8 +246,53 @@ class ContextBroker:
             # Fallback to first 50 characters
             return text[:50]
     
+    def _build_rag_filters(self, request: Dict[str, Any], context_type: str) -> Dict[str, Any]:
+        """Build contextual filters for RAG retrieval based on request context"""
+        
+        # Start with base filters
+        filters = {}
+        
+        # Add context-type specific filters
+        if context_type == "lore":
+            filters["document_type"] = ["lore", "history", "background"]
+            filters["content_category"] = ["world_building", "narrative", "story"]
+        elif context_type == "rules":
+            filters["document_type"] = ["rules", "mechanics", "system"]
+            filters["content_category"] = ["game_rules", "mechanics", "abilities"]
+        elif context_type == "monsters":
+            filters["document_type"] = ["bestiary", "monsters", "creatures"]
+            filters["content_category"] = ["creatures", "combat", "stats"]
+        elif context_type == "locations":
+            filters["document_type"] = ["locations", "places", "geography"]
+            filters["content_category"] = ["world_geography", "locations"]
+        elif context_type == "items":
+            filters["document_type"] = ["items", "equipment", "artifacts"]
+            filters["content_category"] = ["equipment", "treasure", "items"]
+        
+        # Add environmental context filters
+        if request and isinstance(request, dict):
+            context = request.get("context", {})
+            if context:
+                # Location-based filtering
+                location = context.get("location", "").lower()
+                if location:
+                    filters["location_context"] = location
+                
+                # Situation-based filtering
+                if context.get("combat"):
+                    filters["situation"] = "combat"
+                elif context.get("social"):
+                    filters["situation"] = "social"
+                
+                # Difficulty-based filtering
+                difficulty = context.get("difficulty")
+                if difficulty:
+                    filters["difficulty_level"] = difficulty
+        
+        return filters
+    
     def _get_rag_context(self, request: Dict[str, Any], rag_assessment: Dict[str, Any]) -> Dict[str, Any]:
-        """Get RAG context from retriever"""
+        """Get RAG context from retriever using contextual filters"""
         
         if not self.rag_retriever:
             return {"error": "No RAG retriever available"}
@@ -216,21 +301,38 @@ class ContextBroker:
             query = rag_assessment["query"]
             context_type = rag_assessment["type"]
             
-            # Use RAG retriever (placeholder for actual implementation)
+            # Build contextual filters for better retrieval
+            filters = self._build_rag_filters(request, context_type)
+            
+            # Prepare DTO-compatible retrieval request
+            retrieval_request = {
+                "query": query,
+                "type": context_type,
+                "filters": filters,
+                "confidence_threshold": rag_assessment.get("confidence", 0.5),
+                "max_documents": 5,
+                "include_metadata": True
+            }
+            
+            # Use RAG retriever with enhanced filtering
             # This would connect to the actual RAG agent
             retrieved_context = {
                 "query": query,
                 "type": context_type,
-                "documents": [],
+                "filters": filters,
+                "documents": [],  # Would be populated by actual retriever
                 "summary": f"Context for {context_type} query: {query[:50]}...",
-                "confidence": rag_assessment["confidence"]
+                "confidence": rag_assessment["confidence"],
+                "retrieval_request": retrieval_request
             }
+            
+            self.logger.debug(f"RAG context built with filters: {filters}")
             
             return retrieved_context
             
         except Exception as e:
             self.logger.error(f"RAG retrieval failed: {e}")
-            return {"error": str(e)}
+            return {"error": str(e), "query": rag_assessment.get("query", ""), "type": rag_assessment.get("type", "")}
     
     def _get_memory_context(self, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Get relevant memory context"""

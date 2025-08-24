@@ -6,138 +6,168 @@ Uses proper Haystack Agent framework with tools and system prompts
 import json
 from typing import Dict, Any, List, Optional
 from haystack.components.agents import Agent
-from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
-from hwtgenielib.components.generators.chat import AppleGenAIChatGenerator
+from config.llm_config import get_global_config_manager
+from shared_contract import Scenario, Choice, validate_scenario, repair_scenario, minimal_fallback
 
 
 @tool
-def create_scenario_structure(scene: str, choices: List[Dict[str, Any]], 
-                            effects: List[Dict[str, Any]], hooks: List[Dict[str, Any]]) -> Dict[str, Any]:
+def create_scenario_from_dto(dto: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Create a structured D&D scenario following the revised plan contract.
+    Create scenario from DTO with integrated validation and repair.
     
     Args:
-        scene: Narrative description of what happens
-        choices: List of player choices with skill hints and DCs
-        effects: List of game state effects
-        hooks: List of quest progression hooks
-    
-    Returns:
-        Structured scenario data matching contract specification
-    """
-    return {
-        "scene": scene,
-        "choices": choices,
-        "effects": effects,
-        "hooks": hooks
-    }
-
-
-@tool 
-def validate_scenario_contract(scenario_data: Dict[str, Any]) -> Dict[str, str]:
-    """
-    Validate that scenario data matches the revised plan contract.
-    
-    Args:
-        scenario_data: The scenario data to validate
+        dto: Request DTO with action, context, and RAG data
         
     Returns:
-        Validation results with any errors or warnings
+        Updated DTO with validated scenario or fallback
     """
-    errors = []
-    warnings = []
+    # Extract information from DTO
+    player_action = dto.get("player_input", dto.get("action", ""))
+    game_context = dto.get("context", {})
+    rag_blocks = dto.get("rag_blocks", [])
     
-    # Check required fields
-    required_fields = ["scene", "choices", "effects", "hooks"]
-    for field in required_fields:
-        if field not in scenario_data:
-            errors.append(f"Missing required field: {field}")
+    # Build context for scenario generation
+    context_info = []
+    if game_context.get("location"):
+        context_info.append(f"Location: {game_context['location']}")
+    if game_context.get("difficulty"):
+        context_info.append(f"Difficulty: {game_context['difficulty']}")
+    if rag_blocks:
+        context_info.append(f"Retrieved context: {len(rag_blocks)} relevant documents")
     
-    # Validate choices structure
-    if "choices" in scenario_data:
-        for i, choice in enumerate(scenario_data["choices"]):
-            choice_required = ["id", "title", "description", "skill_hints", "suggested_dc", "combat_trigger"]
-            for field in choice_required:
-                if field not in choice:
-                    errors.append(f"Choice {i} missing field: {field}")
-            
-            # Validate DC structure
-            if "suggested_dc" in choice:
-                dc_data = choice["suggested_dc"]
-                if not isinstance(dc_data, dict):
-                    errors.append(f"Choice {i} suggested_dc must be a dictionary")
-                else:
-                    expected_dcs = ["easy", "medium", "hard"]
-                    for dc_level in expected_dcs:
-                        if dc_level not in dc_data:
-                            warnings.append(f"Choice {i} missing DC level: {dc_level}")
+    # Generate raw scenario (this would normally call LLM)
+    # For now, create a structured example that follows the schema
+    raw_scenario = {
+        "scene": f"As you {player_action.lower()}, the environment around you responds. {' '.join(context_info)}",
+        "choices": [
+            {
+                "id": "c1",
+                "title": "Proceed carefully",
+                "description": f"Continue with your action but remain cautious about potential consequences",
+                "skill_hints": ["perception", "stealth"],
+                "suggested_dc": 12,
+                "combat_trigger": False
+            },
+            {
+                "id": "c2",
+                "title": "Act decisively",
+                "description": f"Take bold action without hesitation",
+                "skill_hints": ["athletics", "intimidation"],
+                "suggested_dc": 15,
+                "combat_trigger": False
+            }
+        ],
+        "effects": {},
+        "hooks": []
+    }
+    
+    # Phase 3: Scenario Schema Validation with single repair attempt
+    errors = validate_scenario(raw_scenario)
+    
+    if errors:
+        # Single repair attempt
+        raw_scenario = repair_scenario(raw_scenario, errors)
+        dto["debug"]["scenario_repaired"] = True
+        
+        # Validate again after repair
+        errors = validate_scenario(raw_scenario)
+        
+    if errors:
+        # Still invalid after repair - use fallback
+        dto["debug"]["scenario_errors"] = errors
+        dto["fallback"] = True
+        dto["scenario"] = minimal_fallback(dto)
+    else:
+        # Valid scenario
+        dto["scenario"] = raw_scenario
+        dto["fallback"] = False
+    
+    return dto
+
+
+@tool
+def validate_scenario_output(scenario: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate scenario output using shared contract validation.
+    
+    Args:
+        scenario: Scenario data to validate
+        
+    Returns:
+        Validation results with errors and repair suggestions
+    """
+    errors = validate_scenario(scenario)
     
     return {
         "valid": len(errors) == 0,
         "errors": errors,
-        "warnings": warnings
+        "can_repair": True,
+        "repair_available": len(errors) > 0
     }
 
 
 def create_scenario_generator_agent(chat_generator: Optional[Any] = None) -> Agent:
     """
-    Create a Haystack Agent for D&D scenario generation following the revised plan contract.
+    Create a Haystack Agent for D&D scenario generation with Phase 3 validation.
     
     Args:
-        chat_generator: Optional chat generator (defaults to OpenAI)
+        chat_generator: Optional chat generator (uses LLM config if None)
         
     Returns:
-        Configured Haystack Agent for scenario generation
+        Configured Haystack Agent for scenario generation with validation
     """
     
-    # Use OpenAI by default, but allow override for hwtgenielib
+    # Use LLM config manager to get appropriate generator
     if chat_generator is None:
-        generator = OpenAIChatGenerator(model="gpt-4o-mini")
+        config_manager = get_global_config_manager()
+        generator = config_manager.create_generator("scenario_generator")
     else:
         generator = chat_generator
     
     system_prompt = """
-You are a D&D Dungeon Master assistant specializing in scenario generation.
+You are a D&D scenario generator that MUST output valid JSON following the exact schema.
 
-Your task is to generate structured D&D scenarios that follow the exact contract specification:
+WORKFLOW:
+1. Use create_scenario_from_dto to generate scenarios with built-in validation
+2. The tool will automatically validate and repair scenarios if needed
+3. If validation fails after repair, a fallback scenario will be provided
 
-SCENARIO CONTRACT:
-- scene: A narrative description (2-3 sentences) of what happens
-- choices: 2-4 meaningful player options, each with:
-  - id: Unique identifier (c1, c2, etc.)
-  - title: Short action title
-  - description: Detailed description of the action
-  - skill_hints: Array of relevant D&D skills
-  - suggested_dc: Object with "easy", "medium", "hard" DC values
-  - combat_trigger: Boolean indicating if this leads to combat
-- effects: Array of game state changes:
-  - type: "flag", "condition", or "state_change"
-  - name: Effect name
-  - value: Effect value
-- hooks: Array of quest progression updates:
-  - quest: Quest identifier
-  - progress: "advance", "complete", "fail", or "branch"
+SCENARIO SCHEMA (strict):
+{
+  "scene": "string (2-3 sentences)",
+  "choices": [
+    {
+      "id": "c1",
+      "title": "string",
+      "description": "string",
+      "skill_hints": ["skill1", "skill2"],
+      "suggested_dc": 12,
+      "combat_trigger": false
+    }
+  ],
+  "effects": {},
+  "hooks": []
+}
 
-IMPORTANT RULES:
-1. Always use the create_scenario_structure tool to format your response
-2. DCs should be appropriate for the context (easy: 8-12, medium: 13-17, hard: 18-22)
-3. Include realistic skill hints for each choice
-4. Effects should reflect logical consequences of player actions
-5. Hooks should advance relevant story elements
-6. Keep scenes engaging but concise
-7. Provide meaningful choices that matter
+VALIDATION RULES:
+- scene, choices, effects, hooks are REQUIRED
+- Each choice MUST have: id, title, description, skill_hints, suggested_dc, combat_trigger
+- suggested_dc must be integer 8-20
+- skill_hints must be array of strings
+- combat_trigger must be boolean
 
-When given a player action and context, generate an appropriate scenario response using the tools available.
+The create_scenario_from_dto tool handles all validation and repair automatically.
+Always use this tool - never return raw JSON directly.
 """
 
     agent = Agent(
         chat_generator=generator,
-        tools=[create_scenario_structure, validate_scenario_contract],
+        tools=[create_scenario_from_dto, validate_scenario_output],
         system_prompt=system_prompt,
-        exit_conditions=["create_scenario_structure"],
-        max_agent_steps=5,
+        exit_conditions=["create_scenario_from_dto"],
+        max_agent_steps=3,
         raise_on_tool_invocation_failure=False
     )
     
@@ -146,28 +176,30 @@ When given a player action and context, generate an appropriate scenario respons
 
 def create_fallback_scenario(action: str, context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Create a fallback scenario when the agent fails to generate one.
+    Create a validated fallback scenario when the agent fails to generate one.
+    This function always produces a valid scenario according to the schema.
     
     Args:
         action: Player action
         context: Game context
         
     Returns:
-        Fallback scenario following contract specification
+        Fallback scenario following validated contract specification
     """
     difficulty = context.get("difficulty", "medium")
     location = context.get("location", "area")
     
-    # Set DCs based on difficulty
+    # Set DCs based on difficulty (simplified to integer)
     dc_map = {
-        "easy": {"easy": 8, "medium": 12, "hard": 16},
-        "medium": {"easy": 10, "medium": 15, "hard": 20},
-        "hard": {"easy": 12, "medium": 17, "hard": 22}
+        "easy": 10,
+        "medium": 15,
+        "hard": 18
     }
     
-    dcs = dc_map.get(difficulty, dc_map["medium"])
+    base_dc = dc_map.get(difficulty, 15)
     
-    return {
+    # Create scenario that will pass validation
+    scenario = {
         "scene": f"You consider your options in this {location}, weighing the consequences of your intended action: '{action}'.",
         "choices": [
             {
@@ -175,7 +207,7 @@ def create_fallback_scenario(action: str, context: Dict[str, Any]) -> Dict[str, 
                 "title": "Proceed carefully",
                 "description": "Move forward with your plan, but take precautions to avoid complications",
                 "skill_hints": ["perception", "stealth"],
-                "suggested_dc": dcs,
+                "suggested_dc": base_dc,
                 "combat_trigger": False
             },
             {
@@ -183,32 +215,20 @@ def create_fallback_scenario(action: str, context: Dict[str, Any]) -> Dict[str, 
                 "title": "Act boldly",
                 "description": "Take direct action without hesitation",
                 "skill_hints": ["intimidation", "athletics"],
-                "suggested_dc": {k: v + 2 for k, v in dcs.items()},
-                "combat_trigger": False
-            },
-            {
-                "id": "c3",
-                "title": "Reconsider approach",
-                "description": "Step back and look for alternative solutions",
-                "skill_hints": ["investigation", "insight"],
-                "suggested_dc": {k: v - 2 for k, v in dcs.items()},
+                "suggested_dc": base_dc + 2,
                 "combat_trigger": False
             }
         ],
-        "effects": [
-            {
-                "type": "flag",
-                "name": "fallback_scenario_used",
-                "value": True
-            }
-        ],
-        "hooks": [
-            {
-                "quest": "current_situation",
-                "progress": "advance"
-            }
-        ]
+        "effects": {},
+        "hooks": []
     }
+    
+    # Ensure the fallback passes validation
+    errors = validate_scenario(scenario)
+    if errors:
+        scenario = repair_scenario(scenario, errors)
+    
+    return scenario
 
 
 # Factory function for integration with existing orchestrator
