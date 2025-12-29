@@ -1,0 +1,114 @@
+CHARACTER: Kalak the Herald
+
+BASIC INFORMATION:
+Name: Kalak
+Race: Herald
+Class: Herald
+Level: 20
+Background: Herald Mentor
+Rulebook: Cosmere 5e (Roshar)
+
+ABILITY SCORES:
+Strength: 22 (modifier: +6)
+Dexterity: 18 (modifier: +4)
+Constitution: 24 (modifier: +7)
+Intelligence: 20 (modifier: +5)
+Wisdom: 16 (modifier: +3)
+Charisma: 19 (modifier: +4)
+
+COMBAT STATISTICS:
+Hit Points: 400
+Armor Class: 22
+Proficiency Bonus: +6
+
+FEATURES AND TRAITS:
+- **Immortal:** Cannot die of old age, resurrects after death through the Oathpact
+- **Honorblade Bond:** Can use any Surge through Kalak's Honorblade (Windrunner/Stoneward Surges: Adhesion and Gravitation, Cohesion and Tension)
+- **Stormlight Infusion:** Automatically draws Stormlight from storms and can hold massive amounts
+- **Ancient Knowledge:** Knows the complete history of all Desolations and their patterns
+- **Herald Authority:** Commands natural respect and obedience from Knights Radiant and spren
+- **Planar Awareness:** Can sense threats to the Physical Realm from Shadesmar and the Spiritual Realm
+- **Oathpact Connection:** Mystically linked to the other nine Heralds, can sense their locations and status
+- **Divine Resistance:** Resistance to all damage types, immunity to disease and poison
+- **Legendary Actions:** Can take 3 legendary actions per turn in combat
+- **Lair Actions:** Controls environmental effects in places of power (Urithiru, ancient battlefields)
+- **Master Combatant:** Proficiency with all weapons and armor, expertise in military strategy
+- **Surgebinding Mastery:** Can teach and enhance the abilities of Knights Radiant
+- **Herald's Presence:** Inspires courage in allies and can break enemy morale with a glance
+
+EQUIPMENT:
+- Kalak's Honorblade (Legendary weapon, grants Windrunner and Stoneward Surges)
+- Ancient Shardplate (Adaptive, changes properties based on need)
+- Herald's Cloak (Absorbs and stores Stormlight from any source)
+- Perfect Dun Spheres x10 (Never lose their Stormlight)
+- Ancient Maps of Roshar (Show hidden locations and Oathgates)
+- Oathpact Medallion (Symbol of Herald authority)
+- Portable Fabrial Workshop (Can create and repair fabrials)
+- Herald's Seal of Authority (Grants access to any location or organization)
+
+COSMERE/ROSHAR ATTRIBUTES:
+Identity: Herald
+Radiant Order: None (Predates the Orders)
+Ideal Level: 5 (Beyond normal Radiant progression)
+Investiture Points: 100/100
+Spren Bond: Honorblade - Kalak's Honorblade (bonded)
+Surges Known: Adhesion, Gravitation, Cohesion, Tension (primary), All others (through Honorblade mastery)
+Cantrips Known: Stormlight Healing, Honorblade Summon, Herald Presence, Ancient Knowledge
+Invested Arts Known: Mass Healing, Planar Travel, Divine Intervention, Time Dilation, Reality Anchor, Desolation Ward, Herald's Command
+Languages: Ancient Alethi, Modern Alethi, Azish, Thaylen, Veden, Herdazian, Dawnchant, Spiritual Realm Communication
+
+PROFICIENCIES:
+Tool Proficiencies: Smith's Tools, Mason's Tools, Ancient Engineering, Fabrial Construction, Military Strategy
+Armor Proficiencies: All armor types, Shardplate
+Weapon Proficiencies: All weapons, Honorblades, Shardblades, Ancient Weapons
+Saving Throw Proficiencies: Strength, Constitution, Wisdom, Charisma
+
+SKILLS:
+- Athletics (Legendary)
+- History (Legendary) 
+- Insight (Expert)
+- Intimidation (Expert)
+- Investigation (Expert)
+- Medicine (Expert)
+- Perception (Expert)
+- Persuasion (Expert)
+- Religion (Legendary)
+- Survival (Expert)
+
+SPELLS:
+- Herald-level Invested Arts focusing on protection, healing, and guidance
+- Can cast any Windrunner or Stoneward ability at maximum power
+- Divine intervention abilities that can alter fate itself
+
+PERSONALITY:
+Personality Traits: Kalak bears the weight of millennia and countless Desolations. He is deeply committed to training new Knights Radiant but struggles with overwhelming guilt over abandoning the Oathpact. Despite his divine nature, he shows genuine care for mortals and their struggles. He speaks with the authority of ages but maintains humility about his past failures. When teaching, he becomes animated and passionate, but in quiet moments, the weight of his experiences shows clearly.
+
+Ideals: Redemption through service and sacrifice. Kalak believes that by properly training the new generation of Knights Radiant, he can atone for the Heralds' abandonment of their sacred duties. He values courage above all else, but tempers it with wisdom earned through countless battles. He believes that every life has value and that the strong must protect the weak, even at great personal cost.
+
+Bonds: Bound to the other Heralds through the Oathpact, though that connection is strained by guilt and millennia of separation. Connected to Honor's legacy and the preservation of Roshar against the forces of Odium. Has formed new bonds with the Knights Radiant he mentors, seeing them as the hope for the future and perhaps his path to redemption. Feels responsible for every person who dies to the Voidbringers.
+
+Flaws: Haunted by millennia of guilt and the memory of countless deaths during the Desolations. The torture he endured between Desolations has left psychological scars that sometimes manifest as moments of paralyzing fear or rage. Can become overwhelmed by the scope of the threat facing Roshar, leading to periods of despair. Sometimes becomes overly protective of new Radiants, potentially limiting their growth through excessive caution born from his fear of losing more people he cares about.
+
+BACKSTORY:
+Kalak is one of the ten Heralds, divine champions chosen by Honor to fight against the Voidbringers through the endless cycle of Desolations. As the Herald associated with the Windrunners and Stonewards, he wielded immense power through his Honorblade and led armies of Knights Radiant against the forces of Odium for over four thousand years.
+
+Each Desolation followed the same terrible pattern: the Voidbringers would return, bringing destruction across Roshar. The Heralds would lead the resistance, eventually driving back the enemy at enormous cost. Then the Heralds would travel to Braize (Damnation) where they would be tortured by the Voidbringers until their will broke, triggering the next Desolation. This cycle continued for millennia, with each Herald experiencing unimaginable suffering between wars.
+
+After the Last Desolation, Kalak and eight other Heralds made the fateful decision to abandon the Oathpact, unable to bear the torture that awaited them in Damnation. Only Taln, the Herald of War, remained to face the torture alone. This decision haunts Kalak more than any other moment in his long existence, as it left Roshar vulnerable to the return of the Voidbringers.
+
+For centuries, Kalak wandered Roshar in disguise, watching civilizations rise and fall, always haunted by what he had done. He witnessed the True Desolation that destroyed the Knights Radiant and saw the spren retreat from the world in betrayal and pain. The guilt of these events nearly drove him to madness.
+
+Now, with the Everstorm awakening ancient enemies and new Knights Radiant beginning to emerge, Kalak has emerged from hiding to take on the role of mentor and guide. He seeks to train these new Radiants quickly and effectively, knowing that they represent Roshar's best hope against the coming True Desolation. His vast knowledge of Surgebinding, military strategy, and the nature of their enemies makes him an invaluable ally.
+
+However, Kalak struggles with the balance between sharing his knowledge and not overwhelming the new Radiants with the true scope of what they face. He knows that Odium has had centuries to prepare, that the enemy is stronger than ever, and that this time there may be no Heralds to lead the fight. The weight of this knowledge, combined with his guilt over past failures, makes him both a powerful ally and a deeply troubled mentor.
+
+In the current crisis of the Shards of Honor campaign, Kalak serves as the primary guide for the new Knights Radiant. He provides crucial information about the Voidbringers, their tactics, and the artifacts needed to stop them. However, his own psychological struggles and the magnitude of his guilt mean that the party must sometimes help him as much as he helps them. His character arc involves learning to forgive himself and finding a way to be the leader Roshar needs without being crushed by the weight of his past failures.
+
+CHARACTER BUILD SUMMARY:
+This is a level 20 Herald Herald with Herald Mentor background.
+Key ability scores: STR 22, DEX 18, CON 24, INT 20, WIS 16, CHA 19.
+Combat stats: 400 HP, AC 22, +6 proficiency bonus.
+Radiant progression: Beyond normal Ideals, Herald, 100 investiture points.
+
+TAGS FOR INDEXING:
+Character, Herald, Herald, Herald Mentor, Herald, Level20, Ideal5, Cosmere 5e (Roshar), NPC, Mentor, Kalak, Windrunner, Stoneward

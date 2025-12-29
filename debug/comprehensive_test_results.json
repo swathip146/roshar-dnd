@@ -1,0 +1,249 @@
+{
+  "test_suite": "Comprehensive Enhancement Test",
+  "timestamp": 1756757874.115221,
+  "summary": {
+    "total_tests": 33,
+    "passed": 33,
+    "failed": 0,
+    "success_rate": 100.0,
+    "duration": 64.66444325447083,
+    "results": [
+      {
+        "test": "PolicyEngine Initialization",
+        "success": true,
+        "message": "Successfully created with HOUSE profile",
+        "details": {},
+        "timestamp": 1756757809.852679
+      },
+      {
+        "test": "PolicyEngine Difficulty Policy",
+        "success": true,
+        "message": "Generated policy with fields: ['difficulty_target', 'dc_policy', 'party_level', 'party_size', 'party_health', 'profile']",
+        "details": {},
+        "timestamp": 1756757809.852698
+      },
+      {
+        "test": "PolicyEngine Encounter Budget",
+        "success": true,
+        "message": "Generated budget with XP thresholds and multipliers",
+        "details": {},
+        "timestamp": 1756757809.852714
+      },
+      {
+        "test": "PolicyEngine Choice Count Policy",
+        "success": true,
+        "message": "Generated choice policy: 4 choices",
+        "details": {},
+        "timestamp": 1756757809.852724
+      },
+      {
+        "test": "CharacterManager Initialization",
+        "success": true,
+        "message": "Successfully initialized enhanced CharacterManager",
+        "details": {},
+        "timestamp": 1756757809.852752
+      },
+      {
+        "test": "CharacterManager Enhanced Character Addition",
+        "success": true,
+        "message": "Added character with ID: test_player",
+        "details": {},
+        "timestamp": 1756757809.852774
+      },
+      {
+        "test": "CharacterManager Party Snapshot",
+        "success": true,
+        "message": "Generated snapshot with 10 fields",
+        "details": {},
+        "timestamp": 1756757809.852793
+      },
+      {
+        "test": "GameEngine Enhanced GameState",
+        "success": true,
+        "message": "GameState has enhanced context fields: ['narrative_context', 'location_context', 'quest_context']",
+        "details": {},
+        "timestamp": 1756757809.8528168
+      },
+      {
+        "test": "GameEngine Initialization",
+        "success": true,
+        "message": "Successfully initialized GameEngine",
+        "details": {},
+        "timestamp": 1756757809.8553028
+      },
+      {
+        "test": "GameEngine Context Methods",
+        "success": true,
+        "message": "Available context methods: ['update_narrative_context', 'update_location_context', 'update_quest_context', 'get_scenario_context']",
+        "details": {},
+        "timestamp": 1756757809.855339
+      },
+      {
+        "test": "RequestDTO Enhanced Fields",
+        "success": true,
+        "message": "Available enhanced fields: ['goal_hint', 'risk_preference', 'party_context', 'quest_context', 'location_context', 'rag_snippets']",
+        "details": {},
+        "timestamp": 1756757809.855593
+      },
+      {
+        "test": "RequestDTO Context Population",
+        "success": true,
+        "message": "DTO populated with context keys: ['session_state', 'game_state', 'enhanced_components_active']",
+        "details": {},
+        "timestamp": 1756757809.855634
+      },
+      {
+        "test": "GameInitConfig Fallback Fields",
+        "success": true,
+        "message": "Config has fallback tracking fields: ['component_status', 'features_available']",
+        "details": {},
+        "timestamp": 1756757811.78491
+      },
+      {
+        "test": "GameInitializationSystem Fallback Methods",
+        "success": true,
+        "message": "Available fallback methods: ['create_game_components_with_fallbacks', '_create_policy_engine_with_fallback', '_create_character_manager_with_fallback', '_create_session_manager_with_fallback']",
+        "details": {},
+        "timestamp": 1756757811.784946
+      },
+      {
+        "test": "Component Creation with Fallbacks",
+        "success": true,
+        "message": "All components created: \u2705 All components operational - Full enhanced experience available",
+        "details": {},
+        "timestamp": 1756757811.7852108
+      },
+      {
+        "test": "Fallback Creator _create_basic_policy_fallback",
+        "success": true,
+        "message": "Created fallback component: BasicPolicyFallback",
+        "details": {},
+        "timestamp": 1756757811.7852328
+      },
+      {
+        "test": "Fallback Creator _create_basic_character_fallback",
+        "success": true,
+        "message": "Created fallback component: BasicCharacterFallback",
+        "details": {},
+        "timestamp": 1756757811.7852428
+      },
+      {
+        "test": "Fallback Creator _create_basic_session_fallback",
+        "success": true,
+        "message": "Created fallback component: BasicSessionFallback",
+        "details": {},
+        "timestamp": 1756757811.7852511
+      },
+      {
+        "test": "Fallback Creator _create_basic_game_engine_fallback",
+        "success": true,
+        "message": "Created fallback component: BasicGameEngineFallback",
+        "details": {},
+        "timestamp": 1756757811.785258
+      },
+      {
+        "test": "Orchestrator Factory Enhanced Signature",
+        "success": true,
+        "message": "Factory supports component parameters: ['game_engine', 'character_manager', 'session_manager', 'policy_engine']",
+        "details": {},
+        "timestamp": 1756757811.798005
+      },
+      {
+        "test": "Orchestrator Creation with Minimal Components",
+        "success": true,
+        "message": "Created orchestrator: PipelineOrchestrator",
+        "details": {},
+        "timestamp": 1756757811.801636
+      },
+      {
+        "test": "Orchestrator Enhanced Context Population",
+        "success": true,
+        "message": "Enhanced DTO context population method available",
+        "details": {},
+        "timestamp": 1756757811.8016388
+      },
+      {
+        "test": "Enhanced DTO Context Population",
+        "success": true,
+        "message": "Populated context fields: ['game_state', 'party_context', 'policy_context']",
+        "details": {},
+        "timestamp": 1756757811.802109
+      },
+      {
+        "test": "Scenario Generator Agent Creation",
+        "success": true,
+        "message": "Successfully created ScenarioGeneratorAgent",
+        "details": {},
+        "timestamp": 1756757811.802461
+      },
+      {
+        "test": "Enhanced Context Extraction",
+        "success": true,
+        "message": "Extracted 5/5 context sections in prompt",
+        "details": {},
+        "timestamp": 1756757811.802519
+      },
+      {
+        "test": "Enhanced Prompt Generation",
+        "success": true,
+        "message": "Generated comprehensive prompt: 5/5 sections",
+        "details": {},
+        "timestamp": 1756757811.8025632
+      },
+      {
+        "test": "End-to-End Game Initialization",
+        "success": true,
+        "message": "Successfully initialized game with enhanced config",
+        "details": {},
+        "timestamp": 1756757811.809016
+      },
+      {
+        "test": "End-to-End Play Turn with Enhanced Context",
+        "success": true,
+        "message": "Generated response: 295 characters",
+        "details": {},
+        "timestamp": 1756757853.1447942
+      },
+      {
+        "test": "Backward Compatibility DTO Structure",
+        "success": true,
+        "message": "Old DTO structure still supported",
+        "details": {},
+        "timestamp": 1756757853.1448681
+      },
+      {
+        "test": "Backward Compatibility Orchestrator",
+        "success": true,
+        "message": "Basic orchestrator creation still works",
+        "details": {},
+        "timestamp": 1756757853.155187
+      },
+      {
+        "test": "Backward Compatibility Game Creation",
+        "success": true,
+        "message": "Game can be created without enhanced config",
+        "details": {},
+        "timestamp": 1756757874.1142342
+      },
+      {
+        "test": "Error Scenario Component Creation",
+        "success": true,
+        "message": "Graceful degradation: \u2705 All components operational - Full enhanced experience available",
+        "details": {},
+        "timestamp": 1756757874.11479
+      },
+      {
+        "test": "Error Scenario Invalid DTO Handling",
+        "success": true,
+        "message": "Invalid DTO handled gracefully",
+        "details": {},
+        "timestamp": 1756757874.115148
+      }
+    ]
+  },
+  "environment": {
+    "python_version": "3.12.11 | packaged by Anaconda, Inc. | (main, Jun  5 2025, 08:03:38) [Clang 14.0.6 ]",
+    "platform": "darwin",
+    "working_directory": "/Users/scj/Documents/Projects/AI/DnD/roshar-dnd"
+  }
+}

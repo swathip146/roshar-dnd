@@ -1,0 +1,1190 @@
+{
+  "test_start": "2025-08-24T06:40:21.849729",
+  "system_info": {},
+  "component_tests": {
+    "SystemInit": [
+      {
+        "test_name": "config_creation",
+        "success": true,
+        "timestamp": 1756042823.4436638,
+        "details": {
+          "config_created": true,
+          "collection_name": "dnd_documents"
+        }
+      },
+      {
+        "test_name": "game_initialization",
+        "success": true,
+        "timestamp": 1756042823.447726,
+        "details": {
+          "init_time": 0.004055976867675781,
+          "game_created": true
+        }
+      }
+    ],
+    "Connectivity": [
+      {
+        "test_name": "orchestrator_status",
+        "success": true,
+        "timestamp": 1756042823.447736,
+        "details": {
+          "status": {
+            "pipelines_enabled": true,
+            "available_pipelines": [
+              "scenario_generation",
+              "rag_retriever",
+              "npc_interaction",
+              "interface_processing"
+            ],
+            "available_agents": [
+              "scenario_generator",
+              "rag_retriever",
+              "npc_controller",
+              "main_interface"
+            ],
+            "stage3_enabled": true,
+            "available_handlers": [
+              "scenario",
+              "dice_roll",
+              "game_state",
+              "skill_check",
+              "character_add",
+              "character_update",
+              "saga_start",
+              "saga_advance",
+              "policy_change",
+              "contested_check",
+              "game_statistics",
+              "gameplay_turn",
+              "scenario_generation",
+              "scenario_pipeline_with_rag_context",
+              "npc_interaction",
+              "interface_processing",
+              "rag_query"
+            ],
+            "pre_hooks": 1,
+            "post_hooks": 1,
+            "policy_profile": "house",
+            "active_sagas": 0,
+            "decision_logger_session": "1756042823",
+            "game_characters": 1
+          },
+          "pipelines_enabled": true
+        }
+      },
+      {
+        "test_name": "session_manager",
+        "success": true,
+        "timestamp": 1756042823.4477382,
+        "details": {
+          "session_active": true,
+          "player_name": "TestPlayer"
+        }
+      },
+      {
+        "test_name": "game_engine",
+        "success": true,
+        "timestamp": 1756042823.447742,
+        "details": {
+          "stats": {
+            "session_duration": 0.0037789344787597656,
+            "total_skill_checks": 0,
+            "successful_checks": 0,
+            "success_rate": 0,
+            "dice_statistics": {
+              "message": "No rolls found"
+            },
+            "active_characters": 1,
+            "campaign_flags": 0,
+            "environment": {
+              "lighting": "normal",
+              "terrain": "normal",
+              "weather": "clear"
+            }
+          },
+          "engine_responsive": true
+        }
+      }
+    ],
+    "Agents": [
+      {
+        "test_name": "scenario_generator_availability",
+        "success": true,
+        "timestamp": 1756042823.447745,
+        "details": {
+          "agent_type": "Agent",
+          "agent_exists": true
+        }
+      },
+      {
+        "test_name": "scenario_generator_schema",
+        "success": true,
+        "timestamp": 1756042823.447746,
+        "details": {
+          "schema": {
+            "scenario_result": {
+              "type": "<class 'dict'>"
+            },
+            "messages": {
+              "type": "typing.List[haystack.dataclasses.chat_message.ChatMessage]",
+              "handler": "<function merge_lists at 0x32628dee0>"
+            }
+          }
+        }
+      },
+      {
+        "test_name": "rag_retriever_availability",
+        "success": true,
+        "timestamp": 1756042823.4477482,
+        "details": {
+          "agent_type": "Agent",
+          "agent_exists": true
+        }
+      },
+      {
+        "test_name": "rag_retriever_schema",
+        "success": true,
+        "timestamp": 1756042823.4477491,
+        "details": {
+          "schema": {
+            "formatted_context": {
+              "type": "<class 'dict'>"
+            },
+            "messages": {
+              "type": "typing.List[haystack.dataclasses.chat_message.ChatMessage]",
+              "handler": "<function merge_lists at 0x32628dee0>"
+            }
+          }
+        }
+      },
+      {
+        "test_name": "npc_controller_availability",
+        "success": true,
+        "timestamp": 1756042823.4477491,
+        "details": {
+          "agent_type": "Agent",
+          "agent_exists": true
+        }
+      },
+      {
+        "test_name": "npc_controller_schema",
+        "success": true,
+        "timestamp": 1756042823.4477499,
+        "details": {
+          "schema": {
+            "npc_response": {
+              "type": "<class 'dict'>"
+            },
+            "messages": {
+              "type": "typing.List[haystack.dataclasses.chat_message.ChatMessage]",
+              "handler": "<function merge_lists at 0x32628dee0>"
+            }
+          }
+        }
+      },
+      {
+        "test_name": "main_interface_availability",
+        "success": true,
+        "timestamp": 1756042823.4477508,
+        "details": {
+          "agent_type": "Agent",
+          "agent_exists": true
+        }
+      },
+      {
+        "test_name": "main_interface_schema",
+        "success": true,
+        "timestamp": 1756042823.4477508,
+        "details": {
+          "schema": {
+            "routing_decision": {
+              "type": "<class 'dict'>"
+            },
+            "formatted_response": {
+              "type": "<class 'dict'>"
+            },
+            "rag_assessment": {
+              "type": "<class 'dict'>"
+            },
+            "messages": {
+              "type": "typing.List[haystack.dataclasses.chat_message.ChatMessage]",
+              "handler": "<function merge_lists at 0x32628dee0>"
+            }
+          }
+        }
+      }
+    ],
+    "Pipeline": [
+      {
+        "test_name": "request_1_gameplay_turn",
+        "success": true,
+        "timestamp": 1756042833.232054,
+        "details": {
+          "request_type": "gameplay_turn",
+          "success": true,
+          "process_time": 9.784263849258423,
+          "response_data": {
+            "scene": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.",
+            "choices": [
+              {
+                "id": "c1",
+                "title": "Continue exploring",
+                "description": "Keep investigating your surroundings",
+                "skill_hints": [
+                  "perception"
+                ],
+                "suggested_dc": 12,
+                "combat_trigger": false
+              }
+            ],
+            "effects": {},
+            "hooks": [],
+            "processing_metadata": {
+              "pipeline_path": "manual_scenario_generation",
+              "reason": "All automated methods failed"
+            }
+          }
+        }
+      },
+      {
+        "test_name": "request_2_scenario_generation",
+        "success": true,
+        "timestamp": 1756042836.230356,
+        "details": {
+          "request_type": "scenario_generation",
+          "success": true,
+          "process_time": 2.998253107070923,
+          "response_data": {
+            "scene": "You begin a methodical search of the tavern, looking for anything of interest.",
+            "choices": [
+              {
+                "id": "c1",
+                "title": "Continue exploring",
+                "description": "Keep investigating your surroundings",
+                "skill_hints": [
+                  "perception"
+                ],
+                "suggested_dc": 12,
+                "combat_trigger": false
+              }
+            ],
+            "effects": {},
+            "hooks": [],
+            "processing_metadata": {
+              "pipeline_path": "manual_scenario_generation",
+              "reason": "All automated methods failed"
+            }
+          }
+        }
+      },
+      {
+        "test_name": "request_3_rag_query",
+        "success": true,
+        "timestamp": 1756042878.6889348,
+        "details": {
+          "request_type": "rag_query",
+          "success": true,
+          "process_time": 42.45855784416199,
+          "response_data": {
+            "error": "RAG query pipeline failed: 'NoneType' object has no attribute 'get'",
+            "query": "tavern information",
+            "rag_result": null
+          }
+        }
+      }
+    ],
+    "SessionMgmt": [
+      {
+        "test_name": "save_game",
+        "success": true,
+        "timestamp": 1756042878.690737,
+        "details": {
+          "save_successful": true
+        }
+      },
+      {
+        "test_name": "session_state",
+        "success": true,
+        "timestamp": 1756042878.690751,
+        "details": {
+          "session_state": {
+            "session_active": true,
+            "session_id": "session_1756042823",
+            "player_name": "TestPlayer",
+            "session_duration": 55.24307680130005,
+            "game_state": {
+              "location": "Kholinar",
+              "story": "You stand in the war camp on the Shattered Plains, where the fate of kingdoms hangs in the balance. The storm approaches, and with it, destiny.",
+              "history": [
+                {
+                  "player": "look around the tavern",
+                  "dm": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042890.4336371,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "talk to the bartender",
+                  "dm": "You engage in conversation, your words carrying weight in this area.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042900.791447,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "ask about local rumors",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042911.420557,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "investigate the mysterious door",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042923.242453,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "search for clues about the missing merchant",
+                  "dm": "You begin a methodical search of the area, looking for anything of interest.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042939.7516348,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "examine the strange artifact on the table",
+                  "dm": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042953.439731,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "listen to the conversation at the next table",
+                  "dm": "You pause and listen carefully to the sounds around you in the area.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042969.0529122,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042987.643729,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "invalid unicode: \u0000\u0001\u0002",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756042998.35136,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "test operation 1",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756043012.570942,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "test operation 2",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756043025.830847,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "test operation 3",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756043035.9336991,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "test operation 4",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756043048.192548,
+                  "location": "Kholinar"
+                },
+                {
+                  "player": "test operation 5",
+                  "dm": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+                  "timestamp": 1756043062.181579,
+                  "location": "Kholinar"
+                }
+              ],
+              "created_time": 1756042823.447666,
+              "enhanced_features": true,
+              "document_collection": "dnd_documents",
+              "campaign_info": {
+                "name": "Shards of Honor: The Veden Crisis",
+                "description": "A Stormlight Archive campaign set in the Shattered Plains",
+                "source": "shards_of_honor_campaign",
+                "theme": "Stormlight Archive",
+                "setting": "Roshar",
+                "level_range": "1-5",
+                "difficulty": "Medium",
+                "recommended_party_size": "3-5 players",
+                "session_count": 10,
+                "main_plot": "",
+                "dm_notes": "",
+                "enhanced_features": {}
+              },
+              "campaign_content": {
+                "hooks": [],
+                "npcs": [],
+                "locations": [],
+                "encounters": [],
+                "rewards": [],
+                "treasure_types": []
+              },
+              "session_stats": {
+                "turns_played": 14,
+                "locations_visited": [
+                  "Tavern",
+                  "Kholinar"
+                ],
+                "npcs_encountered": [],
+                "encounters_completed": [],
+                "rewards_earned": []
+              }
+            },
+            "character_data": {
+              "character_id": "player",
+              "name": "TestPlayer",
+              "level": 1,
+              "ability_scores": {
+                "strength": 14,
+                "dexterity": 12,
+                "constitution": 13,
+                "intelligence": 11,
+                "wisdom": 15,
+                "charisma": 10
+              },
+              "skills": {
+                "perception": true,
+                "investigation": true,
+                "persuasion": true
+              },
+              "expertise_skills": [],
+              "conditions": [],
+              "features": []
+            }
+          }
+        }
+      },
+      {
+        "test_name": "game_statistics",
+        "success": true,
+        "timestamp": 1756042878.690794,
+        "details": {
+          "stats": {
+            "location": "Kholinar",
+            "player_name": "TestPlayer",
+            "campaign_name": "Shards of Honor: The Veden Crisis",
+            "session_duration": 55.24679398536682,
+            "total_skill_checks": 0,
+            "successful_checks": 0,
+            "success_rate": 0,
+            "dice_statistics": {
+              "message": "No rolls found"
+            },
+            "active_characters": 1,
+            "campaign_flags": 0,
+            "environment": {
+              "lighting": "normal",
+              "terrain": "normal",
+              "weather": "clear"
+            },
+            "turns_played": 0,
+            "locations_visited": 1,
+            "npcs_encountered": 0,
+            "enhanced_mode": true,
+            "game_engine_active": true,
+            "session_manager_active": true,
+            "orchestrator_stats": {
+              "game_statistics": {
+                "session_duration": 55.246808767318726,
+                "total_skill_checks": 0,
+                "successful_checks": 0,
+                "success_rate": 0,
+                "dice_statistics": {
+                  "message": "No rolls found"
+                },
+                "active_characters": 1,
+                "campaign_flags": 0,
+                "environment": {
+                  "lighting": "normal",
+                  "terrain": "normal",
+                  "weather": "clear"
+                }
+              },
+              "session_summary": {
+                "session_id": "1756042823",
+                "session_duration": 55.24675798416138,
+                "session_start": 1756042823.444014,
+                "total_skill_checks": 0,
+                "total_saga_steps": 0,
+                "total_policy_decisions": 0,
+                "unique_correlations": 0,
+                "skill_check_analysis": {
+                  "message": "No skill checks match the filters"
+                },
+                "saga_analysis": {
+                  "message": "No saga decisions recorded"
+                }
+              },
+              "saga_statistics": {
+                "active_sagas": 0,
+                "completed_sagas": 0,
+                "failed_sagas": 0,
+                "total_sagas": 0,
+                "available_saga_types": [
+                  "skill_challenge",
+                  "combat_encounter",
+                  "social_encounter",
+                  "exploration",
+                  "rest_sequence"
+                ]
+              },
+              "policy_info": {
+                "active_profile": "house",
+                "total_rules": 7,
+                "custom_rules": 0,
+                "temporary_overrides": 0,
+                "rules": {
+                  "flanking_advantage": {
+                    "value": true,
+                    "description": "Popular house rule - flanking grants advantage",
+                    "source": "House Rule"
+                  },
+                  "crit_range": {
+                    "value": [
+                      19,
+                      20
+                    ],
+                    "description": "Expanded critical hit range",
+                    "source": "House Rule"
+                  },
+                  "death_saves": {
+                    "value": "standard",
+                    "description": "Standard death saving throws",
+                    "source": "PHB"
+                  },
+                  "rest_variant": {
+                    "value": "standard",
+                    "description": "Standard rest rules",
+                    "source": "PHB"
+                  },
+                  "dc_adjustment": {
+                    "value": 0,
+                    "description": "No global adjustments",
+                    "source": "House Rule"
+                  },
+                  "spell_component_enforcement": {
+                    "value": false,
+                    "description": "Relaxed component requirements",
+                    "source": "House Rule"
+                  },
+                  "encumbrance": {
+                    "value": "lenient",
+                    "description": "More forgiving carrying capacity",
+                    "source": "House Rule"
+                  }
+                }
+              },
+              "message": "Comprehensive statistics retrieved"
+            },
+            "pipeline_status": {
+              "pipelines_enabled": true,
+              "available_pipelines": [
+                "scenario_generation",
+                "rag_retriever",
+                "npc_interaction",
+                "interface_processing"
+              ],
+              "available_agents": [
+                "scenario_generator",
+                "rag_retriever",
+                "npc_controller",
+                "main_interface"
+              ],
+              "stage3_enabled": true,
+              "available_handlers": [
+                "scenario",
+                "dice_roll",
+                "game_state",
+                "skill_check",
+                "character_add",
+                "character_update",
+                "saga_start",
+                "saga_advance",
+                "policy_change",
+                "contested_check",
+                "game_statistics",
+                "gameplay_turn",
+                "scenario_generation",
+                "scenario_pipeline_with_rag_context",
+                "npc_interaction",
+                "interface_processing",
+                "rag_query"
+              ],
+              "pre_hooks": 1,
+              "post_hooks": 1,
+              "policy_profile": "house",
+              "active_sagas": 0,
+              "decision_logger_session": "1756042823",
+              "game_characters": 1
+            }
+          }
+        }
+      }
+    ],
+    "GameEngine": [
+      {
+        "test_name": "skill_check",
+        "success": true,
+        "timestamp": 1756042878.690911,
+        "details": {
+          "result": {
+            "success": false,
+            "roll_total": 13,
+            "raw_rolls": [
+              9
+            ],
+            "selected_roll": 9,
+            "dc": 14,
+            "dc_source": "difficulty_medium",
+            "dc_adjustments": [
+              "Low level party: -1"
+            ],
+            "advantage_state": "normal",
+            "advantage_sources": [],
+            "disadvantage_sources": [],
+            "character_modifier": 4,
+            "modifier_breakdown": "2 (ability) + 2 (proficiency) = 4",
+            "roll_breakdown": "1d20+4 = 9+4 = 13",
+            "correlation_id": "d0548a49-b119-41dc-83fb-326c91d39226",
+            "actor": "player",
+            "skill": "perception",
+            "timestamp": 1756042878.690884
+          },
+          "process_time": 0.00011372566223144531
+        }
+      },
+      {
+        "test_name": "state_export",
+        "success": true,
+        "timestamp": 1756042878.6909251,
+        "details": {
+          "export_keys": [
+            "game_state",
+            "character_data",
+            "policy_profile",
+            "export_timestamp"
+          ]
+        }
+      }
+    ],
+    "DocumentStore": [
+      {
+        "test_name": "search",
+        "success": true,
+        "timestamp": 1756042878.800222,
+        "details": {
+          "results_count": 3,
+          "search_worked": true
+        }
+      },
+      {
+        "test_name": "enhanced_search",
+        "success": true,
+        "timestamp": 1756042878.8885188,
+        "details": {
+          "enhanced_results_count": 2
+        }
+      }
+    ],
+    "Gameplay": [
+      {
+        "test_name": "round_1",
+        "success": true,
+        "timestamp": 1756042890.4338171,
+        "details": {
+          "input": "look around the tavern",
+          "response_length": 189,
+          "response_time": 11.54513692855835,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You carefully examine your surroundings in the area. The details become clearer as you focus your at"
+        }
+      },
+      {
+        "test_name": "round_2",
+        "success": true,
+        "timestamp": 1756042900.791608,
+        "details": {
+          "input": "talk to the bartender",
+          "response_length": 149,
+          "response_time": 9.85613489151001,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You engage in conversation, your words carrying weight in this area.\n\n\ud83d\udccb Available actions:\n\u2022 Continu"
+        }
+      },
+      {
+        "test_name": "round_3",
+        "success": true,
+        "timestamp": 1756042911.420707,
+        "details": {
+          "input": "ask about local rumors",
+          "response_length": 152,
+          "response_time": 10.12392783164978,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Cont"
+        }
+      },
+      {
+        "test_name": "round_4",
+        "success": true,
+        "timestamp": 1756042923.242605,
+        "details": {
+          "input": "investigate the mysterious door",
+          "response_length": 152,
+          "response_time": 11.316706895828247,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Cont"
+        }
+      },
+      {
+        "test_name": "round_5",
+        "success": true,
+        "timestamp": 1756042939.751749,
+        "details": {
+          "input": "search for clues about the missing merchant",
+          "response_length": 157,
+          "response_time": 16.006978034973145,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You begin a methodical search of the area, looking for anything of interest.\n\n\ud83d\udccb Available actions:\n\u2022"
+        }
+      },
+      {
+        "test_name": "round_6",
+        "success": true,
+        "timestamp": 1756042953.439886,
+        "details": {
+          "input": "examine the strange artifact on the table",
+          "response_length": 189,
+          "response_time": 13.182951211929321,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You carefully examine your surroundings in the area. The details become clearer as you focus your at"
+        }
+      },
+      {
+        "test_name": "round_7",
+        "success": true,
+        "timestamp": 1756042969.053202,
+        "details": {
+          "input": "listen to the conversation at the next table",
+          "response_length": 149,
+          "response_time": 15.10817265510559,
+          "is_fallback": false,
+          "fallback_reason": null,
+          "response_preview": "You pause and listen carefully to the sounds around you in the area.\n\n\ud83d\udccb Available actions:\n\u2022 Continu"
+        }
+      },
+      {
+        "test_name": "full_session",
+        "success": true,
+        "timestamp": 1756042969.558305,
+        "details": {
+          "total_rounds": 7,
+          "successful_rounds": 7,
+          "session_time": 90.6697289943695
+        }
+      }
+    ],
+    "ErrorHandling": [
+      {
+        "test_name": "error_empty_input",
+        "success": true,
+        "timestamp": 1756042969.558391,
+        "details": {
+          "input": "",
+          "response_received": true,
+          "is_fallback": false,
+          "response": "The world waits for your action..."
+        }
+      },
+      {
+        "test_name": "error_null_input",
+        "success": true,
+        "timestamp": 1756042969.558403,
+        "details": {
+          "input": "None",
+          "response_received": true,
+          "is_fallback": false,
+          "response": "The world waits for your action..."
+        }
+      },
+      {
+        "test_name": "error_very_long_input",
+        "success": true,
+        "timestamp": 1756042987.643765,
+        "details": {
+          "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "response_received": true,
+          "is_fallback": false,
+          "response": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+        }
+      },
+      {
+        "test_name": "error_invalid_unicode",
+        "success": true,
+        "timestamp": 1756042998.351404,
+        "details": {
+          "input": "invalid unicode: \u0000\u0001\u0002",
+          "response_received": true,
+          "is_fallback": false,
+          "response": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+        }
+      }
+    ],
+    "Performance": [
+      {
+        "test_name": "average_response_time",
+        "success": false,
+        "timestamp": 1756043062.181611,
+        "details": {
+          "avg_time": 12.766035747528075,
+          "total_operations": 5,
+          "total_time": 63.83017873764038
+        }
+      }
+    ]
+  },
+  "gameplay_rounds": [
+    {
+      "round": 1,
+      "timestamp": 1756042890.433714,
+      "player_input": "look around the tavern",
+      "dm_response": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 11.54513692855835,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 189,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    },
+    {
+      "round": 2,
+      "timestamp": 1756042900.791507,
+      "player_input": "talk to the bartender",
+      "dm_response": "You engage in conversation, your words carrying weight in this area.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 9.85613489151001,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You engage in conversation, your words carrying weight in this area.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 149,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    },
+    {
+      "round": 3,
+      "timestamp": 1756042911.420607,
+      "player_input": "ask about local rumors",
+      "dm_response": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 10.12392783164978,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 152,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    },
+    {
+      "round": 4,
+      "timestamp": 1756042923.242507,
+      "player_input": "investigate the mysterious door",
+      "dm_response": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 11.316706895828247,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You take action in the area, and the world responds to your initiative.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 152,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    },
+    {
+      "round": 5,
+      "timestamp": 1756042939.751677,
+      "player_input": "search for clues about the missing merchant",
+      "dm_response": "You begin a methodical search of the area, looking for anything of interest.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 16.006978034973145,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You begin a methodical search of the area, looking for anything of interest.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 157,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    },
+    {
+      "round": 6,
+      "timestamp": 1756042953.4397829,
+      "player_input": "examine the strange artifact on the table",
+      "dm_response": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 13.182951211929321,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You carefully examine your surroundings in the area. The details become clearer as you focus your attention.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 189,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    },
+    {
+      "round": 7,
+      "timestamp": 1756042969.0529668,
+      "player_input": "listen to the conversation at the next table",
+      "dm_response": "You pause and listen carefully to the sounds around you in the area.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings",
+      "processing_data": {
+        "response_time": 15.10817265510559,
+        "response_valid": true,
+        "response_type": "string",
+        "is_fallback": false,
+        "turn_successful": true,
+        "response_content": "You pause and listen carefully to the sounds around you in the area.\n\n\ud83d\udccb Available actions:\n\u2022 Continue exploring: Keep investigating your surroundings"
+      },
+      "response_length": 149,
+      "contains_choices": false,
+      "mentions_location": false,
+      "story_progression_score": 0.5
+    }
+  ],
+  "failures": [
+    {
+      "component": "Performance",
+      "test": "average_response_time",
+      "details": {
+        "avg_time": 12.766035747528075,
+        "total_operations": 5,
+        "total_time": 63.83017873764038
+      },
+      "timestamp": 1756043062.1816168
+    }
+  ],
+  "performance_metrics": {
+    "game_initialization_time": {
+      "value": 0.004055976867675781,
+      "unit": "seconds",
+      "timestamp": 1756042823.447724
+    },
+    "pipeline_gameplay_turn_time": {
+      "value": 9.784263849258423,
+      "unit": "seconds",
+      "timestamp": 1756042833.232069
+    },
+    "pipeline_scenario_generation_time": {
+      "value": 2.998253107070923,
+      "unit": "seconds",
+      "timestamp": 1756042836.230361
+    },
+    "pipeline_rag_query_time": {
+      "value": 42.45855784416199,
+      "unit": "seconds",
+      "timestamp": 1756042878.6889448
+    },
+    "skill_check_time": {
+      "value": 0.00011372566223144531,
+      "unit": "seconds",
+      "timestamp": 1756042878.690912
+    },
+    "round_1_time": {
+      "value": 11.54513692855835,
+      "unit": "seconds",
+      "timestamp": 1756042890.433822
+    },
+    "round_2_time": {
+      "value": 9.85613489151001,
+      "unit": "seconds",
+      "timestamp": 1756042900.791612
+    },
+    "round_3_time": {
+      "value": 10.12392783164978,
+      "unit": "seconds",
+      "timestamp": 1756042911.4207108
+    },
+    "round_4_time": {
+      "value": 11.316706895828247,
+      "unit": "seconds",
+      "timestamp": 1756042923.24261
+    },
+    "round_5_time": {
+      "value": 16.006978034973145,
+      "unit": "seconds",
+      "timestamp": 1756042939.751752
+    },
+    "round_6_time": {
+      "value": 13.182951211929321,
+      "unit": "seconds",
+      "timestamp": 1756042953.43989
+    },
+    "round_7_time": {
+      "value": 15.10817265510559,
+      "unit": "seconds",
+      "timestamp": 1756042969.053206
+    },
+    "full_session_time": {
+      "value": 90.6697289943695,
+      "unit": "seconds",
+      "timestamp": 1756042969.5582678
+    },
+    "avg_response_time": {
+      "value": 12.766035747528075,
+      "unit": "seconds",
+      "timestamp": 1756043062.181619
+    }
+  },
+  "story_progression": [
+    {
+      "round": 1,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "reason": "First round"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    },
+    {
+      "round": 2,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "locations_mentioned": [],
+        "location_changes": 0,
+        "response_quality": "good"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    },
+    {
+      "round": 3,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "locations_mentioned": [],
+        "location_changes": 0,
+        "response_quality": "good"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    },
+    {
+      "round": 4,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "locations_mentioned": [],
+        "location_changes": 0,
+        "response_quality": "good"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    },
+    {
+      "round": 5,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "locations_mentioned": [],
+        "location_changes": 0,
+        "response_quality": "good"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    },
+    {
+      "round": 6,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "locations_mentioned": [],
+        "location_changes": 0,
+        "response_quality": "good"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    },
+    {
+      "round": 7,
+      "progression_score": 0.5,
+      "consistency_check": {
+        "consistent": true,
+        "locations_mentioned": [],
+        "location_changes": 0,
+        "response_quality": "good"
+      },
+      "narrative_elements": {
+        "has_dialogue": false,
+        "has_action": false,
+        "has_description": false,
+        "has_emotion": false,
+        "has_mystery": false
+      }
+    }
+  ],
+  "validation_results": {}
+}

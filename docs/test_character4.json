@@ -1,0 +1,49 @@
+{
+  "name": "kali",
+  "race": "Azish",
+  "character_class": "Radiant",
+  "level": 1,
+  "background": "Hermit",
+  "stats": {
+    "strength": 11,
+    "dexterity": 15,
+    "constitution": 16,
+    "intelligence": 13,
+    "wisdom": 12,
+    "charisma": 14
+  },
+  "hit_points": 11,
+  "armor_class": 12,
+  "proficiency_bonus": 2,
+  "skills": [],
+  "equipment": [
+    "Hermit Background Starting Equipment:**",
+    "Herbalism kit",
+    "Scroll case with spiritual writings",
+    "Winter blanket",
+    "Set of artisan's tools (one of your choice)",
+    "Belt pouch",
+    "Set of common clothes",
+    "gp"
+  ],
+  "spells": [],
+  "features": [
+    "However, based on the fragments I can see, here are what appear to be the core features for a level 1 character of this class:",
+    "**Spellcasting: The Radiant gains the ability to cast Invested Arts (this class's version of spells) using Charisma as their spellcasting ability. They know cantrips and have spell slots for casting higher-level Invested Arts.**",
+    "**Investiture Points: The Radiant gains a pool of Investiture points that can be spent to enhance their Invested Arts through various Surgebinding Techniques.**",
+    "**Spren Bond: The Radiant forms a bond with a Cryptic spren, which functions as a familiar and grants additional abilities. The Cryptic has specific stats and abilities as shown in the stat block.**",
+    "**Surgebinding Study: The Radiant learns techniques to modify their Invested Arts, though specific level 1 techniques aren't clearly defined in the provided text.**",
+    "**Note:** This appears to be homebrew content rather than official D&D 5e material. The complete level 1 features would need the full, unfragmented class description to provide accurate details about starting proficiencies, hit points, equipment, and the complete list of initial abilities.",
+    "Here are the **Makabaki** traits that would apply to Azish characters:",
+    "**Age:** Reach adulthood in their mid-teens and live to about 70 years old",
+    "**Creature Type:** Humans (humanoid)",
+    "**Size:** Medium (about 6 to 6\u00bd feet tall on average)",
+    "**Speed:** Base walking speed is 30 feet",
+    "**Languages:** Can speak, read, and write Azish, Common, and its written forms (Common Glyphs and Common Script)"
+  ],
+  "personality_traits": "A Azish Radiant who follows their chosen path and pursues their goals. Source: Unknown\nsigns.The languages of Roshar are listed below:LanguageTypeIdentityCommonSpokenAll\fCommon ScriptWrittenAlethi, Herdazian, Natan, VedenCommon GlyphsWrittenAlethi, Herdazian, Natan, Vede...",
+  "ideals": "Justice and personal growth",
+  "bonds": "Connected to their hermit background and azish heritage",
+  "flaws": "Sometimes too focused on their goals to consider consequences",
+  "backstory": ""
+}

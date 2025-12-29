@@ -1,0 +1,120 @@
+CHARACTER: Nale the Herald
+
+BASIC INFORMATION:
+Name: Nale
+Race: Herald
+Class: Herald
+Level: 20
+Background: Conflicted Herald
+Rulebook: Cosmere 5e (Roshar)
+
+ABILITY SCORES:
+Strength: 18 (modifier: +4)
+Dexterity: 24 (modifier: +7)
+Constitution: 22 (modifier: +6)
+Intelligence: 23 (modifier: +6)
+Wisdom: 14 (modifier: +2)
+Charisma: 17 (modifier: +3)
+
+COMBAT STATISTICS:
+Hit Points: 380
+Armor Class: 24
+Proficiency Bonus: +6
+
+FEATURES AND TRAITS:
+- **Immortal:** Cannot die of old age, resurrects after death through the Oathpact
+- **Honorblade Bond:** Wields Nale's Honorblade granting Division and Abrasion Surges with perfect mastery
+- **Perfect Justice:** Can sense lawbreakers, their crimes, and the appropriate punishment with supernatural accuracy
+- **Divine Authority:** Can compel truth from any being and enforce laws with divine backing
+- **Execution Rights:** Can instantly kill those he deems guilty of capital crimes through Division
+- **Legal Omniscience:** Knows all laws of every nation on Roshar, past and present
+- **Planar Jurisdiction:** His authority extends across all three Realms
+- **Herald Resistance:** Immunity to charm, fear, and mind-affecting effects
+- **Legendary Actions:** Can take 3 legendary actions per turn in combat
+- **Lair Actions:** Controls legal and judicial environments, can manifest courtrooms
+- **Skybreaker Command:** Leads the order of Skybreakers who serve as his agents
+- **Truth Detection:** Cannot be lied to, can force others to speak truth
+- **Precision Strike:** Every attack hits exactly where intended with maximum effect
+- **Law Enforcement:** Can bind criminals with unbreakable divine restraints
+
+EQUIPMENT:
+- Nale's Honorblade (Legendary weapon, grants Division and Abrasion Surges)
+- Judicial Shardplate (Adaptive defense, appears as formal robes or armor as needed)
+- Cloak of Office (Enhances authority, grants immunity to deception)
+- Perfect Spheres x15 (Stormlight storage that never dims)
+- Legal Codex of All Nations (Contains every law ever written)
+- Execution Warrant (Blank, can be filled for any criminal)
+- Truth Detection Fabrial (Forces honesty in a wide area)
+- Herald's Seal of Justice (Symbol of ultimate legal authority)
+- Skybreaker Communication Device (Contacts his agents anywhere)
+- Binding Chains (Can restrain any criminal, even other Heralds)
+
+COSMERE/ROSHAR ATTRIBUTES:
+Identity: Herald
+Radiant Order: None (Predates the Orders, but leads Skybreakers)
+Ideal Level: 5 (Beyond normal Radiant progression)
+Investiture Points: 100/100
+Spren Bond: Honorblade - Nale's Honorblade (bonded)
+Surges Known: Division, Abrasion (perfect mastery)
+Cantrips Known: Perfect Strike, Justice Sense, Law Detection, Herald Authority
+Invested Arts Known: Execution, Divine Judgment, Truth Compulsion, Planar Binding, Mass Suggestion, Dominate Person, Disintegration, Time Stop
+Languages: Ancient Alethi, Modern Alethi, Azish, Thaylen, Veden, Legal Azish, Judicial Script, Divine Law, Spiritual Realm Communication
+
+PROFICIENCIES:
+Tool Proficiencies: Calligrapher's Supplies, Forgery Kit, Legal Documents, Investigation Tools, Judicial Instruments
+Armor Proficiencies: All armor types, Judicial Robes
+Weapon Proficiencies: All weapons, Honorblades, Precision Weapons, Execution Weapons
+Saving Throw Proficiencies: Dexterity, Intelligence, Wisdom, Charisma
+
+SKILLS:
+- Deception (Legendary)
+- History (Legendary)
+- Insight (Legendary)
+- Intimidation (Legendary)
+- Investigation (Legendary)
+- Perception (Expert)
+- Persuasion (Expert)
+- Religion (Expert)
+- Sleight of Hand (Expert)
+- Stealth (Expert)
+
+SPELLS:
+- Herald-level Invested Arts focusing on justice, truth, and execution
+- Can use Division to destroy anything he deems unlawful
+- Divine judgment abilities that can determine guilt and assign punishment
+- Truth compulsion that works on any being
+
+PERSONALITY:
+Personality Traits: Nale is obsessed with law, order, and preventing another Desolation through absolute adherence to legal structures. He is cold, calculating, and absolutely convinced of his righteousness, showing little mercy to those he deems lawbreakers. Every action is measured against legal precedent and the greater good as he sees it. He speaks with precise, formal language and becomes visibly agitated when confronted with legal ambiguity or chaos. However, the current crisis is forcing him to question his methods and beliefs for the first time in millennia.
+
+Ideals: Perfect Justice and the prevention of Desolations through absolute law and order. Nale believes that strict adherence to established legal systems and the elimination of chaos-causing elements (like unsanctioned Knights Radiant) will prevent another catastrophic war. He values order, precision, legal precedent, and the greater good over individual lives, freedoms, or even mercy. Justice, to him, is not about compassion but about perfect application of law.
+
+Bonds: Bound to the concept of Justice itself and the legal systems of every nation on Roshar. Connected to his organization of Skybreakers who serve as his agents and enforcers across the continent. Bound by the Oathpact to the other Heralds, though he views most of them as failures. Increasingly conflicted about his relationship with the law itself as he faces evidence that his interpretation may be flawed.
+
+Flaws: Absolutely obsessed with preventing Desolations to the point of causing great harm to innocents. Unable to see nuance in situations, viewing everything through a rigid legal framework of guilty/innocent, lawful/unlawful. His obsession has made him paranoid and dangerous, willing to kill potential Knights Radiant to prevent what he believes will be another Desolation. Struggles with the realization that his methods may be wrong, which threatens his entire worldview and sense of purpose.
+
+BACKSTORY:
+Nale is the Herald of Justice, associated with the Skybreakers and wielding the Surges of Division and Abrasion through his Honorblade. Unlike the other Heralds, Nale never fully abandoned his duties after the Last Desolation. Instead, he became obsessed with preventing another Desolation by eliminating what he believed to be the root cause: Knights Radiant who break their oaths and cause their spren to die.
+
+Nale's interpretation of the cycle was that the return of Knights Radiant inevitably leads to their betrayal and abandonment, which causes massive spiritual damage that triggers the return of the Voidbringers. To prevent this, he has spent centuries leading the Skybreakers in hunting down nascent Knights Radiant, believing that eliminating them before they can grow powerful enough to cause damage would break the cycle.
+
+His methods are ruthless and precise. Using his mastery of law and his divine authority, Nale has created a network of agents who identify potential Radiants and eliminate them before they can speak their second oath. He justifies these killings through legal technicalities and his absolute belief that he is preventing a greater catastrophe.
+
+For over a thousand years, this approach seemed to work. No new Desolation came, and Nale took this as proof that his methods were correct. He became increasingly rigid in his thinking, viewing any deviation from established law as a threat to the stability he had created.
+
+However, the return of the Voidbringers through the Everstorm has shattered Nale's worldview. The evidence that Desolations can occur without Knights Radiant is forcing him to confront the possibility that his centuries of work have been not only wrong but actively harmful to Roshar's defense. This realization is causing a crisis of faith that threatens to destroy his sanity.
+
+In the current crisis of the Shards of Honor campaign, Nale represents a dangerous wild card. His vast knowledge of Surgebinding, his network of Skybreaker agents, and his combat abilities make him potentially valuable as an ally. However, his obsession with law and order, combined with his difficulty accepting that he might be wrong, make him extremely dangerous to work with.
+
+The party must navigate carefully around this Herald. His support could provide crucial advantages - access to the Skybreaker organization, knowledge of legal systems that could provide safe passage, and his combat abilities in the final battle. However, his opposition could be fatal, as he has the power and authority to turn entire nations against the party if he deems them unlawful.
+
+Nale's character arc in the campaign involves his gradual realization that his interpretation of justice has been flawed, and his struggle to find a new purpose in a world where his centuries of work may have made things worse rather than better. Whether he becomes a redeemed ally or a tragic antagonist depends largely on how the party interacts with him and whether they can help him find a new understanding of justice that includes mercy and growth.
+
+CHARACTER BUILD SUMMARY:
+This is a level 20 Herald Herald with Conflicted Herald background.
+Key ability scores: STR 18, DEX 24, CON 22, INT 23, WIS 14, CHA 17.
+Combat stats: 380 HP, AC 24, +6 proficiency bonus.
+Radiant progression: Beyond normal Ideals, Herald, 100 investiture points.
+
+TAGS FOR INDEXING:
+Character, Herald, Herald, Conflicted Herald, Herald, Level20, Ideal5, Cosmere 5e (Roshar), NPC, Antagonist, Nale, Skybreaker, Division, Abrasion

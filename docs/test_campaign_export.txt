@@ -1,0 +1,262 @@
+=== CAMPAIGN METADATA ===
+DOCUMENT_TYPE: D&D_Campaign
+TITLE: Secrets Beneath the Gilded Griffin
+THEME: Mystery
+SETTING: The border town of Millhaven and its underground network
+LEVEL_RANGE: 3-5
+GENERATED_ON: 2025-08-09T19:14:06.662304
+SOURCE: Campaign_Generator
+
+=== CAMPAIGN OVERVIEW ===
+CHUNK_TYPE: Overview
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+When patrons of the Gilded Griffin tavern begin disappearing, the party must uncover a conspiracy involving smugglers, ancient crypts, and a network of tunnels beneath the town. What starts as missing persons quickly escalates into a web of corruption reaching the highest levels of local government.
+
+=== CAMPAIGN BACKGROUND ===
+CHUNK_TYPE: Background
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+Millhaven sits at the crossroads of three kingdoms, making it a hub for legitimate trade and illicit smuggling. Beneath the town lies an ancient network of crypts dedicated to Kelemvor, long forgotten by most residents. The Gilded Griffin tavern, built over one of the main entrances, has unknowingly become the center of a smuggling operation run by corrupt town officials who discovered the tunnels' existence. Recent expansion of their operations has led to the kidnapping of witnesses and the awakening of undead guardians in the deeper crypts.
+
+=== MAIN PLOT ===
+CHUNK_TYPE: Plot
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+The campaign begins when Escobert, the tavern keeper of the Gilded Griffin, approaches the party about mysterious disappearances of his patrons. Investigation reveals that certain guests who asked too many questions or stayed too late have vanished without a trace. The party discovers a hidden sally port behind barrels in the tavern's cellar, secured with locks whose keys Escobert carries unknowingly - given to him by the previous owner as 'storage room keys.' The tunnels beyond lead to a network of natural caves and ancient crypts, now serving as a smuggling route for weapons and stolen goods. The party must navigate trapped passages, confront kobold sentries working for the smugglers, and ultimately face both the corrupt Captain Thorne who leads the operation and the awakened undead guardians of Kelemvor's crypts. The climax occurs when the party must choose between exposing the corruption publicly or working with reformed smugglers to seal the crypts and protect the town from a growing undead threat.
+
+=== NPC: Escobert the Innkeeper ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+NPC_NAME: Escobert the Innkeeper
+NPC_ROLE: Tavern Keeper and Quest Giver
+DESCRIPTION: A portly, well-meaning human who has run the Gilded Griffin for three years since purchasing it from the previous owner. He carries a ring of keys including ones to the secret passages, though he believes they're just for old storage rooms. Escobert genuinely cares for his patrons and is deeply troubled by their disappearances.
+MOTIVATION: Protect his customers and maintain his tavern's reputation while uncovering the truth behind the disappearances
+
+=== NPC: Captain Marcus Thorne ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+NPC_NAME: Captain Marcus Thorne
+NPC_ROLE: Town Guard Captain and Smuggling Leader
+DESCRIPTION: A charismatic human fighter with the Dueling fighting style, skilled with his rapier. Publicly respected as a war veteran, secretly he leads the smuggling operation after discovering the ancient tunnels during a routine investigation. He justifies his actions as necessary for the town's prosperity.
+MOTIVATION: Maintain his public image while maximizing profits from smuggling, eliminating any threats to his operation
+
+=== NPC: Vera Shadowstep ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+NPC_NAME: Vera Shadowstep
+NPC_ROLE: Reformed Thief and Underground Guide
+DESCRIPTION: A chaotic neutral human rogue who initially worked for Thorne but became horrified when the operation turned to kidnapping. She knows the tunnel system intimately and seeks redemption. Quick-witted and resourceful, she becomes a valuable ally if the party can earn her trust.
+MOTIVATION: Escape Thorne's control, protect innocent people, and find a path to redemption for her past crimes
+
+=== NPC: Brother Matthias ===
+CHUNK_TYPE: NPC
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+NPC_NAME: Brother Matthias
+NPC_ROLE: Undead Keeper of Kelemvor
+DESCRIPTION: Once a faithful priest of Kelemvor, now an intelligent undead guardian awakened by the disturbance to the crypts. Neither fully alive nor mindlessly undead, he seeks to restore peace to the desecrated burial grounds while protecting the ancient treasures and knowledge contained within.
+MOTIVATION: Restore sanctity to Kelemvor's crypts, judge the living who have disturbed the dead, and prevent the spread of undead corruption
+
+=== LOCATION: The Gilded Griffin Tavern ===
+CHUNK_TYPE: Location
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+LOCATION_NAME: The Gilded Griffin Tavern
+LOCATION_TYPE: Tavern/Business
+DESCRIPTION: A three-story timber building with a common room featuring a great hearth, private dining alcoves, and guest rooms above. The cellar contains wine barrels, food stores, and barrels concealing the hidden sally port. The atmosphere is warm and welcoming, with local artwork and trophies from travelers adorning the walls.
+SIGNIFICANCE: Primary investigation site and entrance to the underground network; serves as the party's base of operations
+FLOORPLAN:
+```
+#########################
+#T....T#@......T....T.#
+#......#.............T#
+#T.....+...T.........##
+#......#.............+#
+###+####+#####T......##
+#@.T...........T.....#
+#.........@..........#
+#T...................#
+#..T.................#
+#T.......T......T....#
+#....................#
+#T.T.................#
+#....^...............#
+#########################
+```
+
+LEGEND:
+# = Walls
+. = Floor space
++ = Doors  
+^ = Stairs to upper floors
+@ = Special features (hearth, bar, cellar entrance)
+T = Tables and furniture
+Main entrance: East wall
+Cellar access: Via stairs
+Bar/hearth: North wall and center
+
+=== LOCATION: The Smuggler's Tunnels ===
+CHUNK_TYPE: Location
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+LOCATION_NAME: The Smuggler's Tunnels
+LOCATION_TYPE: Underground Network
+DESCRIPTION: A maze of natural caves connected by worked stone passages, some dating back centuries. The tunnels are cramped, damp, and filled with the scent of old earth. Crude wooden supports shore up unstable sections, while newer areas show signs of recent excavation. Hidden caches contain smuggled goods.
+SIGNIFICANCE: Main dungeon environment connecting all underground locations; contains traps, encounters, and vital clues
+FLOORPLAN:
+```
+#########################
+#.......#...............#
+#.T@....+...^.........T.#
+#.......#...#...........#
+#####+###...#####.......#
+#~~~........#...#.......#
+#~~~........+...########+
+#~~~........#...#.......#
+####........#...#...@...#
+#.X.........#...#.......#
+#...........#...+.......#
+#.....T.....#...#.......#
+#@..........#############
+#...........#
+#############
+```
+
+**LEGEND:**
+- # = Walls/Rock
+- . = Floor/Walkable space  
+- + = Doors/Passages
+- ~ = Underground water
+- ^ = Stairs up/down
+- @ = Hidden caches/goods
+- T = Tables/storage
+- X = Trap/unstable area
+
+=== LOCATION: The Crypts of Kelemvor ===
+CHUNK_TYPE: Location
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+LOCATION_NAME: The Crypts of Kelemvor
+LOCATION_TYPE: Ancient Burial Ground
+DESCRIPTION: Hewn stone chambers with vaulted ceilings, decorated with symbols of Kelemvor and containing stone sarcophagi set with sardonyx gemstones. Ancient but well-preserved, these crypts emanate a sense of solemn reverence disrupted by recent desecration. Hidden latches and secret doors protect inner sanctums.
+SIGNIFICANCE: Final dungeon area where the party confronts both smugglers and undead; contains major treasure and campaign resolution
+FLOORPLAN:
+```
+#########################
+#.......+...............#
+#.@.....#.....@.........#
+#.......#...............#
+##+##+###+###+##+##+####
+#........T.T............#
+#.@....^.....^....@.....#
+#......#.....#..........#
+####+##########+########
+#.@.....................#
+#.....T...@...T.........#
+#.......X...X...........#
+##+######################
+#.@.^...................#
+#########################
+```
+
+**Legend:**
+- # = walls
+- . = floor/walkable space  
+- + = doors
+- ^ = stairs to lower crypts
+- @ = sarcophagi with sardonyx gems
+- T = stone altars/tables
+- X = pressure plate traps
+
+=== LOCATION: Kobold Warren ===
+CHUNK_TYPE: Location
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+LOCATION_NAME: Kobold Warren
+LOCATION_TYPE: Monster Lair
+DESCRIPTION: Area 8 of the tunnel network - a natural cavern enlarged and crudely smoothed by kobold inhabitants. Bedrolls, cooking fires, and primitive furniture fill the space. The entrance from area 7 features a collapsing trap on the steps. Crude but effective, showing the kobolds' alliance with the smugglers.
+SIGNIFICANCE: Mid-level encounter location revealing the scope of the conspiracy and providing information about deeper threats
+FLOORPLAN:
+```
+#########################
+#.......#...............#
+#..T....#......@........#
+#.......#...T...........#
+#.......+...............#
+#.......#.....T.........#
+#..@....#...............#
+#.......#........@......#
+#.......#...............#
+#.......#.....T.........#
+#.......############....#
+#..............X^^^^^^^^#
+#..............X^^^^^^^^#
+#..............#........#
+#########################
+```
+
+**LEGEND:**
+- # = Walls
+- . = Floor/walkable space  
+- + = Door to Area 7
+- ^ = Stairs (entrance from Area 7)
+- @ = Cooking fires/hearths
+- T = Tables/primitive furniture
+- X = Collapsing trap on steps
+
+=== ENCOUNTER: The Vanishing Witness ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+ENCOUNTER_TITLE: The Vanishing Witness
+ENCOUNTER_TYPE: Social
+DESCRIPTION: The party interviews tavern patrons and staff to learn about the disappearances. They must use persuasion, investigation, and insight to piece together the pattern while avoiding alerting the wrong people to their investigation.
+CHALLENGE: Medium - requires careful roleplay and deduction
+
+=== ENCOUNTER: Collapsing Trap Ambush ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+ENCOUNTER_TITLE: Collapsing Trap Ambush
+ENCOUNTER_TYPE: Combat
+DESCRIPTION: As the party descends from area 7 to the kobold warren, they trigger a collapsing trap while kobold sentries attack from prepared positions. The unstable floor threatens to drop characters into a deeper pit.
+CHALLENGE: Medium - environmental hazard combined with combat
+
+=== ENCOUNTER: Negotiating with Vera ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+ENCOUNTER_TITLE: Negotiating with Vera
+ENCOUNTER_TYPE: Social
+DESCRIPTION: The party encounters the reformed thief in the tunnels. They must convince her to help them rather than flee, requiring careful negotiation and possibly making deals about her future safety from Thorne's retribution.
+CHALLENGE: Medium - success determines access to vital information and a potential ally
+
+=== ENCOUNTER: The Smuggler's Last Stand ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+ENCOUNTER_TITLE: The Smuggler's Last Stand
+ENCOUNTER_TYPE: Combat
+DESCRIPTION: Captain Thorne and his remaining loyal guards make their final stand in the main smuggling chamber, using their knowledge of the terrain and cached supplies to their advantage. Thorne fights with his dueling fighting style, gaining +2 damage with his rapier.
+CHALLENGE: Hard - climactic boss fight with environmental advantages for enemies
+
+=== ENCOUNTER: Awakened Guardian's Judgment ===
+CHUNK_TYPE: Encounter
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+ENCOUNTER_TITLE: Awakened Guardian's Judgment
+ENCOUNTER_TYPE: Social/Combat
+DESCRIPTION: Brother Matthias confronts the party in the deepest crypt, testing their intentions and judging their actions. This can be resolved through combat, negotiation, or divine intervention depending on the party's approach and previous choices.
+CHALLENGE: Hard - final encounter with multiple possible resolutions
+
+=== CAMPAIGN HOOKS ===
+CHUNK_TYPE: Hooks
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+HOOK_1: Escobert approaches the party directly after another patron vanished from their room overnight, leaving behind only some personal belongings and an overturned chair
+HOOK_2: A surviving victim escapes the tunnels and stumbles into the tavern, delirious and speaking of 'voices in the dark' and 'the dead walking' before collapsing
+HOOK_3: The party stays at the Gilded Griffin and witnesses suspicious activity - seeing cloaked figures entering the cellar at night or hearing strange sounds from below their rooms
+
+=== CAMPAIGN REWARDS ===
+CHUNK_TYPE: Rewards
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+REWARD_1: Four sardonyx gemstones worth 10 gp each from ancient sarcophagi, plus additional treasure from smuggled goods caches
+REWARD_2: Inspiration rewards for clever investigation, successful negotiation with NPCs, and making morally complex choices about justice versus mercy
+
+=== DM NOTES ===
+CHUNK_TYPE: DM_Notes
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+This campaign balances investigation, dungeon exploration, and moral complexity. Use the Fighter's Dueling fighting style for Captain Thorne to create a memorable boss fight. The kobolds should feel like hired muscle rather than evil monsters - they're working for payment, not malice. Allow multiple solutions to encounters, especially the final confrontation with Brother Matthias. Track the party's reputation in town as their investigation progresses, as this affects NPC reactions and potential endings. The secret passages can be expanded with additional chambers if you need more content, and consider having some passages connect to other buildings in town for extended investigation opportunities.
+
+=== GENERATION HISTORY ===
+CHUNK_TYPE: Generation_History
+CAMPAIGN: Secrets Beneath the Gilded Griffin
+PROMPT_1: A tavern mystery with secret underground passages
+

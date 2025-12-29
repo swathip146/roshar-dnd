@@ -1,0 +1,33 @@
+{
+  "name": "Thorin Ironforge",
+  "race": "Dwarf",
+  "character_class": "Fighter",
+  "level": 3,
+  "background": "Soldier",
+  "stats": {
+    "strength": 9,
+    "dexterity": 10,
+    "constitution": 12,
+    "intelligence": 16,
+    "wisdom": 13,
+    "charisma": 12
+  },
+  "hit_points": 25,
+  "armor_class": 10,
+  "proficiency_bonus": 2,
+  "skills": [],
+  "equipment": [
+    "Clothes, common",
+    "Belt pouch with 10 gp"
+  ],
+  "spells": [],
+  "features": [
+    "Fighter features (Level 3)",
+    "Dwarf racial traits"
+  ],
+  "personality_traits": "As a Dwarf Fighter, they are [trait based on RAG response]",
+  "ideals": "Ideals based on background and class",
+  "bonds": "Bonds connecting to background",
+  "flaws": "Character flaws for interesting roleplay",
+  "backstory": ""
+}

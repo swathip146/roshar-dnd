@@ -1,0 +1,65 @@
+CHARACTER: Aggi
+
+BASIC INFORMATION:
+Name: Aggi
+Race: Alethi
+Class: Radiant
+Level: 1
+Background: Folk Hero
+Rulebook: Cosmere 5e (Roshar)
+
+ABILITY SCORES:
+Strength: 8 (modifier: -1)
+Dexterity: 11 (modifier: +0)
+Constitution: 11 (modifier: +0)
+Intelligence: 8 (modifier: -1)
+Wisdom: 6 (modifier: -2)
+Charisma: 13 (modifier: +1)
+
+COMBAT STATISTICS:
+Hit Points: 8
+Armor Class: 10
+Proficiency Bonus: +2
+
+FEATURES AND TRAITS:
+- I notice that the provided text contains information about a homebrew "Lightweaver" class with Radiant features, but it appears to be incomplete and jumbled with other D&D creature stat blocks. From what I can extract about Radiant/Lightweaver features, here are the level 1 class features I can identify:
+- **Level 1 Radiant (Lightweaver) Class Features:**
+- **Spellcasting (Invested Arts): You have learned to harness surges of magical energy called Invested Arts. You use Charisma as your spellcasting ability and can cast spells from the Lightweaver spell list using Investiture points as a resource.**
+- **Investiture Points: You gain a pool of magical energy points used to fuel your Invested Arts and other class features. The number of points and recovery method scales with your level.**
+- **Surgebinding Cantrips: You know a number of cantrips (0-level Invested Arts) that you can cast at will without expending Investiture points.**
+- **Spren Bond: You form a magical bond with a Cryptic spren, which serves as your familiar and magical focus. The spren has its own stat block and can assist you in various ways.**
+- From the provided rules, here are the specific traits for Alethi Identity:
+- **Alethi Identity Traits:**
+- **Ability Score Increase:** You can choose to add a +1 to any three ability scores or add one +1 and one +2 to two ability scores of your choice (this applies to all Identities except singers).
+- **Creature Type:** Humanoid
+- **Size:** The text indicates that people on Roshar are taller than Earth equivalents, but the specific size category for Alethi is cut off in the provided text.
+- **Age:** The specific age range for Alethi is not provided in the excerpted text.
+
+EQUIPMENT:
+- Without the complete rules text for:
+- Radiant class starting equipment
+- Folk Hero background starting equipment
+
+SKILLS:
+No specific skills listed
+
+SPELLS:
+No spells known
+
+PERSONALITY:
+Personality Traits: A Alethi Radiant who stands up for the common people and has a strong sense of justice and pursues their goals. Source: Unknown
+ And the people themselves are of varying size, shapes, and colors, dressed in too many different styles and types of dress tocount. There are the powerful Alethi, the lithe Veden, the...
+Ideals: Justice and personal growth
+Bonds: Connected to their folk hero background and alethi heritage
+Flaws: Sometimes too focused on their goals to consider consequences
+
+BACKSTORY:
+Backstory to be developed
+
+CHARACTER BUILD SUMMARY:
+This is a level 1 Alethi Radiant with Folk Hero background.
+Key ability scores: STR 8, DEX 11, CON 11, INT 8, WIS 6, CHA 13.
+Combat stats: 8 HP, AC 10, +2 proficiency bonus.
+
+TAGS FOR INDEXING:
+Character, Alethi, Radiant, Folk Hero, Level1, Cosmere 5e (Roshar)
