@@ -154,12 +154,12 @@ class LLMConfigManager:
         # Prefer Gemini, fallback to OpenAI
         if GEMINI_AVAILABLE:
             default_provider = LLMProvider.GEMINI
-            default_model = "gemini-2.0-flash"
+            default_model = "gemini-2.5-flash"
         elif OPENAI_AVAILABLE:
             default_provider = LLMProvider.OPENAI
             default_model = "gpt-4o-mini"
         else:
-            raise ImportError("No supported LLM providers available. Install google-generativeai or openai package.")
+            raise ImportError("No supported LLM providers available. Install google-genai or openai package.")
         
         # Create default config for each agent
         default_llm_config = LLMConfig(
@@ -211,7 +211,7 @@ class LLMConfigManager:
             if config.provider == LLMProvider.OPENAI and not OPENAI_AVAILABLE:
                 raise ImportError(f"OpenAI requested but openai package not available")
             elif config.provider == LLMProvider.GEMINI and not GEMINI_AVAILABLE:
-                raise ImportError(f"Gemini requested but google-generativeai package not available")
+                raise ImportError(f"Gemini requested but google-genai package not available")
     
     def create_generator(self, agent_name: str) -> Any:
         """Create LLM generator for the specified agent"""
@@ -332,7 +332,7 @@ def load_config_from_environment() -> AgentLLMConfig:
         # Determine default provider based on availability
         if GEMINI_AVAILABLE:
             default_provider = "gemini"  
-            default_model = "gemini-2.0-flash"
+            default_model = "gemini-2.5-flash"
         else:
             default_provider = "openai"
             default_model = "gpt-4o-mini"
@@ -365,10 +365,10 @@ def load_config_from_environment() -> AgentLLMConfig:
 
 
 # Factory functions for easy configuration
-def create_gemini_config(model: str = "gemini-2.0-flash") -> AgentLLMConfig:
+def create_gemini_config(model: str = "gemini-2.5-flash") -> AgentLLMConfig:
     """Create configuration using Gemini for all agents"""
     if not GEMINI_AVAILABLE:
-        raise ImportError("Gemini not available. Install google-generativeai.")
+        raise ImportError("Gemini not available. Install google-genai.")
     
     base_config = LLMConfig(
         provider=LLMProvider.GEMINI,
@@ -388,12 +388,12 @@ def create_mixed_config() -> AgentLLMConfig:
     """Create a mixed configuration with different providers for different agents"""
     # Choose providers based on availability
     primary_provider = LLMProvider.GEMINI if GEMINI_AVAILABLE else LLMProvider.OPENAI
-    primary_model = "gemini-2.0-flash" if GEMINI_AVAILABLE else "gpt-4o-mini"
+    primary_model = "gemini-2.5-flash" if GEMINI_AVAILABLE else "gpt-4o-mini"
     
     # Use different provider for interface if possible
     interface_provider = (LLMProvider.OPENAI if OPENAI_AVAILABLE else 
                          (LLMProvider.GEMINI if GEMINI_AVAILABLE else primary_provider))
-    interface_model = "gpt-4o-mini" if OPENAI_AVAILABLE else ("gemini-2.0-flash" if GEMINI_AVAILABLE else primary_model)
+    interface_model = "gpt-4o-mini" if OPENAI_AVAILABLE else ("gemini-2.5-flash" if GEMINI_AVAILABLE else primary_model)
     
     return AgentLLMConfig(
         scenario_generator=LLMConfig(

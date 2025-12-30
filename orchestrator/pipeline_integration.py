@@ -180,10 +180,10 @@ class PipelineOrchestrator:
                 import traceback
                 traceback.print_exc()
                 raise
-            
-            logger.debug(f"   Creating interface agent...")
-            interface_agent = create_fixed_interface_agent()
-            debug_print("ORCHESTRATOR", "✅ Created fixed interface agent")
+
+            logger.debug(f"   Creating interface agent with generator...")
+            interface_agent = create_fixed_interface_agent(chat_generator=generator)
+            debug_print("ORCHESTRATOR", "✅ Created fixed interface agent with tools")
             print("✅ Step 7 complete: Fixed interface agent created")
             
             logger.debug("🔧 Step 8: Storing agents in agents dict...")
@@ -418,7 +418,9 @@ class PipelineOrchestrator:
             response = interface_agent.run(
                 messages=[interface_message],
                 intent_data={},
-                interface_result={}
+                interface_result={},
+                player_input=player_input,
+                rag_context=game_context # Using game_context as rag_context
             )
             
             # Extract the RequestDTO from the interface agent response

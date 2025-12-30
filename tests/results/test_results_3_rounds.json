@@ -1,0 +1,49 @@
+{
+  "initialization": true,
+  "rounds": [
+    {
+      "turn_number": 1,
+      "input": "I look around and assess my surroundings",
+      "success": false,
+      "response_type": null,
+      "error": "\u26a0\ufe0f Gameplay DTO pipeline exception: \ud83d\udca5 Gameplay DTO pipeline exception",
+      "response_length": 0
+    },
+    {
+      "turn_number": 2,
+      "input": "I want to investigate the area for any signs of danger",
+      "success": false,
+      "response_type": null,
+      "error": "\u26a0\ufe0f Gameplay DTO pipeline exception: \ud83d\udca5 Gameplay DTO pipeline exception",
+      "response_length": 0
+    },
+    {
+      "turn_number": 3,
+      "input": "I prepare myself and move forward cautiously",
+      "success": false,
+      "response_type": null,
+      "error": "\u26a0\ufe0f Gameplay DTO pipeline exception: \ud83d\udca5 Gameplay DTO pipeline exception",
+      "response_length": 0
+    }
+  ],
+  "errors": [
+    {
+      "phase": "turn_1",
+      "error": "\u26a0\ufe0f Gameplay DTO pipeline exception: \ud83d\udca5 Gameplay DTO pipeline exception"
+    },
+    {
+      "phase": "turn_2",
+      "error": "\u26a0\ufe0f Gameplay DTO pipeline exception: \ud83d\udca5 Gameplay DTO pipeline exception"
+    },
+    {
+      "phase": "turn_3",
+      "error": "\u26a0\ufe0f Gameplay DTO pipeline exception: \ud83d\udca5 Gameplay DTO pipeline exception"
+    },
+    {
+      "phase": "save",
+      "error": "'SessionManager' object has no attribute 'save_game'"
+    }
+  ],
+  "total_rounds": 3,
+  "successful_rounds": 0
+}

@@ -356,9 +356,23 @@ class HaystackDnDGame:
     
     def _handle_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle GameResponseDTO - UI presentation only"""
-        
+
         response_type = response_data.get("response_type", "unknown")
-        
+
+        # Add debug logging to see what we're getting
+        logger.debug(f"🔍 Response type: {response_type}")
+        logger.debug(f"🔍 Response keys: {list(response_data.keys())}")
+
+        # Check for error responses first
+        if response_data.get("error"):
+            error_msg = response_data.get("error", "Unknown error")
+            logger.warning(f"⚠️ Error in response: {error_msg}")
+            return {
+                "formatted_response": f"⚠️ {error_msg}",
+                "response_type": "error",
+                "raw_data": response_data
+            }
+
         if response_type == "scenario":
             return self._handle_scenario(response_data)
         elif response_type == "rag_query":
@@ -366,6 +380,7 @@ class HaystackDnDGame:
         elif response_type == "npc_interaction":
             return self._handle_npc(response_data)
         else:
+            logger.warning(f"⚠️ Unrecognized response_type: '{response_type}', available keys: {list(response_data.keys())}")
             return self._handle_unknown(response_data)
 
     def _handle_scenario(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -445,13 +460,28 @@ class HaystackDnDGame:
 
     def _handle_unknown(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle unknown or legacy response formats"""
-        
+
         formatted_response = ""
-        
+
+        # Try to extract scenario data even if response_type is wrong
+        if response_data.get("scenario"):
+            logger.info("📋 Found scenario data in unknown response, handling as scenario")
+            return self._handle_scenario(response_data)
+
+        # Try to extract RAG data
+        if response_data.get("rag_result"):
+            logger.info("📚 Found RAG data in unknown response, handling as RAG")
+            return self._handle_rag(response_data)
+
+        # Try to extract NPC data
+        if response_data.get("npc_response"):
+            logger.info("💬 Found NPC data in unknown response, handling as NPC")
+            return self._handle_npc(response_data)
+
         # Handle legacy response formats
         if response_data and "scene" in response_data:
             formatted_response = response_data["scene"]
-            
+
             # Add choices
             choices = response_data.get("choices", [])
             if choices:
@@ -465,7 +495,7 @@ class HaystackDnDGame:
         else:
             formatted_response = "The adventure continues in unexpected ways..."
             logger.warning(f"Unrecognized response format with keys: {list(response_data.keys()) if response_data else 'None'}")
-        
+
         return {
             "formatted_response": formatted_response,
             "response_type": "unknown",
