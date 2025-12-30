@@ -22,25 +22,18 @@ print(f"✅ API key found: {api_key[:10]}...")
 
 # Test 2: Try to create client and call API
 try:
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
 
-    print("\n✅ google-genai package imported")
+    print("\n✅ google-generativeai package imported")
 
-    # Create client
-    client = genai.Client(api_key=api_key)
-    print("✅ Client created")
+    # Configure API
+    genai.configure(api_key=api_key)
+    print("✅ API configured")
 
     # Try a simple API call
     print("\n🔄 Attempting API call to Gemini...")
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents="Say 'test successful'",
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-            max_output_tokens=50
-        )
-    )
+    model = genai.GenerativeModel("gemini-2.0-flash-exp")
+    response = model.generate_content("Say 'test successful'")
 
     print(f"✅ API call succeeded!")
     print(f"✅ Response: {response.text}")
