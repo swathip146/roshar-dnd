@@ -92,8 +92,7 @@ class SimpleDocumentStore:
         # Try to load from existing campaign directories
         campaign_sources = [
             "data/campaigns",
-            "resources/current_campaign", 
-            "docs/campaigns"
+            "resources/current_campaign"
         ]
         
         for source_dir in campaign_sources:
