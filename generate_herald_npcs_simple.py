@@ -263,23 +263,23 @@ Character, Herald, Herald, Conflicted Herald, Herald, Level20, Ideal5, Cosmere 5
 def main():
     """Generate both Herald NPCs and save them"""
     print("=== Generating Herald NPCs for Shards of Honor Campaign ===")
-    
+
     # Create the output directory
-    os.makedirs("docs/players", exist_ok=True)
-    
+    os.makedirs("data/players", exist_ok=True)
+
     # Generate Kalak
     print("\n🌟 Creating Kalak the Herald...")
     kalak_content = create_kalak_herald_txt()
-    kalak_path = "docs/players/kalak_herald.txt"
-    
+    kalak_path = "data/players/kalak_herald.txt"
+
     with open(kalak_path, 'w', encoding='utf-8') as f:
         f.write(kalak_content)
     print(f"✓ Kalak saved to: {kalak_path}")
-    
+
     # Generate Nale
     print("\n⚖️ Creating Nale the Herald...")
     nale_content = create_nale_herald_txt()
-    nale_path = "docs/players/nale_herald.txt"
+    nale_path = "data/players/nale_herald.txt"
     
     with open(nale_path, 'w', encoding='utf-8') as f:
         f.write(nale_content)

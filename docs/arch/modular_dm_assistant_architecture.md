@@ -382,8 +382,8 @@ elif "combat" in instruction_lower:
 ```python
 ModularDMAssistant(
     collection_name: str = "dnd_documents",    # Qdrant collection
-    campaigns_dir: str = "docs/current_campaign", # Campaign data path
-    players_dir: str = "docs/players",         # Player data path
+    campaigns_dir: str = "data/current_campaign", # Campaign data path
+    players_dir: str = "data/players",         # Player data path
     verbose: bool = False,                     # Debug output
     enable_game_engine: bool = True,           # Game state tracking
     tick_seconds: float = 0.8,                # Game engine tick rate

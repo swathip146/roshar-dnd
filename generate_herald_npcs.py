@@ -278,27 +278,27 @@ def main():
     
     # Save characters to appropriate locations
     print("\n💾 Saving characters...")
-    
-    # Save to docs/players directory to match existing format
-    os.makedirs("docs/players", exist_ok=True)
-    
+
+    # Save to data/players directory to match existing format
+    os.makedirs("data/players", exist_ok=True)
+
     # Export Kalak
-    kalak_txt_path = "docs/players/kalak_herald.txt"
+    kalak_txt_path = "data/players/kalak_herald.txt"
     if generator.export_character_to_txt(kalak, kalak_txt_path):
         print(f"✓ Kalak saved to: {kalak_txt_path}")
     else:
         print("❌ Failed to save Kalak")
-    
+
     # Export Nale
-    nale_txt_path = "docs/players/nale_herald.txt"
+    nale_txt_path = "data/players/nale_herald.txt"
     if generator.export_character_to_txt(nale, nale_txt_path):
         print(f"✓ Nale saved to: {nale_txt_path}")
     else:
         print("❌ Failed to save Nale")
-    
+
     # Also save JSON versions for programmatic use
-    kalak_json_path = "docs/players/kalak_herald.json"
-    nale_json_path = "docs/players/nale_herald.json"
+    kalak_json_path = "data/players/kalak_herald.json"
+    nale_json_path = "data/players/nale_herald.json"
     
     if generator.save_character(kalak, kalak_json_path):
         print(f"✓ Kalak JSON saved to: {kalak_json_path}")

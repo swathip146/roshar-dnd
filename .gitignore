@@ -184,5 +184,5 @@ config/secrets.*
 data/raw/
 data/processed/
 
-# Docs
-docs/rules/
+# Data
+data/rules/

@@ -586,10 +586,10 @@ class GameInitializationSystem:
         return create_default_campaign_config()
     
     def _discover_file_campaigns(self) -> List[Dict[str, Any]]:
-        """Discover campaign files from docs/current_campaign directory"""
-        
+        """Discover campaign files from data/current_campaign directory"""
+
         campaigns = []
-        campaign_dir = "docs/current_campaign"
+        campaign_dir = "data/current_campaign"
         
         if not os.path.exists(campaign_dir):
             logger.warning(f"⚠️ Campaign directory {campaign_dir} not found")
