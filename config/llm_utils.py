@@ -53,8 +53,7 @@ except (ImportError, TypeError, AttributeError) as e:
 
 # Import Google AI if available
 try:
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -167,37 +166,35 @@ def create_message_conversion_pipeline():
 class GeminiChatGenerator:
     """
     A chat generator wrapper for Google's Gemini API that provides Haystack-compatible interface.
-    Uses the new google.genai SDK.
     """
-
+    
     def __init__(self, model_name: str, generation_config: Optional[Dict[str, Any]] = None):
         """
         Initialize the Gemini chat generator.
-
+        
         Args:
-            model_name: The Gemini model name (e.g., "gemini-2.0-flash-exp")
+            model_name: The Gemini model name (e.g., "gemini-2.5-flash")
             generation_config: Configuration for text generation
         """
         if not GEMINI_AVAILABLE:
-            raise ImportError("google-genai package not available")
-
+            raise ImportError("google-generativeai package not available")
+            
         self.model_name = model_name
         self.generation_config = generation_config or {}
-
-        # Initialize the client with API key from environment
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable not set")
-
+        
+        # Initialize the model
         try:
-            self.client = genai.Client(api_key=api_key)
+            self.model = genai.GenerativeModel(
+                model_name=model_name,
+                generation_config=generation_config
+            )
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize Gemini client: {e}")
+            raise RuntimeError(f"Failed to initialize Gemini model: {e}")
     
     @component.output_types(replies=List[ChatMessage])
     def run(self, messages: List[ChatMessage], tools: Optional[List[Any]] = None) -> Dict[str, Any]:
         """
-        Generate chat completion using Gemini API (new SDK).
+        Generate chat completion using Gemini API.
 
         Args:
             messages: List of ChatMessage objects
@@ -207,72 +204,101 @@ class GeminiChatGenerator:
             Dictionary containing generated replies
         """
         try:
-            # Convert messages to prompt string
-            prompt = self._convert_messages_to_prompt(messages)
+            # Convert messages to Gemini format
+            gemini_messages = self._convert_messages_to_gemini(messages)
 
-            logger.debug(f"🔧 Gemini Prompt: {prompt[:100]}...")
-            if tools:
-                logger.debug(f"🔧 Tools provided: {len(tools)} tools")
+            logger.debug(f"🔧 Gemini Messages: {len(gemini_messages)} messages")
 
-            # Convert Haystack tools to Gemini Tool objects if provided
+            # Convert Haystack tools to Gemini function declarations
             gemini_tools = None
             if tools:
-                gemini_tools = []
-                for tool in tools:
-                    gemini_tool = self._convert_haystack_tool_to_gemini(tool)
-                    if gemini_tool:
-                        gemini_tools.append(gemini_tool)
+                gemini_tools = self._convert_tools_to_gemini(tools)
+                logger.debug(f"🔧 Gemini Tools: {len(gemini_tools)} tools")
 
-                if gemini_tools:
-                    logger.debug(f"🔧 Converted {len(gemini_tools)} tools for Gemini")
+            # Generate content with or without tools
+            if gemini_tools and gemini_messages:
+                # Use chat session with function calling
+                # Separate history (all but last) from current message
+                history = gemini_messages[:-1] if len(gemini_messages) > 1 else []
+                current_message = gemini_messages[-1] if gemini_messages else None
 
-            # Build generation config with tools included
-            config = types.GenerateContentConfig(
-                temperature=self.generation_config.get('temperature', 0.7),
-                max_output_tokens=self.generation_config.get('max_output_tokens', 2000),
-                tools=gemini_tools if gemini_tools else None
-            )
+                if current_message:
+                    chat = self.model.start_chat(history=history)
+                    # Extract text from the current message parts
+                    message_text = ""
+                    for part in current_message.parts:
+                        if hasattr(part, "text"):
+                            message_text += part.text
 
-            # Generate content using new SDK
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=config
-            )
+                    response = chat.send_message(
+                        message_text,
+                        tools=gemini_tools
+                    )
+                else:
+                    # Fallback to simple generation
+                    prompt = self._convert_messages_to_prompt(messages)
+                    response = self.model.generate_content(prompt)
+            else:
+                # Simple text generation without tools
+                prompt = self._convert_messages_to_prompt(messages)
+                response = self.model.generate_content(prompt)
 
-            logger.debug(f"🔧 Response received")
+            logger.debug(f"🔧 Response: {response}")
 
             # Check if response contains function calls
-            if hasattr(response, 'candidates') and response.candidates:
-                first_candidate = response.candidates[0]
-                if hasattr(first_candidate, 'content') and hasattr(first_candidate.content, 'parts'):
-                    for part in first_candidate.content.parts:
-                        if hasattr(part, 'function_call') and part.function_call:
-                            # Return function call in Haystack format
-                            function_call = part.function_call
-                            logger.debug(f"🔧 Function call detected: {function_call.name}")
+            function_calls = []
+            text_response = ""
 
-                            # Format as ChatMessage with tool_call using Haystack's ToolCall
-                            from haystack.dataclasses.chat_message import ToolCall
+            if hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
+                    for part in candidate.content.parts:
+                        # Check for function call
+                        if hasattr(part, "function_call") and part.function_call:
+                            fc = part.function_call
+                            function_calls.append({
+                                "name": fc.name,
+                                "arguments": dict(fc.args) if hasattr(fc, "args") else {}
+                            })
+                            logger.debug(f"🔧 FUNCTION CALL: {fc.name}({dict(fc.args) if hasattr(fc, 'args') else {}})")
+                        # Check for text
+                        elif hasattr(part, "text") and part.text:
+                            text_response += part.text
 
-                            tool_call = ToolCall(
-                                id=function_call.name,  # Use function name as ID
-                                tool_name=function_call.name,
-                                arguments=dict(function_call.args) if function_call.args else {}
-                            )
+            # If we have function calls, format them for Haystack Agent
+            if function_calls:
+                # Use Haystack's ToolCall API (available in v2.21.0+)
+                from haystack.dataclasses import ToolCall
+                tool_call_objects = [
+                    ToolCall(
+                        id=f"call_{i}",
+                        tool_name=fc["name"],
+                        arguments=fc["arguments"]
+                    )
+                    for i, fc in enumerate(function_calls)
+                ]
+                # Return ChatMessage with tool_calls using from_assistant factory method
+                response_msg = ChatMessage.from_assistant(
+                    text="",
+                    tool_calls=tool_call_objects  # Pass tool_calls directly
+                )
+                logger.debug(f"🔧 Returning {len(function_calls)} function calls via ToolCall objects")
+                return {"replies": [response_msg]}
 
-                            msg = ChatMessage.from_assistant("", tool_calls=[tool_call])
-                            return {"replies": [msg]}
-
-            # Extract text response
-            text_response = response.text if hasattr(response, 'text') else ""
+            # Otherwise return text response
+            if not text_response:
+                # Try direct text access as fallback
+                try:
+                    if hasattr(response, "text") and response.text:
+                        text_response = response.text
+                except Exception:
+                    pass
 
             return {"replies": [ChatMessage.from_assistant(text_response or "")]}
-
+                
         except Exception as e:
             error_message = f"Gemini API error: {str(e)}"
             logger.error(f"GEMINI ERROR: {error_message}")
-            logger.exception(e)
             return {"replies": [ChatMessage.from_assistant(error_message)]}
     
     def _convert_messages_to_prompt(self, messages: List[ChatMessage]) -> str:
@@ -310,76 +336,14 @@ class GeminiChatGenerator:
                     prompt_parts.append(content)
         
         return "\n\n".join(prompt_parts)
-
-    def _convert_haystack_tool_to_gemini(self, tool) -> Optional[Any]:
-        """
-        Convert a Haystack Tool to Gemini Tool format for new SDK.
-
-        Args:
-            tool: Haystack Tool object
-
-        Returns:
-            Gemini Tool object or None if conversion fails
-        """
-        try:
-            from google.genai.types import Tool as GeminiTool, FunctionDeclaration, Schema
-
-            # Extract tool information
-            name = tool.name
-            description = tool.description
-            parameters = tool.parameters
-
-            # Build Schema for function parameters
-            schema = None
-            if parameters and isinstance(parameters, dict):
-                # Create Schema object with proper fields
-                schema_params = {
-                    "type": "OBJECT",  # Use string constant instead of type_
-                    "properties": {},
-                    "required": parameters.get("required", [])
-                }
-
-                if "properties" in parameters:
-                    # Convert each property to Schema format
-                    for prop_name, prop_schema in parameters["properties"].items():
-                        # Map JSON schema types to Gemini types
-                        prop_type = prop_schema.get("type", "STRING").upper()
-                        prop_description = prop_schema.get("description", "")
-
-                        schema_params["properties"][prop_name] = Schema(
-                            type=prop_type,
-                            description=prop_description
-                        )
-
-                # Create main Schema
-                schema = Schema(**schema_params)
-
-            # Create function declaration
-            func_decl = FunctionDeclaration(
-                name=name,
-                description=description,
-                parameters=schema
-            )
-
-            # Wrap in Tool object
-            gemini_tool = GeminiTool(function_declarations=[func_decl])
-
-            logger.debug(f"🔧 Converted Haystack tool '{name}' to Gemini Tool")
-            return gemini_tool
-
-        except Exception as e:
-            logger.error(f"Failed to convert tool {getattr(tool, 'name', 'unknown')}: {e}")
-            logger.exception(e)
-            return None
-
+    
     def _convert_tool_to_function_declaration(self, tool) -> Optional[Dict[str, Any]]:
         """
         Convert a Haystack Tool to Gemini function declaration format.
-        (Kept for potential future use with new SDK)
-
+        
         Args:
             tool: Haystack Tool object
-
+            
         Returns:
             Gemini function declaration dict or None if conversion fails
         """
@@ -388,13 +352,13 @@ class GeminiChatGenerator:
             name = tool.name
             description = tool.description
             parameters = tool.parameters
-
+            
             # Build Gemini function declaration
             func_declaration = {
                 "name": name,
                 "description": description
             }
-
+            
             # Convert parameters schema to Gemini format
             if parameters and isinstance(parameters, dict):
                 # Gemini expects parameters in a specific format
@@ -418,7 +382,7 @@ class GeminiChatGenerator:
                     gemini_parameters["required"] = parameters["required"]
 
                 func_declaration["parameters"] = gemini_parameters
-
+            
             logger.debug(f"🔧 CONVERTED TOOL: {name} -> {func_declaration}")
             return func_declaration
 
@@ -426,8 +390,94 @@ class GeminiChatGenerator:
             logger.error(f"Failed to convert tool {getattr(tool, 'name', 'unknown')}: {e}")
             return None
 
-    # Note: Tool calling support for new SDK will be added in future update
-    # The new google.genai SDK has different tool calling patterns
+    def _convert_tools_to_gemini(self, tools: List[Any]) -> List[Any]:
+        """
+        Convert Haystack tools to Gemini function calling format.
+
+        Args:
+            tools: List of Haystack Tool objects
+
+        Returns:
+            List of Gemini-compatible tool declarations
+        """
+        try:
+            import google.generativeai as genai
+            from google.generativeai.types import FunctionDeclaration, Tool as GeminiTool
+
+            function_declarations = []
+            for tool in tools:
+                func_dict = self._convert_tool_to_function_declaration(tool)
+                if func_dict:
+                    # Create FunctionDeclaration from dict
+                    func_decl = FunctionDeclaration(
+                        name=func_dict["name"],
+                        description=func_dict["description"],
+                        parameters=func_dict.get("parameters")
+                    )
+                    function_declarations.append(func_decl)
+
+            if not function_declarations:
+                return None
+
+            # Wrap in Gemini Tool format
+            gemini_tool = GeminiTool(function_declarations=function_declarations)
+            logger.debug(f"🔧 Created Gemini Tool with {len(function_declarations)} functions")
+            return [gemini_tool]
+
+        except Exception as e:
+            logger.error(f"Failed to convert tools to Gemini format: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _convert_messages_to_gemini(self, messages: List[ChatMessage]) -> List[Any]:
+        """
+        Convert Haystack ChatMessage objects to Gemini Content format.
+
+        Args:
+            messages: List of ChatMessage objects
+
+        Returns:
+            List of Gemini Content objects
+        """
+        try:
+            import google.generativeai as genai
+
+            gemini_messages = []
+            for message in messages:
+                # Get message content
+                content = ""
+                if hasattr(message, 'text') and message.text:
+                    content = message.text
+                elif hasattr(message, 'content') and message.content:
+                    content = message.content
+
+                if not content:
+                    continue
+
+                # Map Haystack roles to Gemini roles
+                role = "user"  # Default
+                if hasattr(message, 'role'):
+                    if message.role == "assistant" or message.role == "model":
+                        role = "model"
+                    elif message.role == "system":
+                        # Gemini doesn't have system role, prepend to first user message
+                        content = f"System Instructions: {content}"
+                        role = "user"
+                    else:
+                        role = "user"
+
+                # Create Gemini Content object
+                gemini_messages.append(genai.protos.Content(
+                    role=role,
+                    parts=[genai.protos.Part(text=content)]
+                ))
+
+            return gemini_messages
+
+        except Exception as e:
+            logger.error(f"Failed to convert messages to Gemini format: {e}")
+            return []
 
 
 def create_gemini_compatible_generator(model: str, **kwargs) -> GeminiChatGenerator:
@@ -442,7 +492,7 @@ def create_gemini_compatible_generator(model: str, **kwargs) -> GeminiChatGenera
         Configured Gemini generator
     """
     if not GEMINI_AVAILABLE:
-        raise ImportError("google-genai not available for Gemini generator")
+        raise ImportError("google-generativeai not available for Gemini generator")
     
     # Extract generation config from kwargs
     generation_config = kwargs.get('generation_config', {})
