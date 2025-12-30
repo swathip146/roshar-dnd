@@ -9,6 +9,10 @@ import os
 import re
 import time
 from typing import Dict, Any, List, Optional, Tuple
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -73,29 +77,29 @@ class GameInitializationSystem:
         """
         Main initialization flow - creates components and updates them as data becomes available
         """
-        print("🎮 ENHANCED D&D GAME INITIALIZATION")
-        print("=" * 60)
-        print("Welcome to the Haystack-enhanced D&D experience!")
-        print("This system uses AI-powered document retrieval and scenario generation.")
+        logger.info("🎮 ENHANCED D&D GAME INITIALIZATION")
+        logger.info("=" * 60)
+        logger.info("Welcome to the Haystack-enhanced D&D experience\!")
+        logger.info("This system uses AI-powered document retrieval and scenario generation.")
         print()
         
         # Create initial configuration with defaults
         config = GameInitConfig()
         
         # Step 1: Create components with basic defaults immediately
-        print(f"🔧 Creating game components with defaults...")
+        logger.info(f"🔧 Creating game components with defaults...")
         
         # Create PolicyEngine with default HOUSE profile
         config.policy_engine = PolicyEngine(PolicyProfile.HOUSE)
-        print(f"   ⚖️ PolicyEngine: ✅ Created with HOUSE profile")
+        logger.info(f"   ⚖️ PolicyEngine: ✅ Created with HOUSE profile")
         
         # Create CharacterManager with defaults
         config.character_manager = CharacterManager()
-        print(f"   👥 CharacterManager: ✅ Created")
+        logger.info(f"   👥 CharacterManager: ✅ Created")
         
         # Create SessionManager with default save directory
         config.session_manager = create_session_manager(save_directory="game_saves")
-        print(f"   📝 SessionManager: ✅ Created")
+        logger.info(f"   📝 SessionManager: ✅ Created")
         
         # Create GameEngine with default profile (CampaignConfig will be set later)
         config.game_engine = GameEngine(policy_profile=PolicyProfile.HOUSE)
@@ -125,7 +129,7 @@ class GameInitializationSystem:
                         
                         # Update player name from save
                         config.player_name = session_data.get("session_metadata", {}).get("player_name", "Adventurer")
-                        print(f"   👤 Player name loaded: {config.player_name}")
+                        logger.info(f"   👤 Player name loaded: {config.player_name}")
                         
                         # Restore GameEngine state if available
                         if ("orchestrator_state" in session_data and
@@ -135,7 +139,7 @@ class GameInitializationSystem:
                                 config.game_engine.import_game_state(game_engine_state)
                                 print(f"   🎮 GameEngine: State restored from save")
                             except Exception as e:
-                                print(f"   ⚠️ GameEngine restore failed: {e}")
+                                logger.warning(f"   ⚠️ GameEngine restore failed: {e}")
                         
                         # Restore character data if available
                         if "character_data" in session_data:
@@ -148,23 +152,23 @@ class GameInitializationSystem:
                                     for char_data in character_data:
                                         char_id = config.character_manager.add_character(char_data)
                                         config.game_engine.add_character(char_id)
-                                print(f"   👥 CharacterManager: Characters restored from save")
+                                logger.info(f"   👥 CharacterManager: Characters restored from save")
                             except Exception as e:
-                                print(f"   ⚠️ Character restore failed: {e}")
+                                logger.warning(f"   ⚠️ Character restore failed: {e}")
                         
-                        print(f"   ✅ Saved game loaded successfully")
+                        logger.info(f"   ✅ Saved game loaded successfully")
                     else:
-                        print(f"   ❌ Save load failed: {result.get('message', 'Unknown error')}")
+                        logger.error(f"   ❌ Save load failed: {result.get('message', 'Unknown error')}")
                         print(f"   🆕 Falling back to new campaign")
                         config.game_mode = "new_campaign"
                         game_mode = "new_campaign"
                 except Exception as e:
-                    print(f"   ❌ Save load exception: {e}")
+                    logger.error(f"   ❌ Save load exception: {e}")
                     print(f"   🆕 Falling back to new campaign")
                     config.game_mode = "new_campaign"
                     game_mode = "new_campaign"
             else:
-                print(f"   ⚠️ No save file selected, using new campaign")
+                logger.warning(f"   ⚠️ No save file selected, using new campaign")
                 config.game_mode = "new_campaign"
                 game_mode = "new_campaign"
         
@@ -177,7 +181,7 @@ class GameInitializationSystem:
                 config.policy_engine.change_profile(PolicyProfile.RAW)
             elif config.campaign_config.difficulty == "Easy":
                 config.policy_engine.change_profile(PolicyProfile.EASY)
-            print(f"   ⚖️ PolicyEngine: Updated for {config.campaign_config.difficulty} difficulty")
+            logger.info(f"   ⚖️ PolicyEngine: Updated for {config.campaign_config.difficulty} difficulty")
             
             # Get selected character
             selected_character_data = self._prompt_for_character_selection()
@@ -233,9 +237,9 @@ class GameInitializationSystem:
             )
             
             if result["success"]:
-                print(f"   📝 SessionManager: New session created")
+                logger.info(f"   📝 SessionManager: New session created")
             else:
-                print(f"   ⚠️ SessionManager: Session creation failed: {result.get('message')}")
+                logger.warning(f"   ⚠️ SessionManager: Session creation failed: {result.get('message')}")
             
             # Use selected character data instead of creating default
             character_data = selected_character_data
@@ -247,7 +251,7 @@ class GameInitializationSystem:
             # Add to GameEngine for runtime state management (GameEngine will also add to its CharacterManager)
             config.game_engine.add_character(character_data)
             
-            print(f"   👤 Created selected character: {config.player_name}")
+            logger.info(f"   👤 Created selected character: {config.player_name}")
         
         # Finalize setup
         print(f"\n✅ Game initialization complete!")
@@ -265,7 +269,7 @@ class GameInitializationSystem:
         campaigns = self._discover_file_campaigns()
         
         if not campaigns:
-            print("⚠️ No campaign files found in docs/current_campaign directory.")
+            logger.warning(f"⚠️ No campaign files found in docs/current_campaign directory.")
             print("   Creating default campaign.")
             return create_default_campaign_config()
         
@@ -288,12 +292,12 @@ class GameInitializationSystem:
                     idx = int(choice) - 1
                     if 0 <= idx < len(campaigns):
                         selected_campaign = campaigns[idx]
-                        print(f"✅ Selected: {selected_campaign['name']}")
+                        logger.info(f"✅ Selected: {selected_campaign['name']}")
                         return self._parse_campaign_to_config(selected_campaign)
                     else:
-                        print(f"❌ Invalid selection. Please choose 1-{len(campaigns)}")
+                        logger.error(f"❌ Invalid selection. Please choose 1-{len(campaigns)}")
                 else:
-                    print("❌ Invalid input. Please enter a number.")
+                    logger.error(f"❌ Invalid input. Please enter a number.")
                     
             except (KeyboardInterrupt, EOFError):
                 print("\n⚠️ Using default campaign")
@@ -371,7 +375,7 @@ class GameInitializationSystem:
                     if self._validate_collection_name(collection_name):
                         return collection_name
                     else:
-                        print("❌ Invalid collection name. Use letters, numbers, and underscores only.")
+                        logger.error(f"❌ Invalid collection name. Use letters, numbers, and underscores only.")
                         continue
                         
                 except (KeyboardInterrupt, EOFError):
@@ -379,7 +383,7 @@ class GameInitializationSystem:
                     return "dnd_documents"
                     
         except Exception as e:
-            print(f"⚠️ Error during collection setup, using default: dnd_documents")
+            logger.warning(f"⚠️ Error during collection setup, using default: dnd_documents")
             return "dnd_documents"
     
     def _validate_collection_name(self, name: str) -> bool:
@@ -399,10 +403,10 @@ class GameInitializationSystem:
             self.embedder = self.simple_doc_store.embedder
             self.document_store = self.simple_doc_store.document_store
             
-            print("✅ Document system ready for campaign discovery")
+            logger.info(f"✅ Document system ready for campaign discovery")
             
         except Exception as e:
-            print(f"⚠️ Document system initialization failed: {e}")
+            logger.warning(f"⚠️ Document system initialization failed: {e}")
             print("   Campaign selection will use default campaign only")
             self.document_store = None
     
@@ -430,13 +434,13 @@ class GameInitializationSystem:
                     elif choice == "2":
                         return "load_saved"
                     else:
-                        print("❌ Invalid choice. Please enter 1 or 2.")
+                        logger.error(f"❌ Invalid choice. Please enter 1 or 2.")
                 else:
                     choice = input("Enter your choice (1 for new campaign): ").strip()
                     if choice == "1" or not choice:
                         return "new_campaign"
                     else:
-                        print("❌ Invalid choice. Please enter 1.")
+                        logger.error(f"❌ Invalid choice. Please enter 1.")
                         
             except (KeyboardInterrupt, EOFError):
                 print("\n⚠️ Defaulting to new campaign")
@@ -459,7 +463,7 @@ class GameInitializationSystem:
                     
                     # Only accept SessionManager format saves
                     if not self._is_session_manager_save(save_data):
-                        print(f"⚠️ Skipping legacy save file: {filename}")
+                        logger.warning(f"⚠️ Skipping legacy save file: {filename}")
                         continue
                     
                     # Extract metadata from SessionManager format
@@ -481,7 +485,7 @@ class GameInitializationSystem:
                     saved_games.append(save_info)
                     
                 except Exception as e:
-                    print(f"⚠️ Could not read save file {filename}: {e}")
+                    logger.warning(f"⚠️ Could not read save file {filename}: {e}")
         
         # Sort by save time (most recent first)
         saved_games.sort(key=lambda x: x["save_time"], reverse=True)
@@ -516,7 +520,7 @@ class GameInitializationSystem:
         saved_games = self._list_saved_games()
         
         if not saved_games:
-            print("❌ No saved games found. Starting new campaign instead.")
+            logger.error(f"❌ No saved games found. Starting new campaign instead.")
             return None
         
         print("Available saved games (SessionManager format only):")
@@ -539,12 +543,12 @@ class GameInitializationSystem:
                     idx = int(choice) - 1
                     if 0 <= idx < len(saved_games):
                         selected_save = saved_games[idx]
-                        print(f"✅ Selected: {selected_save['filename']}")
+                        logger.info(f"✅ Selected: {selected_save['filename']}")
                         return selected_save["filename"]
                     else:
-                        print(f"❌ Invalid selection. Please choose 1-{len(saved_games)}")
+                        logger.error(f"❌ Invalid selection. Please choose 1-{len(saved_games)}")
                 else:
-                    print("❌ Invalid input. Please enter a number.")
+                    logger.error(f"❌ Invalid input. Please enter a number.")
                     
             except (KeyboardInterrupt, EOFError):
                 print("\n⚠️ Save selection cancelled")
@@ -568,13 +572,13 @@ class GameInitializationSystem:
                     source_file=filename
                 )
                 
-                print(f"✅ Created CampaignConfig from {filename}")
+                logger.info(f"✅ Created CampaignConfig from {filename}")
                 print(f"   📊 {len(campaign_config.key_npcs)} NPCs, {len(campaign_config.locations)} locations")
                 
                 return campaign_config
                 
         except Exception as e:
-            print(f"⚠️ Could not create CampaignConfig: {e}")
+            logger.warning(f"⚠️ Could not create CampaignConfig: {e}")
             import traceback
             traceback.print_exc()
         
@@ -588,7 +592,7 @@ class GameInitializationSystem:
         campaign_dir = "docs/current_campaign"
         
         if not os.path.exists(campaign_dir):
-            print(f"⚠️ Campaign directory {campaign_dir} not found")
+            logger.warning(f"⚠️ Campaign directory {campaign_dir} not found")
             return campaigns
         
         try:
@@ -624,11 +628,11 @@ class GameInitializationSystem:
                     campaigns.append(campaign_info)
                     
                 except Exception as e:
-                    print(f"⚠️ Could not read campaign file {filename}: {e}")
+                    logger.warning(f"⚠️ Could not read campaign file {filename}: {e}")
                     continue
                     
         except Exception as e:
-            print(f"⚠️ Could not read campaign directory: {e}")
+            logger.warning(f"⚠️ Could not read campaign directory: {e}")
         
         # Sort campaigns by filename for consistent ordering
         campaigns.sort(key=lambda x: x["filename"])
@@ -757,7 +761,7 @@ class GameInitializationSystem:
             parsed_data[current_section] = '\n'.join(current_content).strip()
         
         # Debug: Print what we parsed for troubleshooting
-        print(f"🔍 Parsed {len(parsed_data)} sections from campaign content")
+        logger.info(f"🔍 Parsed {len(parsed_data)} sections from campaign content")
         section_names = list(parsed_data.keys())[:10]  # First 10 section names
         print(f"   📋 Sections found: {', '.join(section_names)}")
         
@@ -963,10 +967,10 @@ class GameInitializationSystem:
                 
                 if choice in characters:
                     selected_character = characters[choice]
-                    print(f"✅ Selected: {selected_character['name']} ({selected_character['identity']} {selected_character['radiant_order']})")
+                    logger.info(f"✅ Selected: {selected_character['name']} ({selected_character['identity']} {selected_character['radiant_order']})")
                     return selected_character
                 else:
-                    print("❌ Invalid choice. Please enter 1 or 2.")
+                    logger.error(f"❌ Invalid choice. Please enter 1 or 2.")
                     
             except (KeyboardInterrupt, EOFError):
                 print("\n⚠️ Defaulting to Aggi")
@@ -1002,4 +1006,4 @@ if __name__ == "__main__":
             print(f"Save file: {config.save_file}")
             
     except Exception as e:
-        print(f"❌ Initialization test failed: {e}")
+        logger.error(f"❌ Initialization test failed: {e}")

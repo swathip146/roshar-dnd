@@ -11,6 +11,12 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from haystack import component
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 @dataclass
 class GameSession:
     """Simplified session metadata - BREAKING CHANGE: No state duplication"""
@@ -450,22 +456,22 @@ if __name__ == "__main__":
     })
     
     print("=== Session Manager Test ===")
-    print(f"Create session: {result['success']} - {result['message']}")
+    logger.info(f"Create session: {result['success']} - {result['message']}")
     
     # Test save
     save_result = manager.save_session("test_session.json")
-    print(f"Save session: {save_result['success']} - {save_result['message']}")
+    logger.info(f"Save session: {save_result['success']} - {save_result['message']}")
     
     # Test list saves
     saves_result = manager.list_saves()
-    print(f"Available saves: {len(saves_result['save_files'])}")
+    logger.info(f"Available saves: {len(saves_result['save_files'])}")
     
     # Test load
     if saves_result["save_files"]:
         filename = saves_result["save_files"][0]["filename"]
         load_result = manager.load_session(filename)
-        print(f"Load session: {load_result['success']} - {load_result['message']}")
+        logger.info(f"Load session: {load_result['success']} - {load_result['message']}")
     
     # Show statistics
     stats = manager.get_session_statistics()
-    print(f"Session statistics: {stats}")
+    logger.info(f"Session statistics: {stats}")

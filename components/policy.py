@@ -8,6 +8,12 @@ from enum import Enum
 from dataclasses import dataclass
 import json
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 class PolicyProfile(Enum):
     """Different rule interpretation profiles"""
     RAW = "raw"          # Rules as written
@@ -418,7 +424,7 @@ class PolicyEngine:
         self.custom_rules[rule_name] = PolicyRule(
             rule_name, value, description, "custom"
         )
-        print(f"📋 Set custom rule: {rule_name} = {value}")
+        logger.info(f"📋 Set custom rule: {rule_name} = {value}")
     
     def set_temporary_override(self, rule_name: str, value: Any):
         """Set temporary rule override (cleared on profile change)"""
@@ -429,7 +435,7 @@ class PolicyEngine:
         """Clear all temporary overrides"""
         count = len(self.temporary_overrides)
         self.temporary_overrides.clear()
-        print(f"🧹 Cleared {count} temporary overrides")
+        logger.info(f"🧹 Cleared {count} temporary overrides")
     
     def change_profile(self, new_profile: PolicyProfile):
         """Change active policy profile"""
@@ -443,7 +449,7 @@ class PolicyEngine:
         
         self.clear_temporary_overrides()
         
-        print(f"🔄 Changed profile: {old_profile.value} → {new_profile.value}")
+        logger.info(f"🔄 Changed profile: {old_profile.value} → {new_profile.value}")
     
     def get_profile_info(self) -> Dict[str, Any]:
         """Get information about current profile and rules"""
@@ -696,7 +702,7 @@ if __name__ == "__main__":
     }
     
     advantage = engine.compute_advantage(game_state, "player1", "investigation")
-    print(f"Advantage result: {advantage}")
+    logger.info(f"Advantage result: {advantage}")
     
     # Test DC adjustment
     context = {
@@ -706,12 +712,12 @@ if __name__ == "__main__":
     }
     
     dc_result = engine.adjust_difficulty(15, context)
-    print(f"DC adjustment: {dc_result}")
+    logger.info(f"DC adjustment: {dc_result}")
     
     # Test passive score
     passive = engine.passive_score(3, 2, 1, "perception")
-    print(f"Passive score: {passive}")
+    logger.info(f"Passive score: {passive}")
     
     # Show profile info
     info = engine.get_profile_info()
-    print(f"Profile info: {info['active_profile']} with {info['total_rules']} rules")
+    logger.info(f"Profile info: {info['active_profile']} with {info['total_rules']} rules")

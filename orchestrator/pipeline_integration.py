@@ -38,6 +38,10 @@ from config.llm_config import (
     set_global_config_manager,
     get_global_config_manager
 )
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 # DEBUG CONTROL - Set to True to enable detailed debugging
@@ -50,12 +54,12 @@ def debug_print(category: str, message: str, data: Any = None):
     """Centralized debug printing with categories"""
     if DEBUG_PIPELINE:
         timestamp = time.strftime('%H:%M:%S')
-        print(f"🐛 [{timestamp}] {category}: {message}")
+        logger.debug(f"🐛 [{timestamp}] {category}: {message}")
         if data is not None and (DEBUG_REQUESTS or DEBUG_RESPONSES):
             if isinstance(data, dict) and len(str(data)) > 200:
-                print(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                logger.debug(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
             else:
-                print(f"    📊 Data: {data}")
+                logger.debug(f"    📊 Data: {data}")
 
 # Simple logging for errors only
 pipeline_logger = logging.getLogger("PipelineOrchestrator")
@@ -98,28 +102,28 @@ class PipelineOrchestrator:
         if enable_pipelines:
             self._initialize_pipeline_infrastructure()
         
-        print(f"🔄 Enhanced Pipeline Orchestrator initialized (pipelines: {'enabled' if enable_pipelines else 'disabled'})")
-        print(f"   📊 Components available: GameEngine={bool(self.game_engine)}, CharacterManager={bool(self.character_manager)}, SessionManager={bool(self.session_manager)}, PolicyEngine={bool(self.policy_engine)}")
+        logger.info(f"🔄 Enhanced Pipeline Orchestrator initialized (pipelines: {'enabled' if enable_pipelines else 'disabled'})")
+        logger.debug(f"   📊 Components available: GameEngine={bool(self.game_engine)}, CharacterManager={bool(self.character_manager)}, SessionManager={bool(self.session_manager)}, PolicyEngine={bool(self.policy_engine)}")
     
     def _initialize_pipeline_infrastructure(self) -> None:
         """Initialize Haystack agents and LLM configuration with Gemini integration"""
-        print("🔧 Starting pipeline infrastructure initialization...")
+        logger.debug("🔧 Starting pipeline infrastructure initialization...")
         try:
             # Create Gemini configuration
             debug_print("ORCHESTRATOR", "🤖 Creating Gemini configuration...")
-            print("🔧 Step 1: Creating Gemini configuration...")
+            logger.debug("🔧 Step 1: Creating Gemini configuration...")
             gemini_config = create_gemini_config()
             debug_print("ORCHESTRATOR", "✅ Gemini config created")
             print("✅ Step 1 complete: Gemini config created")
             
             debug_print("ORCHESTRATOR", "🔧 Creating LLM config manager...")
-            print("🔧 Step 2: Creating LLM config manager...")
+            logger.debug("🔧 Step 2: Creating LLM config manager...")
             global_manager = LLMConfigManager(gemini_config)
             debug_print("ORCHESTRATOR", "✅ LLM config manager created")
             print("✅ Step 2 complete: LLM config manager created")
             
             debug_print("ORCHESTRATOR", "🌐 Setting global config manager...")
-            print("🔧 Step 3: Setting global config manager...")
+            logger.debug("🔧 Step 3: Setting global config manager...")
             set_global_config_manager(global_manager)
             debug_print("ORCHESTRATOR", "✅ Global config manager set")
             print("✅ Step 3 complete: Global config manager set")
@@ -141,11 +145,11 @@ class PipelineOrchestrator:
                 debug_print("ORCHESTRATOR", "⚠️ Created MockRoutingContextAdapter (no components)")
             
             # Initialize agents - use fixed interface agent for improved performance
-            print("🔧 Step 4: Creating scenario generator agent...")
+            logger.debug("🔧 Step 4: Creating scenario generator agent...")
             scenario_agent = create_scenario_generator_agent()
             print("✅ Step 4 complete: Scenario generator agent created")
             
-            print("🔧 Step 5: Creating RAG retriever agent...")
+            logger.debug("🔧 Step 5: Creating RAG retriever agent...")
             rag_agent = create_rag_retriever_agent_simplified(
                 document_store=self.shared_document_store
             )
@@ -153,64 +157,64 @@ class PipelineOrchestrator:
             print("✅ Step 5 complete: RAG retriever agent created")
             
             debug_print("ORCHESTRATOR", "🎭 Creating NPC controller agent...")
-            print("🔧 Step 6: Creating NPC controller agent...")
+            logger.debug("🔧 Step 6: Creating NPC controller agent...")
             npc_agent = create_npc_controller_agent()
             debug_print("ORCHESTRATOR", "✅ NPC controller agent created")
             print("✅ Step 6 complete: NPC controller agent created")
             
             # Use the new fixed interface agent
             debug_print("ORCHESTRATOR", "🔧 Creating fixed interface agent...")
-            print("🔧 Step 7: Creating fixed interface agent...")
-            print("   Checking global config manager...")
+            logger.debug("🔧 Step 7: Creating fixed interface agent...")
+            logger.debug(f"   Checking global config manager...")
             config_manager = get_global_config_manager()
             if config_manager is None:
                 raise RuntimeError("Global config manager is None - cannot create interface agent")
-            print(f"   Global config manager found: {type(config_manager).__name__}")
+            logger.debug(f"   Global config manager found: {type(config_manager).__name__}")
             
-            print("   Creating generator for main_interface...")
+            logger.debug(f"   Creating generator for main_interface...")
             try:
                 generator = config_manager.create_generator("main_interface")
-                print(f"   Generator created: {type(generator).__name__}")
+                logger.debug(f"   Generator created: {type(generator).__name__}")
             except Exception as gen_error:
-                print(f"   ❌ Generator creation failed: {type(gen_error).__name__}: {gen_error}")
+                logger.debug(f"   ❌ Generator creation failed: {type(gen_error).__name__}: {gen_error}")
                 import traceback
                 traceback.print_exc()
                 raise
             
-            print("   Creating interface agent...")
+            logger.debug(f"   Creating interface agent...")
             interface_agent = create_fixed_interface_agent()
             debug_print("ORCHESTRATOR", "✅ Created fixed interface agent")
             print("✅ Step 7 complete: Fixed interface agent created")
             
-            print("🔧 Step 8: Storing agents in agents dict...")
+            logger.debug("🔧 Step 8: Storing agents in agents dict...")
             self.agents = {
                 "scenario_generator": scenario_agent,
                 "rag_retriever": rag_agent,
                 "npc_controller": npc_agent,
                 "main_interface": interface_agent  # Fixed system agent
             }
-            print(f"✅ Step 8 complete: Agents stored. Keys: {list(self.agents.keys())}")
+            logger.info(f"✅ Step 8 complete: Agents stored. Keys: {list(self.agents.keys())}")
             
             if self.shared_document_store:
-                print(f"📚 Pipeline Orchestrator: Using shared document store for '{self.shared_document_store.collection_name}'")
+                logger.info(f"📚 Pipeline Orchestrator: Using shared document store for '{self.shared_document_store.collection_name}'")
             else:
-                print("⚠️ Pipeline Orchestrator: No shared document store provided - RAG will use fallback responses")
+                logger.warning("Pipeline Orchestrator: No shared document store provided - RAG will use fallback responses")
             
             # Initialize pipelines
-            print("🔧 Step 9: Creating pipelines...")
+            logger.debug("🔧 Step 9: Creating pipelines...")
             self._create_pipelines()
             print("✅ Step 9 complete: Pipelines created")
             print("✅ Pipeline infrastructure initialization complete!")
             
         except Exception as e:
             pipeline_logger.error(f"Failed to initialize pipeline infrastructure: {e}")
-            print(f"❌ Pipeline initialization error: {e}")
-            print(f"❌ Error type: {type(e).__name__}")
-            print(f"❌ Error details:")
+            logger.error(f"Pipeline initialization error: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error details:")
             import traceback
             traceback.print_exc()
             print(f"\n❌ Pipeline initialization FAILED - this must be fixed before continuing")
-            print(f"❌ Available agents so far: {list(self.agents.keys())}")
+            logger.error(f"Available agents so far: {list(self.agents.keys())}")
             self.enable_pipelines = False
             # Re-raise to ensure the error is visible and not silently swallowed
             raise RuntimeError(f"Pipeline infrastructure initialization failed: {e}") from e
@@ -379,10 +383,10 @@ class PipelineOrchestrator:
             if not interface_agent:
                 error_msg = f"Interface agent not available. Available agents: {list(self.agents.keys())}"
                 debug_print("INTERFACE", f"❌ {error_msg}")
-                print(f"❌ {error_msg}")
-                print(f"❌ Agents dict keys: {list(self.agents.keys())}")
-                print(f"❌ Agents dict: {self.agents}")
-                print(f"❌ Pipeline enabled: {self.enable_pipelines}")
+                logger.error(f"{error_msg}")
+                logger.error(f"Agents dict keys: {list(self.agents.keys())}")
+                logger.error(f"Agents dict: {self.agents}")
+                logger.error(f"Pipeline enabled: {self.enable_pipelines}")
                 raise RuntimeError(f"Interface agent not initialized: {error_msg}")
             
             # Extract data from DTO using correct field names

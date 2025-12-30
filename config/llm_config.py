@@ -9,6 +9,12 @@ from typing import Dict, Any, Optional, Type
 from dataclasses import dataclass, field
 from enum import Enum
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 # Import available LLM generators
 try:
     from haystack.components.generators.chat import OpenAIChatGenerator
@@ -36,7 +42,7 @@ try:
     except (ImportError, TypeError, AttributeError) as e:
         GEMINI_CHAT_GENERATOR_AVAILABLE = False
         _GEMINI_GENERATOR_IMPORT_ERROR = str(e)
-        print(f"GEMINI_CHAT_GENERATOR_AVAILABLE: {GEMINI_CHAT_GENERATOR_AVAILABLE} {_GEMINI_GENERATOR_IMPORT_ERROR} Using fallback GeminiChatGenerator")
+        logger.info(f"GEMINI_CHAT_GENERATOR_AVAILABLE: {GEMINI_CHAT_GENERATOR_AVAILABLE} {_GEMINI_GENERATOR_IMPORT_ERROR} Using fallback GeminiChatGenerator")
         
         # Create a simple fallback GeminiChatGenerator
         class GeminiChatGenerator:
@@ -44,7 +50,7 @@ try:
             
             def __init__(self, model_name: str, generation_config: dict = None):
                 if not GEMINI_AVAILABLE:
-                    print(f"GEMINI_AVAILABLE: {GEMINI_AVAILABLE}")
+                    logger.info(f"GEMINI_AVAILABLE: {GEMINI_AVAILABLE}")
                     raise ImportError("google-generativeai package not available")
                 
                 self.model_name = model_name
@@ -269,7 +275,7 @@ class LLMConfigManager:
         # Try to use official Haystack Google GenAI integration (v2.17+) if available
         try:
             from haystack_integrations.components.generators.google_genai import GoogleGenAIChatGenerator
-            print(f"🔧 Using official GoogleGenAIChatGenerator for model: {config.model}")
+            logger.debug(f"🔧 Using official GoogleGenAIChatGenerator for model: {config.model}")
             
             # Create official Haystack Gemini generator (handles tools/function-calling)
             generator = GoogleGenAIChatGenerator(
@@ -278,24 +284,24 @@ class LLMConfigManager:
                 # The official GoogleGenAIChatGenerator uses different parameter names
             )
             
-            print(f"✅ Successfully created GoogleGenAIChatGenerator")
+            logger.info(f"✅ Successfully created GoogleGenAIChatGenerator")
             return generator
         except ImportError:
             # Fall back to custom GeminiChatGenerator from llm_utils
-            print(f"⚠️ Official haystack_integrations not available, using custom GeminiChatGenerator")
+            logger.warning(f"Official haystack_integrations not available, using custom GeminiChatGenerator")
             
             if not UTILS_AVAILABLE:
                 raise ImportError("Neither haystack_integrations nor config.llm_utils available for Gemini generator")
             
             from config.llm_utils import GeminiChatGenerator
             
-            print(f"🔧 Using custom GeminiChatGenerator for model: {config.model}")
+            logger.debug(f"🔧 Using custom GeminiChatGenerator for model: {config.model}")
             generator = GeminiChatGenerator(
                 model_name=config.model,
                 generation_config=generation_config
             )
             
-            print(f"✅ Successfully created custom GeminiChatGenerator")
+            logger.info(f"✅ Successfully created custom GeminiChatGenerator")
             return generator
     
     def get_config_summary(self) -> Dict[str, str]:
@@ -445,15 +451,15 @@ if __name__ == "__main__":
     manager = LLMConfigManager()
     print("Default Configuration:")
     for agent, config in manager.get_config_summary().items():
-        print(f"  {agent}: {config}")
+        logger.debug(f"  {agent}: {config}")
     
     # Test generator creation
     try:
         scenario_gen = manager.create_generator("scenario_generator")
-        print(f"\n✅ Created scenario generator: {type(scenario_gen).__name__}")
+        logger.info(f"\n✅ Created scenario generator: {type(scenario_gen).__name__}")
         
         rag_gen = manager.create_generator("rag_retriever")
-        print(f"✅ Created RAG generator: {type(rag_gen).__name__}")
+        logger.info(f"✅ Created RAG generator: {type(rag_gen).__name__}")
         
     except Exception as e:
-        print(f"❌ Generator creation failed: {e}")
+        logger.error(f"Generator creation failed: {e}")

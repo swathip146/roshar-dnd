@@ -9,6 +9,12 @@ from haystack.dataclasses import ChatMessage
 from haystack.tools import tool
 from config.llm_config import get_global_config_manager
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 
 @tool(
     outputs_to_state={"npc_response": {"source": "."}}
@@ -283,7 +289,7 @@ if __name__ == "__main__":
     ]
     
     for i, test_case in enumerate(test_cases):
-        print(f"\n=== NPC Agent Test {i+1} ===")
+        logger.info(f"\n=== NPC Agent Test {i+1} ===")
         
         user_message = f"""
         NPC: {test_case['npc_id']}
@@ -300,12 +306,12 @@ if __name__ == "__main__":
             
             print("Messages:")
             for msg in response["messages"]:
-                print(f"{msg.role}: {msg.text}")
+                logger.info(f"{msg.role}: {msg.text}")
             
             # Check for tool results
             for key, value in response.items():
                 if key not in ["messages"] and value:
-                    print(f"{key}: {value}")
+                    logger.info(f"{key}: {value}")
                     
         except Exception as e:
-            print(f"❌ NPC Agent test {i+1} failed: {e}")
+            logger.error(f"NPC Agent test {i+1} failed: {e}")

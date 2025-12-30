@@ -10,16 +10,16 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import json
 import time
-import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from orchestrator.pipeline_integration import create_full_haystack_orchestrator
 from core.game_initialization import initialize_enhanced_dnd_game, GameInitConfig
 from components.shared_contract import new_dto, RequestDTO
+from config.logging_config import get_logger
 
-# Basic logging setup
-logging.basicConfig(level=logging.WARNING)
+# Initialize logger
+logger = get_logger(__name__)
 
 
 class HaystackDnDGame:
@@ -30,19 +30,19 @@ class HaystackDnDGame:
     
     def __init__(self, policy_profile: str = "house", config: GameInitConfig = None):
         """Initialize with full Haystack integration and session management"""
-        
-        print("🚀 Initializing Enhanced D&D Game...")
-        
+
+        logger.info("🚀 Initializing Enhanced D&D Game...")
+
         # Track initialization timing
         init_start = time.time()
-        
+
         # Use provided config or initialize interactively
         if config is None:
             raise Exception(" Error no config...")
-        
+
         self.config = config
-        
-        print(f"🗄️ Using document collection: {config.collection_name}")
+
+        logger.info(f"🗄️ Using document collection: {config.collection_name}")
         
         # Use all initialized components from config (already comprehensive initialization done)
         self.session_manager = config.session_manager
@@ -61,36 +61,36 @@ class HaystackDnDGame:
                 session_manager=config.session_manager,
                 policy_engine=config.policy_engine
             )
-            print(f"🎯 Orchestrator created with enhanced component integration")
-            
+            logger.info(f"🎯 Orchestrator created with enhanced component integration")
+
         except Exception as e:
-            print(f"❌ Failed to create enhanced orchestrator: {e}")
+            logger.error(f"❌ Failed to create enhanced orchestrator: {e}")
             raise
         
         # BREAKING CHANGE: Get session metadata instead of state (SessionManager is persistence-only)
         session_metadata = self.session_manager.get_session_metadata()
         if session_metadata.get("session_active"):
-            print("🎲 Haystack D&D Game initialized with full architecture!")
-            
+            logger.info("🎲 Haystack D&D Game initialized with full architecture!")
+
             # Get starting location from GameEngine (authoritative source)
             if self.game_engine and hasattr(self.game_engine, 'game_state'):
                 location_context = self.game_engine.game_state.location_context
                 current_location = location_context.get("current_location", "Unknown")
-                print("📍 Starting location:", current_location)
+                logger.info(f"📍 Starting location: {current_location}")
                 
                 # Show campaign info from CampaignConfig (authoritative source)
                 if hasattr(self.game_engine, 'campaign_config') and self.game_engine.campaign_config:
                     campaign_config = self.game_engine.campaign_config
-                    print(f"🗺️ Campaign: {campaign_config.name}")
-                    print(f"🎭 Theme: {campaign_config.theme}")
-                    print(f"⚔️ Difficulty: {campaign_config.difficulty}")
+                    logger.info(f"🗺️ Campaign: {campaign_config.name}")
+                    logger.info(f"🎭 Theme: {campaign_config.theme}")
+                    logger.info(f"⚔️ Difficulty: {campaign_config.difficulty}")
             
-            print("🎯 Enhanced features: Orchestrator, Agents, Pipelines & Components")
-            print(f"📚 Document collection: {config.collection_name} for RAG-enhanced gameplay")
+            logger.info("🎯 Enhanced features: Orchestrator, Agents, Pipelines & Components")
+            logger.info(f"📚 Document collection: {config.collection_name} for RAG-enhanced gameplay")
 
         # Debug: Print all instance states after initialization is complete
-        print(f"\n🔍 DEBUG: Instance States After Initialization")
-        print("=" * 60)
+        logger.debug("Instance States After Initialization")
+        logger.debug("=" * 60)
         
         # GameEngine state with enhanced debugging
         try:
@@ -98,94 +98,94 @@ class HaystackDnDGame:
                 if hasattr(self.game_engine, 'export_game_state'):
                     game_engine_export = self.game_engine.export_game_state()
                     game_state = game_engine_export.get('game_state', {})
-                    print(f"🎮 GameEngine State: {type(self.game_engine).__name__}")
-                    print(f"   - Characters: {len(game_state.get('characters', {}))}")
-                    print(f"   - Campaign flags: {len(game_state.get('campaign_flags', {}))}")
-                    print(f"   - Environment keys: {list(game_state.get('environment', {}).keys())}")
-                    print(f"   - Campaign data keys: {list(game_state.get('campaign_data', {}).keys())} (SHOULD be empty - moved to CampaignConfig)")
+                    logger.info(f"🎮 GameEngine State: {type(self.game_engine).__name__}")
+                    logger.debug(f"   - Characters: {len(game_state.get('characters', {}))}")
+                    logger.debug(f"   - Campaign flags: {len(game_state.get('campaign_flags', {}))}")
+                    logger.debug(f"   - Environment keys: {list(game_state.get('environment', {}).keys())}")
+                    logger.debug(f"   - Campaign data keys: {list(game_state.get('campaign_data', {}).keys())} (SHOULD be empty - moved to CampaignConfig)")
                     
                     # Show CampaignConfig state separately (this is the NEW authority)
                     if hasattr(self.game_engine, 'campaign_config') and self.game_engine.campaign_config:
                         campaign_config = self.game_engine.campaign_config
-                        print(f"   📋 CampaignConfig (Authority): {type(campaign_config).__name__}")
-                        print(f"      - Name: {campaign_config.name}")
-                        print(f"      - Theme: {campaign_config.theme}")
-                        print(f"      - Difficulty: {campaign_config.difficulty}")
-                        print(f"      - NPCs: {len(getattr(campaign_config, 'key_npcs', []))}")
-                        print(f"      - Locations: {len(getattr(campaign_config, 'locations', []))}")
-                        print(f"      - Starting Location: {campaign_config.starting_location}")
-                        print(f"      - Story Length: {len(campaign_config.story)} chars")
+                        logger.debug(f"   📋 CampaignConfig (Authority): {type(campaign_config).__name__}")
+                        logger.debug(f"      - Name: {campaign_config.name}")
+                        logger.debug(f"      - Theme: {campaign_config.theme}")
+                        logger.debug(f"      - Difficulty: {campaign_config.difficulty}")
+                        logger.debug(f"      - NPCs: {len(getattr(campaign_config, 'key_npcs', []))}")
+                        logger.debug(f"      - Locations: {len(getattr(campaign_config, 'locations', []))}")
+                        logger.debug(f"      - Starting Location: {campaign_config.starting_location}")
+                        logger.debug(f"      - Story Length: {len(campaign_config.story)} chars")
                     else:
-                        print(f"   ⚠️ No CampaignConfig attached to GameEngine")
+                        logger.debug(f"   ⚠️ No CampaignConfig attached to GameEngine")
                 else:
-                    print(f"🎮 GameEngine: {type(self.game_engine).__name__} (fallback implementation)")
+                    logger.info(f"🎮 GameEngine: {type(self.game_engine).__name__} (fallback implementation)")
             else:
-                print(f"🎮 GameEngine: None")
+                logger.info(f"🎮 GameEngine: None")
         except Exception as e:
-            print(f"🎮 GameEngine: Error accessing state - {e}")
+            logger.info(f"🎮 GameEngine: Error accessing state - {e}")
         
         # CharacterManager state
         try:
             if self.character_manager:
                 if hasattr(self.character_manager, 'get_party_snapshot'):
                     party_snapshot = self.character_manager.get_party_snapshot()
-                    print(f"👥 CharacterManager State: {type(self.character_manager).__name__}")
-                    print(f"   - Party size: {party_snapshot.get('party_size', 0)}")
-                    print(f"   - Average level: {party_snapshot.get('avg_level', 'Unknown')}")
-                    print(f"   - Party roles: {party_snapshot.get('party_roles', {})}")
+                    logger.info(f"👥 CharacterManager State: {type(self.character_manager).__name__}")
+                    logger.debug(f"   - Party size: {party_snapshot.get('party_size', 0)}")
+                    logger.debug(f"   - Average level: {party_snapshot.get('avg_level', 'Unknown')}")
+                    logger.debug(f"   - Party roles: {party_snapshot.get('party_roles', {})}")
                 elif hasattr(self.character_manager, 'characters'):
-                    print(f"👥 CharacterManager: {type(self.character_manager).__name__} (fallback)")
-                    print(f"   - Characters: {len(getattr(self.character_manager, 'characters', {}))}")
+                    logger.info(f"👥 CharacterManager: {type(self.character_manager).__name__} (fallback)")
+                    logger.debug(f"   - Characters: {len(getattr(self.character_manager, 'characters', {}))}")
                 else:
-                    print(f"👥 CharacterManager: {type(self.character_manager).__name__} (unknown implementation)")
+                    logger.info(f"👥 CharacterManager: {type(self.character_manager).__name__} (unknown implementation)")
             else:
-                print(f"👥 CharacterManager: None")
+                logger.info(f"👥 CharacterManager: None")
         except Exception as e:
-            print(f"👥 CharacterManager: Error accessing state - {e}")
+            logger.info(f"👥 CharacterManager: Error accessing state - {e}")
         
         # SessionManager state - BREAKING CHANGE: Only metadata now
         try:
             if self.session_manager:
                 session_metadata = self.session_manager.get_session_metadata()
-                print(f"📝 SessionManager State: {type(self.session_manager).__name__}")
-                print(f"   - Session active: {session_metadata.get('session_active', False)}")
-                print(f"   - Player name: {session_metadata.get('player_name', 'Unknown')}")
-                print(f"   - Session duration: {session_metadata.get('session_duration', 0):.1f}s")
+                logger.info(f"📝 SessionManager State: {type(self.session_manager).__name__}")
+                logger.debug(f"   - Session active: {session_metadata.get('session_active', False)}")
+                logger.debug(f"   - Player name: {session_metadata.get('player_name', 'Unknown')}")
+                logger.debug(f"   - Session duration: {session_metadata.get('session_duration', 0):.1f}s")
             else:
-                print(f"📝 SessionManager: None")
+                logger.info(f"📝 SessionManager: None")
         except Exception as e:
-            print(f"📝 SessionManager: Error accessing metadata - {e}")
+            logger.info(f"📝 SessionManager: Error accessing metadata - {e}")
         
         # PolicyEngine state
         try:
             if self.policy_engine:
-                print(f"⚖️ PolicyEngine State: {type(self.policy_engine).__name__}")
+                logger.info(f"⚖️ PolicyEngine State: {type(self.policy_engine).__name__}")
                 if hasattr(self.policy_engine, 'get_difficulty_policy'):
                     try:
                         # Try to get a sample policy
                         sample_context = {"party_size": 1, "avg_level": 1}
                         difficulty_policy = self.policy_engine.get_difficulty_policy(sample_context)
-                        print(f"   - Difficulty target: {difficulty_policy.get('difficulty_target', 'medium')}")
+                        logger.debug(f"   - Difficulty target: {difficulty_policy.get('difficulty_target', 'medium')}")
                         dc_policy = difficulty_policy.get('dc_policy', {})
-                        print(f"   - DC policies: {list(dc_policy.keys())}")
+                        logger.debug(f"   - DC policies: {list(dc_policy.keys())}")
                     except Exception as policy_e:
-                        print(f"   - Policy access error: {policy_e}")
+                        logger.debug(f"   - Policy access error: {policy_e}")
                 else:
-                    print(f"   - Basic fallback implementation")
+                    logger.debug(f"   - Basic fallback implementation")
             else:
-                print(f"⚖️ PolicyEngine: None")
+                logger.info(f"⚖️ PolicyEngine: None")
         except Exception as e:
-            print(f"⚖️ PolicyEngine: Error accessing state - {e}")
+            logger.info(f"⚖️ PolicyEngine: Error accessing state - {e}")
         
-        print("=" * 60)
-        print(f"🔍 DEBUG: End Instance States")
+        logger.debug("=" * 60)
+        logger.debug(f"End Instance States")
 
         # Add choice management fields (UI state only, not game state)
         self.current_scenario: Optional[Dict[str, Any]] = None
         self.current_choices: List[Dict[str, Any]] = []
         self.turn_counter: int = 0
         
-        print("🎯 Enhanced response system initialized with choice management")
+        logger.info("🎯 Enhanced response system initialized with choice management")
         
         # Generate initial scenario
         # self._generate_initial_scenario()
@@ -194,7 +194,7 @@ class HaystackDnDGame:
         """Generate initial scenario following state hierarchy"""
         
         try:
-            print("🎬 Generating initial scenario...")
+            logger.info("🎬 Generating initial scenario...")
             
             initial_dto = self._create_initial_dto()
             response_dict = self.orchestrator.process_request(initial_dto)
@@ -211,13 +211,13 @@ class HaystackDnDGame:
                 )
                 
                 self.initial_scenario = formatted_result
-                print("✅ Initial scenario generated")
+                logger.info("✅ Initial scenario generated")
             else:
                 error_msg = response_dict.get("error", "Unknown error")
-                print(f"⚠️ Failed to generate initial scenario: {error_msg}")
+                logger.warning(f"Failed to generate initial scenario: {error_msg}")
                 
         except Exception as e:
-            print(f"❌ Error generating initial scenario: {e}")
+            logger.error(f"Error generating initial scenario: {e}")
 
     def _create_initial_dto(self) -> RequestDTO:
         """Create DTO for initial scenario"""
@@ -299,20 +299,20 @@ class HaystackDnDGame:
             
             # Create DTO using existing pattern - use processed input
             input_text = processed_input.get("processed_input", player_input)
-            print(f"🔍 DEBUG: input_text = '{input_text}'")
+            logger.debug(f"input_text = '{input_text}'")
             request_dto = new_dto(input_text, {})  # Empty context - no state copying
             request_dto["type"] = processed_input.get("type", "gameplay_turn")
             request_dto["_game_engine_ref"] = self.game_engine
             request_dto["_policy_engine_ref"] = self.policy_engine
             
-            print(f"🎯 Processing turn {self.turn_counter} with enhanced response system")
+            logger.info(f"🎯 Processing turn {self.turn_counter} with enhanced response system")
             
             # Use existing orchestrator
             response_dict = self.orchestrator.process_request(request_dto)
             
             # Handle None response from failed orchestrator
             if response_dict is None:
-                print("❌ Orchestrator returned None - pipeline failure")
+                logger.error("Orchestrator returned None - pipeline failure")
                 return "The magical forces seem disrupted. Please try again."
             
             # Handle dict response from orchestrator
@@ -329,11 +329,11 @@ class HaystackDnDGame:
                 return formatted_result.get("formatted_response", "The adventure continues...")
             else:
                 error_msg = response_dict.get("error", "Unknown error")
-                print(f"⚠️ Processing failed: {error_msg}")
+                logger.warning(f"Processing failed: {error_msg}")
                 return "The world seems momentarily confused by your action. Try something else..."
                 
         except Exception as e:
-            print(f"❌ Error processing turn: {e}")
+            logger.error(f"Error processing turn: {e}")
             return "Something unexpected happened. The adventure continues nonetheless..."
 
     def _update_ui_state(self, response_data: Dict[str, Any]):
@@ -349,10 +349,10 @@ class HaystackDnDGame:
             self.current_scenario = scenario
             self.current_choices = choices
             
-            print(f"🎯 Updated UI state: {len(choices)} choices available")
+            logger.info(f"🎯 Updated UI state: {len(choices)} choices available")
         else:
             # For non-scenario responses, preserve existing choices if they exist
-            print(f"🎯 Non-scenario response: preserving existing UI state")
+            logger.info(f"🎯 Non-scenario response: preserving existing UI state")
     
     def _handle_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle GameResponseDTO - UI presentation only"""
@@ -464,7 +464,7 @@ class HaystackDnDGame:
             formatted_response = response_data["response"]
         else:
             formatted_response = "The adventure continues in unexpected ways..."
-            print(f"⚠️ Unrecognized response format with keys: {list(response_data.keys()) if response_data else 'None'}")
+            logger.warning(f"Unrecognized response format with keys: {list(response_data.keys()) if response_data else 'None'}")
         
         return {
             "formatted_response": formatted_response,
@@ -507,16 +507,16 @@ class HaystackDnDGame:
             
             if result["success"]:
                 filepath = result["result"]["filepath"]
-                print(f"💾 Clean architecture game saved to {filepath}")
-                print("📊 Save includes: GameEngine state (authoritative), CharacterManager data (authoritative), session metadata")
-                print(f"🎯 Data saved: {len(character_manager_state)} characters, campaign from CampaignConfig")
+                logger.info(f"💾 Clean architecture game saved to {filepath}")
+                logger.info("📊 Save includes: GameEngine state (authoritative), CharacterManager data (authoritative), session metadata")
+                logger.info(f"🎯 Data saved: {len(character_manager_state)} characters, campaign from CampaignConfig")
                 return True
             else:
-                print(f"❌ Failed to save game: {result['message']}")
+                logger.error(f"Failed to save game: {result['message']}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Failed to save game: {e}")
+            logger.error(f"Failed to save game: {e}")
             return False
   
     def get_game_stats(self) -> Dict[str, Any]:
@@ -569,19 +569,19 @@ class HaystackDnDGame:
         try:
             combined_stats["pipeline_status"] = self.orchestrator.get_pipeline_status()
         except Exception as e:
-            print(f"⚠️ Could not get orchestrator stats: {e}")
+            logger.warning(f"Could not get orchestrator stats: {e}")
             
         return combined_stats
     
     def run_interactive(self):
         """Enhanced interactive game loop - UI presentation only"""
         
-        print("=" * 70)
-        print("🎲 D&D GAME")
-        print("=" * 70)
-        print("🚀 Powered by: Orchestrator, Agents, Pipelines & Components")
-        print("Type 'help' for commands, 'quit' to exit")
-        print()
+        logger.info("=" * 70)
+        logger.info("🎲 D&D GAME")
+        logger.info("=" * 70)
+        logger.info("🚀 Powered by: Orchestrator, Agents, Pipelines & Components")
+        logger.info("Type \'help\' for commands, \'quit\' to exit")
+        # Empty line for console output
         
         # Display initial scenario if available
         if hasattr(self, 'initial_scenario') and self.initial_scenario:
@@ -595,12 +595,12 @@ class HaystackDnDGame:
                 opening_scene = self.game_engine.game_state.narrative_context.get("opening_scene")
                 quest = self.game_engine.get_quest_context().get("active_quests")
                 print("🎭 SCENE:")
-                print("Curr:" + curr_scene)
-                print("Opening Scene:" + opening_scene)
+                logger.info(f"Curr: {curr_scene}")
+                logger.info(f"Opening Scene: {opening_scene}")
                 print(f"Active quest: {quest}")
                 
         
-        print()
+        # Empty line for console output
         
         # Main game loop with choice display
         while True:
@@ -643,7 +643,7 @@ class HaystackDnDGame:
                 dm_response = self.play_turn(player_input)
                 print(f"\n🎭 DM:")
                 print(dm_response)
-                print()
+                # Empty line for console output
                 
             except KeyboardInterrupt:
                 print("\n\n💾 Saving game before exit...")
@@ -651,7 +651,7 @@ class HaystackDnDGame:
                 print("👋 Game interrupted. Goodbye!")
                 break
             except Exception as e:
-                print(f"❌ Unexpected error: {e}")
+                logger.error(f"Unexpected error: {e}")
                 print("The game continues...")
 
     def _show_stats(self):
@@ -680,22 +680,22 @@ class HaystackDnDGame:
         """Enhanced help information"""
         
         print("\n📖 ENHANCED D&D GAME HELP:")
-        print()
+        # Empty line for console output
         print("📋 Commands:")
         print("  help     - Show this help")
         print("  save     - Save the game (enhanced format)")
         print("  stats    - Show detailed statistics")
         print("  quit     - Exit the game")
-        print()
+        # Empty line for console output
         print("💡 Note: To load a different game, exit and restart the application.")
-        print()
+        # Empty line for console output
         print("🎮 Enhanced Gameplay:")
         print("  • Try complex actions like 'search the ancient library for dragon lore'")
         print("  • Engage in detailed conversations: 'talk to the bartender about rumors'")
         print("  • Attempt skill-based actions: 'climb the castle wall stealthily'")
         print("  • Cast spells: 'cast fireball at the goblins'")
         print("  • The system will automatically determine appropriate skill checks!")
-        print()
+        # Empty line for console output
 
 
 def main():
@@ -710,7 +710,7 @@ def main():
         game.run_interactive()
         
     except Exception as e:
-        print(f"❌ Failed to start game: {e}")
+        logger.error(f"Failed to start game: {e}")
         import traceback
         print(f"Full error: {traceback.format_exc()}")
 

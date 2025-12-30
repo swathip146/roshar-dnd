@@ -14,6 +14,12 @@ from .rules import RulesEnforcer
 from .character_manager import CharacterManager
 from .campaign_config import CampaignConfig
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 # TypedDict definitions for GameState Dict fields
 class CharacterRuntimeState(TypedDict, total=False):
     """Allowed keys for individual character runtime state"""
@@ -344,13 +350,13 @@ class GameEngine:
             "turn_action_count": 0  # Number of actions taken this turn
         }
         
-        print(f"🎮 GameEngine: Added character {character_data.get('name', char_id)} to game state")
+        logger.info(f"🎮 GameEngine: Added character {character_data.get('name', char_id)} to game state")
         return char_id
     
     def update_environment(self, environment_updates: Dict[str, Any]):
         """Update environmental conditions"""
         self.game_state.environment.update(environment_updates)
-        print(f"🌍 Updated environment: {environment_updates}")
+        logger.info(f"🌍 Updated environment: {environment_updates}")
     
     def set_character_condition(self, character_id: str, condition: str, active: bool = True):
         """Set character condition - BREAKING CHANGE: Uses CharacterManager as authority"""
@@ -370,7 +376,7 @@ class GameEngine:
     def set_campaign_flag(self, flag_name: str, value: Any):
         """Set campaign flag for tracking story progress"""
         self.game_state.campaign_flags[flag_name] = value
-        print(f"🚩 Set campaign flag: {flag_name} = {value}")
+        logger.info(f"🚩 Set campaign flag: {flag_name} = {value}")
     
     def get_campaign_flag(self, flag_name: str, default: Any = None) -> Any:
         """Get campaign flag value"""
@@ -489,7 +495,7 @@ class GameEngine:
     def import_game_state(self, state_data: Dict[str, Any]):
         """Import complete game state from saved data - BREAKING CHANGE: No campaign_data restoration"""
         if not isinstance(state_data, dict):
-            print("❌ Invalid state data format for import")
+            logger.error("Invalid state data format for import")
             return
         
         # Restore game state fields
@@ -544,7 +550,7 @@ class GameEngine:
                             "session_notes": []
                         }
                 except Exception as e:
-                    print(f"⚠️ Failed to restore character {char_id}: {e}")
+                    logger.warning(f"Failed to restore character {char_id}: {e}")
         
         # Restore policy profile if specified
         if "policy_profile" in state_data:
@@ -563,7 +569,7 @@ class GameEngine:
                 self.policy_engine.change_profile(new_profile)
                 print(f"🛡️ Restored policy profile: {profile_name}")
             except Exception as e:
-                print(f"⚠️ Failed to restore policy profile: {e}")
+                logger.warning(f"Failed to restore policy profile: {e}")
         
         print("📥 Game state imported successfully")
     
@@ -588,7 +594,7 @@ class GameEngine:
             if surge_name and surge_name not in runtime_state["surges_used_this_scene"]:
                 runtime_state["surges_used_this_scene"].append(surge_name)
             
-            print(f"🌟 {character_id} spent {amount} investiture for {surge_name or 'unknown surge'}")
+            logger.info(f"🌟 {character_id} spent {amount} investiture for {surge_name or 'unknown surge'}")
         
         return success
     
@@ -596,14 +602,14 @@ class GameEngine:
         """Update spren interaction state in runtime"""
         if character_id in self.game_state.characters:
             self.game_state.characters[character_id]["spren_interaction_state"] = interaction_type
-            print(f"🧚 Updated spren interaction for {character_id}: {interaction_type}")
+            logger.info(f"🧚 Updated spren interaction for {character_id}: {interaction_type}")
     
     def reset_turn_resources(self, character_id: str):
         """Reset per-turn resources (called at start of new turn)"""
         if character_id in self.game_state.characters:
             runtime_state = self.game_state.characters[character_id]
             runtime_state["investiture_spent_this_turn"] = 0
-            print(f"🔄 Reset turn resources for {character_id}")
+            logger.info(f"🔄 Reset turn resources for {character_id}")
     
     def reset_scene_resources(self, character_id: str):
         """Reset per-scene resources (called at start of new scene)"""
@@ -611,7 +617,7 @@ class GameEngine:
             runtime_state = self.game_state.characters[character_id]
             runtime_state["surges_used_this_scene"] = []
             runtime_state["spren_interaction_state"] = "normal"
-            print(f"🎬 Reset scene resources for {character_id}")
+            logger.info(f"🎬 Reset scene resources for {character_id}")
     
     def get_character_runtime_state(self, character_id: str) -> Dict[str, Any]:
         """Get character's runtime state from GameEngine"""
@@ -675,7 +681,7 @@ class GameEngine:
                 "oath_progression_active": True
             })
             
-            print(f"🎮 GameEngine: Recorded oath progression for {character_id}")
+            logger.info(f"🎮 GameEngine: Recorded oath progression for {character_id}")
             
             return {
                 "success": True,
@@ -748,8 +754,8 @@ class GameEngine:
             "high"
         )
         
-        print(f"🌟 Oath opportunity created for {character_name} ({next_ideal} Ideal)")
-        print(f"   Trigger: {trigger_description}")
+        logger.info(f"🌟 Oath opportunity created for {character_name} ({next_ideal} Ideal)")
+        logger.debug(f"   Trigger: {trigger_description}")
         
         return {
             "opportunity_created": True,
@@ -762,13 +768,13 @@ class GameEngine:
     def debug_print_party_summary(self, turn_number: int = None):
         """Print a condensed summary of all party members"""
         if not self.game_state.characters:
-            print("❌ DEBUG: No characters in party")
+            logger.error("DEBUG: No characters in party")
             return
         
         turn_info = f" - Turn {turn_number}" if turn_number else ""
-        print(f"\n{'='*50}")
-        print(f"🎭 PARTY SUMMARY{turn_info}")
-        print(f"{'='*50}")
+        logger.info(f"\n{'='*50}")
+        logger.info(f"🎭 PARTY SUMMARY{turn_info}")
+        logger.info(f"{'='*50}")
         
         for char_id in self.game_state.characters.keys():
             char_summary = self.character_manager.get_character_summary(char_id)
@@ -799,10 +805,10 @@ class GameEngine:
             if last_action and len(last_action) > 40:
                 last_action = last_action[:37] + "..."
             
-            print(f"👤 {name} (L{level} {ideal_name}): HP {hp_current}/{hp_max}, Investiture {inv_current}/{inv_max}{condition_str}{action_str}")
-            print(f"   Last Action: {last_action}")
+            logger.info(f"👤 {name} (L{level} {ideal_name}): HP {hp_current}/{hp_max}, Investiture {inv_current}/{inv_max}{condition_str}{action_str}")
+            logger.debug(f"   Last Action: {last_action}")
         
-        print(f"{'='*50}")
+        logger.info(f"{'='*50}")
     
     # Action Tracking Methods
     
@@ -830,7 +836,7 @@ class GameEngine:
             runtime_state["turn_action_count"] += 1
             runtime_state["last_action"] = action_description
             
-            print(f"🎬 GameEngine: Logged action for {character_id}: {action_description}")
+            logger.info(f"🎬 GameEngine: Logged action for {character_id}: {action_description}")
         
         return success
     
@@ -934,7 +940,7 @@ class GameEngine:
             runtime_state["turn_action_count"] = 0
             runtime_state["investiture_spent_this_turn"] = 0
         
-        print(f"🔄 Started turn {turn_number} - reset turn-specific tracking")
+        logger.info(f"🔄 Started turn {turn_number} - reset turn-specific tracking")
     
     def get_character_turn_actions(self, character_id: str) -> List[Dict[str, Any]]:
         """Get actions taken by character in current turn"""
@@ -953,17 +959,17 @@ class GameEngine:
     def update_narrative_context(self, context_updates: Dict[str, Any]):
         """Update narrative context for scenario generation"""
         self.game_state.narrative_context.update(context_updates)
-        print(f"📖 Updated narrative context: {list(context_updates.keys())}")
+        logger.debug(f"📖 Updated narrative context: {list(context_updates.keys())}")
     
     def update_location_context(self, context_updates: Dict[str, Any]):
         """Update location context for scenario generation"""
         self.game_state.location_context.update(context_updates)
-        print(f"📍 Updated location context: {list(context_updates.keys())}")
+        logger.info(f"📍 Updated location context: {list(context_updates.keys())}")
     
     def update_quest_context(self, context_updates: Dict[str, Any]):
         """Update quest context for scenario generation"""
         self.game_state.quest_context.update(context_updates)
-        print(f"🎯 Updated quest context: {list(context_updates.keys())}")
+        logger.debug(f"🎯 Updated quest context: {list(context_updates.keys())}")
     
     def get_scenario_context(self) -> Dict[str, Any]:
         """
@@ -1017,7 +1023,7 @@ class GameEngine:
         
         hook_entry = {"text": hook, "priority": priority, "added_time": time.time()}
         self.game_state.narrative_context["story_hooks"].append(hook_entry)
-        print(f"🎣 Added story hook: {hook} (priority: {priority})")
+        logger.info(f"🎣 Added story hook: {hook} (priority: {priority})")
     
     def add_quest_objective(self, objective: str, quest_name: str = "Main Quest"):
         """Add a quest objective to quest context"""
@@ -1030,7 +1036,7 @@ class GameEngine:
             "added_time": time.time()
         }
         self.game_state.quest_context["pending_objectives"].append(objective_entry)
-        print(f"✓ Added quest objective: {objective} ({quest_name})")
+        logger.info(f"✓ Added quest objective: {objective} ({quest_name})")
     
     def complete_quest_objective(self, objective_text: str):
         """Move objective from pending to completed"""
@@ -1043,7 +1049,7 @@ class GameEngine:
                 completed_obj["completion_time"] = time.time()
                 completed.append(completed_obj)
                 pending.pop(i)
-                print(f"✅ Completed objective: {objective_text}")
+                logger.info(f"✅ Completed objective: {objective_text}")
                 break
         
         self.game_state.quest_context["completed_objectives"] = completed
@@ -1059,7 +1065,7 @@ class GameEngine:
             "features": features or [],
             "entry_time": time.time()
         })
-        print(f"🏔️ Moved to location: {location_name} ({location_type})")
+        logger.info(f"🏔️ Moved to location: {location_name} ({location_type})")
     
     def get_campaign_data(self, key: str, default: Any = None) -> Any:
         """Get campaign data value from CampaignConfig - BREAKING CHANGE: Read-only"""
@@ -1180,7 +1186,7 @@ if __name__ == "__main__":
     }
     
     result = engine.process_skill_check(skill_check)
-    print(f"7-step pipeline result: {result}")
+    logger.info(f"7-step pipeline result: {result}")
     
     # Test contested check
     # Add second character for contest
@@ -1192,8 +1198,8 @@ if __name__ == "__main__":
     contest_result = engine.process_contested_check(
         char_id, "stealth", char2_id, "perception"
     )
-    print(f"Contested check result: {contest_result}")
+    logger.info(f"Contested check result: {contest_result}")
     
     # Show game statistics
     stats = engine.get_game_statistics()
-    print(f"Game statistics: {stats}")
+    logger.info(f"Game statistics: {stats}")

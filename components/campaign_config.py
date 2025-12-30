@@ -8,6 +8,12 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import json
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 
 @dataclass(frozen=True)
 class CampaignConfig:
@@ -318,7 +324,7 @@ class CampaignConfig:
                 
                 npcs.append(npc_info)
                 
-        print(f"   🎭 Extracted {len(npcs)} NPCs from campaign data")
+        logger.debug(f"   🎭 Extracted {len(npcs)} NPCs from campaign data")
         return npcs[:6]  # Limit to top 6 NPCs
     
     @staticmethod
@@ -366,7 +372,7 @@ class CampaignConfig:
                 
                 locations.append(location_info)
                 
-        print(f"   🗺️ Extracted {len(locations)} locations from campaign data")
+        logger.debug(f"   🗺️ Extracted {len(locations)} locations from campaign data")
         return locations[:5]  # Limit to top 5 locations
     
     @staticmethod

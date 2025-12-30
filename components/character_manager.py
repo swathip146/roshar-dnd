@@ -7,6 +7,12 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 class AbilityScore(Enum):
     """D&D ability scores"""
     STRENGTH = "strength"
@@ -167,7 +173,7 @@ class CharacterManager:
         )
         
         self.characters[char_id] = character
-        print(f"👤 Added character: {character.name} (Level {level})")
+        logger.info(f"👤 Added character: {character.name} (Level {level})")
         
         return char_id
     
@@ -289,10 +295,10 @@ class CharacterManager:
         
         if add and condition not in character.conditions:
             character.conditions.append(condition)
-            print(f"➕ Added condition '{condition}' to {character.name}")
+            logger.info(f"➕ Added condition '{condition}' to {character.name}")
         elif not add and condition in character.conditions:
             character.conditions.remove(condition)
-            print(f"➖ Removed condition '{condition}' from {character.name}")
+            logger.info(f"➖ Removed condition '{condition}' from {character.name}")
         
         return True
     
@@ -782,7 +788,7 @@ class CharacterManager:
                 character.investiture_points["maximum"]
             )
         
-        print(f"🌟 Updated {character.name}'s investiture: {character.investiture_points}")
+        logger.info(f"🌟 Updated {character.name}'s investiture: {character.investiture_points}")
         return True
     
     def spend_investiture(self, character_id: str, amount: int) -> bool:
@@ -797,10 +803,10 @@ class CharacterManager:
         current = character.investiture_points.get("current", 0)
         if current >= amount:
             character.investiture_points["current"] = current - amount
-            print(f"⚡ {character.name} spent {amount} investiture ({character.investiture_points['current']} remaining)")
+            logger.info(f"⚡ {character.name} spent {amount} investiture ({character.investiture_points['current']} remaining)")
             return True
         
-        print(f"❌ {character.name} doesn't have enough investiture ({current} < {amount})")
+        logger.error(f"{character.name} doesn't have enough investiture ({current} < {amount})")
         return False
     
     def update_spren_bond(self, character_id: str, spren_type: Optional[str] = None,
@@ -820,7 +826,7 @@ class CharacterManager:
         if status is not None:
             character.spren["status"] = status
         
-        print(f"🧚 Updated {character.name}'s spren bond: {character.spren}")
+        logger.info(f"🧚 Updated {character.name}'s spren bond: {character.spren}")
         return True
     
     def add_surge(self, character_id: str, surge_name: str) -> bool:
@@ -834,7 +840,7 @@ class CharacterManager:
         
         if surge_name not in character.surges_known:
             character.surges_known.append(surge_name)
-            print(f"⚡ {character.name} learned surge: {surge_name}")
+            logger.info(f"⚡ {character.name} learned surge: {surge_name}")
             return True
         
         print(f"ℹ️ {character.name} already knows surge: {surge_name}")
@@ -859,7 +865,7 @@ class CharacterManager:
                 character.spells_known = []
             if art_name not in character.spells_known:
                 character.spells_known.append(art_name)
-                print(f"✨ {character.name} learned invested art: {art_name}")
+                logger.info(f"✨ {character.name} learned invested art: {art_name}")
                 return True
         
         print(f"ℹ️ {character.name} already knows: {art_name}")
@@ -874,12 +880,12 @@ class CharacterManager:
         
         # Only Radiants can advance ideals
         if character.character_class.lower() != "radiant":
-            print(f"❌ {character.name} is not a Radiant and cannot speak oaths")
+            logger.error(f"{character.name} is not a Radiant and cannot speak oaths")
             return False
         
         # Maximum of 5 ideals (0-4, where 4 is typically theoretical)
         if character.ideal_level >= 4:
-            print(f"❌ {character.name} has already reached the highest known ideal")
+            logger.error(f"{character.name} has already reached the highest known ideal")
             return False
         
         old_level = character.ideal_level
@@ -895,9 +901,9 @@ class CharacterManager:
         
         oath_spoken = oath_text or standard_oaths.get(character.ideal_level, "A personal oath")
         
-        print(f"🌟 {character.name} spoke their {self._get_ideal_name(character.ideal_level)} Ideal!")
+        logger.info(f"🌟 {character.name} spoke their {self._get_ideal_name(character.ideal_level)} Ideal!")
         print(f"   Oath: \"{oath_spoken}\"")
-        print(f"   Advanced from {self._get_ideal_name(old_level)} to {self._get_ideal_name(character.ideal_level)}")
+        logger.debug(f"   Advanced from {self._get_ideal_name(old_level)} to {self._get_ideal_name(character.ideal_level)}")
         
         # Grant benefits based on ideal level
         self._grant_ideal_benefits(character_id, character.ideal_level)
@@ -934,35 +940,35 @@ class CharacterManager:
         
         if ideal_level == 1:
             # First Ideal - Basic Radiant abilities
-            print(f"   ✨ {character.name} gains basic Radiant abilities")
+            logger.debug(f"   ✨ {character.name} gains basic Radiant abilities")
             # Increase investiture if not already set
             if not character.investiture_points or character.investiture_points.get("maximum", 0) == 0:
                 character.investiture_points = {"current": 3, "maximum": 5}
-                print(f"   🌟 Gained investiture points: {character.investiture_points}")
+                logger.debug(f"   🌟 Gained investiture points: {character.investiture_points}")
             
         elif ideal_level == 2:
             # Second Ideal - Enhanced abilities, more investiture
-            print(f"   ✨ {character.name} gains enhanced Radiant abilities")
+            logger.debug(f"   ✨ {character.name} gains enhanced Radiant abilities")
             if character.investiture_points:
                 character.investiture_points["maximum"] += 3
                 character.investiture_points["current"] = character.investiture_points["maximum"]
-                print(f"   🌟 Investiture increased: {character.investiture_points}")
+                logger.debug(f"   🌟 Investiture increased: {character.investiture_points}")
             
         elif ideal_level == 3:
             # Third Ideal - Shardblade manifestation
-            print(f"   ⚔️ {character.name} can now manifest a Shardblade!")
+            logger.debug(f"   ⚔️ {character.name} can now manifest a Shardblade!")
             if character.investiture_points:
                 character.investiture_points["maximum"] += 5
                 character.investiture_points["current"] = character.investiture_points["maximum"]
-                print(f"   🌟 Investiture increased: {character.investiture_points}")
+                logger.debug(f"   🌟 Investiture increased: {character.investiture_points}")
             
         elif ideal_level == 4:
             # Fourth Ideal - Shardplate manifestation
-            print(f"   🛡️ {character.name} can now manifest Shardplate!")
+            logger.debug(f"   🛡️ {character.name} can now manifest Shardplate!")
             if character.investiture_points:
                 character.investiture_points["maximum"] += 7
                 character.investiture_points["current"] = character.investiture_points["maximum"]
-                print(f"   🌟 Investiture increased: {character.investiture_points}")
+                logger.debug(f"   🌟 Investiture increased: {character.investiture_points}")
     
     def can_advance_ideal(self, character_id: str) -> Dict[str, Any]:
         """Check if character can advance to next ideal"""
@@ -998,7 +1004,7 @@ class CharacterManager:
             character.equipment = []
         
         character.equipment.append(item_name)
-        print(f"🎒 Added {item_name} to {character.name}'s equipment")
+        logger.info(f"🎒 Added {item_name} to {character.name}'s equipment")
         return True
     
     def remove_equipment(self, character_id: str, item_name: str) -> bool:
@@ -1026,7 +1032,7 @@ class CharacterManager:
                 character.tool_proficiencies = []
             if proficiency_name not in character.tool_proficiencies:
                 character.tool_proficiencies.append(proficiency_name)
-                print(f"🔧 {character.name} gained tool proficiency: {proficiency_name}")
+                logger.info(f"🔧 {character.name} gained tool proficiency: {proficiency_name}")
                 return True
         elif proficiency_type == "armor":
             if not character.armor_proficiencies:
@@ -1135,7 +1141,7 @@ class CharacterManager:
         }
         
         character.action_history.append(action_entry)
-        print(f"📝 Logged action for {character.name}: {action_description}")
+        logger.info(f"📝 Logged action for {character.name}: {action_description}")
         return True
     
     def get_character_action_history(self, character_id: str, limit: int = None) -> List[Dict[str, Any]]:
@@ -1265,12 +1271,12 @@ if __name__ == "__main__":
     
     # Test skill data retrieval
     athletics_data = manager.get_skill_data(char_id, "athletics")
-    print(f"Athletics skill data: {athletics_data}")
+    logger.info(f"Athletics skill data: {athletics_data}")
     
     # Test passive score
     passive_perception = manager.get_passive_score(char_id, "perception")
-    print(f"Passive Perception: {passive_perception}")
+    logger.info(f"Passive Perception: {passive_perception}")
     
     # Test character summary
     summary = manager.get_character_summary(char_id)
-    print(f"Character summary: {summary}")
+    logger.info(f"Character summary: {summary}")

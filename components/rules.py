@@ -7,6 +7,12 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 class CheckType(Enum):
     """Types of checks that can be required"""
     SKILL = "skill"
@@ -372,11 +378,11 @@ if __name__ == "__main__":
     }
     
     result = enforcer.determine_check_needed(check_request)
-    print(f"Check determination: {result}")
+    logger.info(f"Check determination: {result}")
     
     # Test validation
     validation = enforcer.validate_check_request(check_request)
-    print(f"Validation result: {validation}")
+    logger.info(f"Validation result: {validation}")
     
     # Test automatic outcomes
     trivial_request = {
@@ -387,4 +393,4 @@ if __name__ == "__main__":
     }
     
     trivial_result = enforcer.determine_check_needed(trivial_request)
-    print(f"Trivial check result: {trivial_result}")
+    logger.info(f"Trivial check result: {trivial_result}")

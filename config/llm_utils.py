@@ -6,6 +6,12 @@ Provides utility components for LLM integration
 import os
 from typing import List, Dict, Any, Optional
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 # Import Haystack components if available
 try:
     from haystack import component
@@ -201,13 +207,13 @@ class GeminiChatGenerator:
             # Convert messages to Gemini format
             gemini_messages = self._convert_messages_to_gemini(messages)
 
-            print(f"🔧 Gemini Messages: {len(gemini_messages)} messages")
+            logger.debug(f"🔧 Gemini Messages: {len(gemini_messages)} messages")
 
             # Convert Haystack tools to Gemini function declarations
             gemini_tools = None
             if tools:
                 gemini_tools = self._convert_tools_to_gemini(tools)
-                print(f"🔧 Gemini Tools: {len(gemini_tools)} tools")
+                logger.debug(f"🔧 Gemini Tools: {len(gemini_tools)} tools")
 
             # Generate content with or without tools
             if gemini_tools and gemini_messages:
@@ -237,7 +243,7 @@ class GeminiChatGenerator:
                 prompt = self._convert_messages_to_prompt(messages)
                 response = self.model.generate_content(prompt)
 
-            print(f"🔧 Response: {response}")
+            logger.debug(f"🔧 Response: {response}")
 
             # Check if response contains function calls
             function_calls = []
@@ -254,7 +260,7 @@ class GeminiChatGenerator:
                                 "name": fc.name,
                                 "arguments": dict(fc.args) if hasattr(fc, "args") else {}
                             })
-                            print(f"🔧 FUNCTION CALL: {fc.name}({dict(fc.args) if hasattr(fc, 'args') else {}})")
+                            logger.debug(f"🔧 FUNCTION CALL: {fc.name}({dict(fc.args) if hasattr(fc, 'args') else {}})")
                         # Check for text
                         elif hasattr(part, "text") and part.text:
                             text_response += part.text
@@ -276,7 +282,7 @@ class GeminiChatGenerator:
                     text="",
                     tool_calls=tool_call_objects  # Pass tool_calls directly
                 )
-                print(f"🔧 Returning {len(function_calls)} function calls via ToolCall objects")
+                logger.debug(f"🔧 Returning {len(function_calls)} function calls via ToolCall objects")
                 return {"replies": [response_msg]}
 
             # Otherwise return text response
@@ -292,7 +298,7 @@ class GeminiChatGenerator:
                 
         except Exception as e:
             error_message = f"Gemini API error: {str(e)}"
-            print(f"❌ GEMINI ERROR: {error_message}")
+            logger.error(f"GEMINI ERROR: {error_message}")
             return {"replies": [ChatMessage.from_assistant(error_message)]}
     
     def _convert_messages_to_prompt(self, messages: List[ChatMessage]) -> str:
@@ -377,11 +383,11 @@ class GeminiChatGenerator:
 
                 func_declaration["parameters"] = gemini_parameters
             
-            print(f"🔧 CONVERTED TOOL: {name} -> {func_declaration}")
+            logger.debug(f"🔧 CONVERTED TOOL: {name} -> {func_declaration}")
             return func_declaration
 
         except Exception as e:
-            print(f"❌ Failed to convert tool {getattr(tool, 'name', 'unknown')}: {e}")
+            logger.error(f"Failed to convert tool {getattr(tool, 'name', 'unknown')}: {e}")
             return None
 
     def _convert_tools_to_gemini(self, tools: List[Any]) -> List[Any]:
@@ -415,11 +421,11 @@ class GeminiChatGenerator:
 
             # Wrap in Gemini Tool format
             gemini_tool = GeminiTool(function_declarations=function_declarations)
-            print(f"🔧 Created Gemini Tool with {len(function_declarations)} functions")
+            logger.debug(f"🔧 Created Gemini Tool with {len(function_declarations)} functions")
             return [gemini_tool]
 
         except Exception as e:
-            print(f"❌ Failed to convert tools to Gemini format: {e}")
+            logger.error(f"Failed to convert tools to Gemini format: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -470,7 +476,7 @@ class GeminiChatGenerator:
             return gemini_messages
 
         except Exception as e:
-            print(f"❌ Failed to convert messages to Gemini format: {e}")
+            logger.error(f"Failed to convert messages to Gemini format: {e}")
             return []
 
 
@@ -505,23 +511,23 @@ if __name__ == "__main__":
     converter = StringToChatMessages()
     result = converter.run("Test prompt for conversion")
     
-    print(f"String to Messages conversion:")
-    print(f"  Input: 'Test prompt for conversion'")
-    print(f"  Output: {len(result['messages'])} messages")
-    print(f"  First message: {result['messages'][0].content}")
+    logger.info(f"String to Messages conversion:")
+    logger.debug(f"  Input: 'Test prompt for conversion'")
+    logger.debug(f"  Output: {len(result['messages'])} messages")
+    logger.debug(f"  First message: {result['messages'][0].content}")
     
     # Test ChatMessagesToString
     string_converter = ChatMessagesToString()
     back_to_string = string_converter.run(result['messages'])
     
-    print(f"\nMessages to String conversion:")
-    print(f"  Output: '{back_to_string['text']}'")
+    logger.info(f"\nMessages to String conversion:")
+    logger.debug(f"  Output: '{back_to_string['text']}'")
     
     # Test MessageFormatter
     formatter = MessageFormatter("gemini")
     formatted_result = formatter.run(result['messages'])
     
-    print(f"\nMessage formatting:")
-    print(f"  Formatted {len(formatted_result['formatted_messages'])} messages for gemini")
+    logger.info(f"\nMessage formatting:")
+    logger.debug(f"  Formatted {len(formatted_result['formatted_messages'])} messages for gemini")
     
     print("\n✅ All utility components working correctly!")

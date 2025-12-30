@@ -10,6 +10,12 @@ from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 class AdvantageState(Enum):
     NORMAL = "normal"
     ADVANTAGE = "advantage"
@@ -282,7 +288,7 @@ class DiceRoller:
             self.raw_roll_log = [r for r in self.raw_roll_log if r.timestamp > cutoff_time]
             
             cleared_count = old_count - len(self.roll_history)
-            print(f"🧹 Cleared {cleared_count} old roll records")
+            logger.info(f"🧹 Cleared {cleared_count} old roll records")
 
 
 # Factory function for easy integration
@@ -299,16 +305,16 @@ if __name__ == "__main__":
     # Test skill roll with advantage
     advantage_state = {"final_state": "advantage"}
     result = roller.skill_roll("investigation", 5, advantage_state, "test-correlation-1")
-    print(f"Skill roll result: {result}")
+    logger.info(f"Skill roll result: {result}")
     
     # Test attack roll
     attack_result = roller.attack_roll(7, "normal", "test-correlation-2")
-    print(f"Attack roll: {attack_result}")
+    logger.info(f"Attack roll: {attack_result}")
     
     # Test damage roll
     damage_result = roller.damage_roll("2d6+3", 0, "test-correlation-3")
-    print(f"Damage roll: {damage_result}")
+    logger.info(f"Damage roll: {damage_result}")
     
     # Show statistics
     stats = roller.get_roll_statistics()
-    print(f"Roll statistics: {stats}")
+    logger.info(f"Roll statistics: {stats}")

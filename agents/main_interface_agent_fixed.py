@@ -22,13 +22,19 @@ from haystack.tools import Tool
 from config.llm_config import get_global_config_manager
 from components.shared_contract import new_dto
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 # Debug control
 DEBUG_FIXED_AGENT = True
 
 def _log_event(dto: Dict[str, Any], event: str, data: Dict[str, Any]):
     """Log events for debugging"""
     if DEBUG_FIXED_AGENT:
-        print(f"🔧 FIXED_AGENT [{event}]: {data}")
+        logger.debug(f"🔧 FIXED_AGENT [{event}]: {data}")
         if "debug" not in dto:
             dto["debug"] = {}
         if "events" not in dto["debug"]:
@@ -113,7 +119,7 @@ def record_intent_analysis(
         Dict containing formatted intent_data for state storage
     """
     
-    print("record_intent_analysis called")
+    logger.debug("record_intent_analysis called")
     # Parse filters string into list
     filters_list = [f.strip() for f in rag_filters.split(",") if f.strip()] if rag_filters else []
     
@@ -136,7 +142,7 @@ def record_intent_analysis(
         }
     }
     
-    print(f"🔧 RECORDED INTENT: {intent_data}")
+    logger.debug(f"🔧 RECORDED INTENT: {intent_data}")
     
     return intent_data
 
@@ -153,10 +159,10 @@ def classify_player_intent(player_input: str, rag_context: str = None, intent_da
         Complete routing DTO with decision data
     """
     
-    print(f"🔧 TOOL CALLED: classify_player_intent")
-    print(f"   Input: {player_input}")
-    print(f"   RAG Context: {rag_context}")
-    print(f"   Intent data: {intent_data}")
+    logger.debug(f"🔧 TOOL CALLED: classify_player_intent")
+    logger.debug(f"   Input: {player_input}")
+    logger.debug(f"   RAG Context: {rag_context}")
+    logger.debug(f"   Intent data: {intent_data}")
     
     # Use provided parameters or defaults
     if rag_context is None:
@@ -197,14 +203,14 @@ def classify_player_intent(player_input: str, rag_context: str = None, intent_da
     dto["rag"]["rag_context"] = rag_context or "No context provided"
 
     # Debug output
-    print(f"🔧 INTENT CLASSIFICATION DEBUG:")
-    print(f"   Input: {player_input}")
-    print(f"   Primary: {primary}")
-    print(f"   Mapped Type: {dto['type']}")
-    print(f"   Confidence: {conf}")
-    print(f"   Action Verb: {intent_data.get('action_verb', 'N/A')}")
-    print(f"   Target: {intent_data.get('target', 'N/A')}")
-    print(f"   Rationale: {intent_data.get('rationale', 'N/A')}")
+    logger.debug(f"🔧 INTENT CLASSIFICATION DEBUG:")
+    logger.debug(f"   Input: {player_input}")
+    logger.debug(f"   Primary: {primary}")
+    logger.debug(f"   Mapped Type: {dto['type']}")
+    logger.debug(f"   Confidence: {conf}")
+    logger.debug(f"   Action Verb: {intent_data.get('action_verb', 'N/A')}")
+    logger.debug(f"   Target: {intent_data.get('target', 'N/A')}")
+    logger.debug(f"   Rationale: {intent_data.get('rationale', 'N/A')}")
 
     _log_event(dto, "intent", {"type": dto["type"], "conf": conf})
 
@@ -213,8 +219,8 @@ def classify_player_intent(player_input: str, rag_context: str = None, intent_da
     
     _log_event(dto, "route", {"route": route})
     
-    print(f"🔧 TOOL RESULT: {dto.get('route', 'unknown')} (confidence: {dto.get('confidence', 0)})")
-    print(f"   Classification: {dto.get('type', 'unknown')}")
+    logger.debug(f"🔧 TOOL RESULT: {dto.get('route', 'unknown')} (confidence: {dto.get('confidence', 0)})")
+    logger.debug(f"   Classification: {dto.get('type', 'unknown')}")
 
     # Return the RequestDTO wrapped in a dict for Haystack state management
     return {"interface_result": dto}

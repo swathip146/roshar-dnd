@@ -18,16 +18,22 @@ from haystack import component
 from config.llm_config import get_global_config_manager
 from components.shared_contract import Scenario, Choice, RAGBlock, validate_scenario, repair_scenario, minimal_fallback
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 def debug_scenario_print(category: str, message: str, data: Any = None):
     """Centralized debug printing for scenario agent"""
     if DEBUG_SCENARIO_AGENT:
         timestamp = time.strftime('%H:%M:%S')
-        print(f"🐛 SCENARIO [{timestamp}] {category}: {message}")
+        logger.debug(f"🐛 SCENARIO [{timestamp}] {category}: {message}")
         if data is not None and DEBUG_SCENARIO_TOOLS:
             if isinstance(data, dict) and len(str(data)) > 300:
-                print(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                logger.debug(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
             else:
-                print(f"    📊 Data: {data}")
+                logger.debug(f"    📊 Data: {data}")
 
 
 def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
@@ -152,8 +158,8 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
         "quest_context": quest_context,
         "rag_snippets_count": len(consolidated_rag)
     })
-    print(f"Narrative context: {narrative_context}\n")
-    print(f"Quest context: {quest_context}\n")
+    logger.debug(f"Narrative context: {narrative_context}\n")
+    logger.debug(f"Quest context: {quest_context}\n")
     
     # Build comprehensive prompt using directly accessed context (same format, different source)
     prompt = f"""Generate a D&D scenario using direct engine access context system:
@@ -357,8 +363,8 @@ class ScenarioValidatorComponent:
             
             # DEBUG: Print the actual LLM response
             # debug_scenario_print("COMPONENT", "📝 LLM Response Text:")
-            # print(f"🔍 RAW LLM OUTPUT:\n{response_text}")
-            # print(f"🔍 Response Length: {len(response_text) if response_text else 0}")
+            # logger.info(f"🔍 RAW LLM OUTPUT:\n{response_text}")
+            # logger.info(f"🔍 Response Length: {len(response_text) if response_text else 0}")
             
             # Try to parse JSON from response with improved error handling
             if response_text:
@@ -404,7 +410,7 @@ class ScenarioValidatorComponent:
                     
                     # DEBUG: Print extracted JSON string
                     # debug_scenario_print("COMPONENT", f"📝 Extracted JSON String:")
-                    # print(f"🔍 EXTRACTED JSON:\n{json_str}")
+                    # logger.info(f"🔍 EXTRACTED JSON:\n{json_str}")
                     
                     # Parse the extracted JSON
                     if json_str:
@@ -417,7 +423,7 @@ class ScenarioValidatorComponent:
                         
                         # DEBUG: Print cleaned JSON
                         # debug_scenario_print("COMPONENT", f"📝 Cleaned JSON String:")
-                        # print(f"🔍 CLEANED JSON:\n{json_str}")
+                        # logger.info(f"🔍 CLEANED JSON:\n{json_str}")
                         
                         scenario_data = json.loads(json_str)
                         debug_scenario_print("COMPONENT", "✅ Successfully parsed scenario JSON")
@@ -667,7 +673,7 @@ if __name__ == "__main__":
         print("=== Scenario Generator Agent Test ===")
         print("Messages:")
         for msg in response["messages"]:
-            print(f"{msg.role}: {msg.text}")
+            logger.info(f"{msg.role}: {msg.text}")
         
         # Check if scenario structure was created
         if hasattr(response, 'get') and response.get("scenario_structure"):
@@ -675,4 +681,4 @@ if __name__ == "__main__":
             print(json.dumps(response["scenario_structure"], indent=2))
         
     except Exception as e:
-        print(f"❌ Scenario Agent test failed: {e}")
+        logger.error(f"Scenario Agent test failed: {e}")

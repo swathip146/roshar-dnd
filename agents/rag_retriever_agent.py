@@ -19,18 +19,24 @@ from storage.simple_document_store import SimpleDocumentStore
 from components.shared_contract import new_dto
 from haystack import component
 
+from config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
 DEFAULT_TOP_K = 5
 
 def debug_rag_print(category: str, message: str, data: Any = None):
     """Centralized debug printing for RAG agent"""
     if DEBUG_RAG_AGENT:
         timestamp = time.strftime('%H:%M:%S')
-        print(f"🐛 RAG [{timestamp}] {category}: {message}")
+        logger.debug(f"🐛 RAG [{timestamp}] {category}: {message}")
         if data is not None and DEBUG_RETRIEVAL:
             if isinstance(data, dict) and len(str(data)) > 300:
-                print(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                logger.debug(f"    📊 Data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
             else:
-                print(f"    📊 Data: {data}")
+                logger.debug(f"    📊 Data: {data}")
 
 
 def create_retrieve_documents_tool(document_store: Optional[SimpleDocumentStore]) -> Tool:
@@ -86,7 +92,7 @@ def create_retrieve_documents_tool(document_store: Optional[SimpleDocumentStore]
                 if filters:
                     debug_rag_print("TOOL", f"📊 Applying contextual filters", filters)
                     # Log filter usage
-                    print(f"📊 RAG Retrieval: Applying contextual filters: {filters}")
+                    logger.info(f"📊 RAG Retrieval: Applying contextual filters: {filters}")
                     
                     # Handle both list and dict filter formats
                     categories = []
@@ -263,9 +269,9 @@ def create_rag_retriever_agent_simplified(chat_generator: Optional[Any] = None,
         generator = chat_generator
     
     if document_store is not None:
-        print(f"📚 Simplified RAG Agent: Using existing document store for collection '{document_store.collection_name}'")
+        logger.info(f"📚 Simplified RAG Agent: Using existing document store for collection '{document_store.collection_name}'")
     else:
-        print("⚠️ Simplified RAG Agent: No document store provided - will use fallback responses")
+        logger.warning("Simplified RAG Agent: No document store provided - will use fallback responses")
     
     # Create retrieve_documents tool with document store bound via closure
     retrieve_documents_tool = create_retrieve_documents_tool(document_store)
@@ -383,7 +389,7 @@ if __name__ == "__main__":
     ]
     
     for i, test_case in enumerate(test_cases):
-        print(f"\n=== RAG Agent Test {i+1} ===")
+        logger.info(f"\n=== RAG Agent Test {i+1} ===")
         
         user_message = f"""
         Query: {test_case['query']}
@@ -398,12 +404,12 @@ if __name__ == "__main__":
             
             print("Messages:")
             for msg in response["messages"]:
-                print(f"{msg.role}: {msg.text}")
+                logger.info(f"{msg.role}: {msg.text}")
             
             # Check for tool results
             for key, value in response.items():
                 if key not in ["messages"] and value:
-                    print(f"{key}: {value}")
+                    logger.info(f"{key}: {value}")
                     
         except Exception as e:
-            print(f"❌ RAG Agent test {i+1} failed: {e}")
+            logger.error(f"RAG Agent test {i+1} failed: {e}")
