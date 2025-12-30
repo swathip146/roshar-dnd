@@ -66,6 +66,21 @@ This comprehensive document covers:
 
 ---
 
+## 📊 Test Reports
+
+**Location**: `reports/`
+
+- **[TEST_REPORT_INTEGRATION.md](reports/TEST_REPORT_INTEGRATION.md)** - Comprehensive integration test report
+  - Overall rating: 8.5/10 (Production Ready)
+  - 13 features tested (11 working, 2 partial)
+  - Narrative consistency analysis
+  - State tracking verification
+  - Gameplay quality assessment
+  - Silent fails & fallback detection
+  - Recommendations for improvements
+
+---
+
 ## 🏛️ Detailed Architecture
 
 **Location**: `arch/`
@@ -110,6 +125,7 @@ See **[legacy/README.md](legacy/README.md)** for complete details on what was mo
 - **Learn about components** → Browse [analysis/](analysis/) folder
 - **Understand workflows** → Check [workflows/](workflows/) folder
 - **Review implementation plans** → See [architecture/](architecture/) folder
+- **View test reports** → Check [reports/TEST_REPORT_INTEGRATION.md](reports/TEST_REPORT_INTEGRATION.md)
 - **Debug or log issues** → Check [guides/LOGGING_IMPLEMENTATION.md](guides/LOGGING_IMPLEMENTATION.md)
 - **See historical context** → Browse [legacy/](legacy/) folder
 
@@ -156,6 +172,8 @@ docs/
 ├── workflows/                        # Workflow documentation
 │   ├── HAYSTACK_INTEGRATION_README.md
 │   └── RAG_FIRST_WORKFLOW_DOCUMENTATION.md
+├── reports/                          # Test reports
+│   └── TEST_REPORT_INTEGRATION.md
 ├── arch/                            # Detailed architecture docs
 │   └── [7 detailed architecture files]
 └── legacy/                          # Historical documentation
@@ -176,5 +194,5 @@ All documentation follows these standards:
 ---
 
 *Last updated: 2025-12-29*
-*Total Active Documents: 20*
+*Total Active Documents: 21*
 *Legacy Documents: 42*
