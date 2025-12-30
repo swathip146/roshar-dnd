@@ -183,6 +183,7 @@ config/secrets.*
 *.parquet
 data/raw/
 data/processed/
+parsed_data/
 
 # Data
 data/rules/
