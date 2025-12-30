@@ -25,8 +25,7 @@ except (ImportError, TypeError, AttributeError) as e:
     _OPENAI_IMPORT_ERROR = str(e)
     
 try:
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -44,37 +43,40 @@ try:
         GEMINI_CHAT_GENERATOR_AVAILABLE = False
         _GEMINI_GENERATOR_IMPORT_ERROR = str(e)
         logger.info(f"GEMINI_CHAT_GENERATOR_AVAILABLE: {GEMINI_CHAT_GENERATOR_AVAILABLE} {_GEMINI_GENERATOR_IMPORT_ERROR} Using fallback GeminiChatGenerator")
-
-        # Create a simple fallback GeminiChatGenerator for new SDK
+        
+        # Create a simple fallback GeminiChatGenerator
         class GeminiChatGenerator:
-            """Fallback Gemini generator when full Haystack integration isn't available (new SDK)"""
-
+            """Fallback Gemini generator when full Haystack integration isn't available"""
+            
             def __init__(self, model_name: str, generation_config: dict = None):
                 if not GEMINI_AVAILABLE:
                     logger.info(f"GEMINI_AVAILABLE: {GEMINI_AVAILABLE}")
-                    raise ImportError("google-genai package not available")
-
+                    raise ImportError("google-generativeai package not available")
+                
                 self.model_name = model_name
                 self.generation_config = generation_config or {}
-
-                # Initialize client with new SDK
+                
+                # Configure genai if not already configured
                 api_key = os.getenv("GEMINI_API_KEY")
-                if not api_key:
-                    raise ValueError("GEMINI_API_KEY environment variable not set")
-
-                self.client = genai.Client(api_key=api_key)
-
+                if api_key:
+                    genai.configure(api_key=api_key)
+                
+                self.model = genai.GenerativeModel(
+                    model_name=model_name,
+                    generation_config=generation_config
+                )
+                
                 # Add Haystack component metadata for compatibility
                 self.__haystack_input__ = {
-                    'messages': {'type': 'List[ChatMessage]'},
+                    'messages': {'type': 'List[ChatMessage]'}, 
                     'tools': {'type': 'Optional[List[Any]]', 'default': None}
                 }
                 self.__haystack_output__ = {
                     'replies': {'type': 'List[ChatMessage]'}
                 }
-
+            
             def run(self, messages, tools=None):
-                """Simple run method for basic functionality using new SDK"""
+                """Simple run method for basic functionality"""
                 # Convert messages to prompt
                 if hasattr(messages[0], 'text'):
                     prompt = messages[0].text
@@ -82,28 +84,18 @@ try:
                     prompt = messages[0].content
                 else:
                     prompt = str(messages[0])
-
-                # Build config
-                config = types.GenerateContentConfig(
-                    temperature=self.generation_config.get('temperature', 0.7),
-                    max_output_tokens=self.generation_config.get('max_output_tokens', 2000)
-                )
-
-                # Generate response using new SDK
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=config
-                )
-
+                
+                # Generate response
+                response = self.model.generate_content(prompt)
+                
                 # Return in expected format
                 class SimpleMessage:
                     def __init__(self, content):
                         self.text = content  # Primary property
                         self.content = content  # Backward compatibility
-
+                
                 return {"replies": [SimpleMessage(response.text)]}
-
+        
 except (ImportError, TypeError, AttributeError) as e:
     UTILS_AVAILABLE = False
     GEMINI_CHAT_GENERATOR_AVAILABLE = False
@@ -154,12 +146,12 @@ class LLMConfigManager:
         # Prefer Gemini, fallback to OpenAI
         if GEMINI_AVAILABLE:
             default_provider = LLMProvider.GEMINI
-            default_model = "gemini-2.5-flash"
+            default_model = "gemini-2.0-flash"
         elif OPENAI_AVAILABLE:
             default_provider = LLMProvider.OPENAI
             default_model = "gpt-4o-mini"
         else:
-            raise ImportError("No supported LLM providers available. Install google-genai or openai package.")
+            raise ImportError("No supported LLM providers available. Install google-generativeai or openai package.")
         
         # Create default config for each agent
         default_llm_config = LLMConfig(
@@ -211,7 +203,7 @@ class LLMConfigManager:
             if config.provider == LLMProvider.OPENAI and not OPENAI_AVAILABLE:
                 raise ImportError(f"OpenAI requested but openai package not available")
             elif config.provider == LLMProvider.GEMINI and not GEMINI_AVAILABLE:
-                raise ImportError(f"Gemini requested but google-genai package not available")
+                raise ImportError(f"Gemini requested but google-generativeai package not available")
     
     def create_generator(self, agent_name: str) -> Any:
         """Create LLM generator for the specified agent"""
@@ -259,56 +251,56 @@ class LLMConfigManager:
         return OpenAIChatGenerator(**params)
     
     def _create_gemini_generator(self, config: LLMConfig) -> Any:
-        """Create Gemini chat generator with proper configuration (new SDK)"""
+        """Create Gemini chat generator with proper configuration"""
         if not GEMINI_AVAILABLE:
-            raise ImportError("Gemini requested but google-genai package not available")
-
-        # Validate API key is available
+            raise ImportError("Gemini requested but google-generativeai package not available")
+        
+        # Configure the Gemini API with the API key
         api_key = config.api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set or api_key not provided")
-
+        
+        genai.configure(api_key=api_key)
+        
         # Create generation config
         generation_config = {}
         if config.temperature is not None:
             generation_config["temperature"] = config.temperature
         if config.max_tokens:
             generation_config["max_output_tokens"] = config.max_tokens
-
+        
         # Add extra parameters
         generation_config.update(config.extra_params)
-
+        
         # Try to use official Haystack Google GenAI integration (v2.17+) if available
         try:
             from haystack_integrations.components.generators.google_genai import GoogleGenAIChatGenerator
             logger.debug(f"🔧 Using official GoogleGenAIChatGenerator for model: {config.model}")
-
+            
             # Create official Haystack Gemini generator (handles tools/function-calling)
             generator = GoogleGenAIChatGenerator(
                 model=config.model
                 # Note: generation_config is not a valid parameter for this generator
                 # The official GoogleGenAIChatGenerator uses different parameter names
             )
-
+            
             logger.info(f"✅ Successfully created GoogleGenAIChatGenerator")
             return generator
         except ImportError:
             # Fall back to custom GeminiChatGenerator from llm_utils
             logger.warning(f"Official haystack_integrations not available, using custom GeminiChatGenerator")
-
+            
             if not UTILS_AVAILABLE:
                 raise ImportError("Neither haystack_integrations nor config.llm_utils available for Gemini generator")
-
+            
             from config.llm_utils import GeminiChatGenerator
-
+            
             logger.debug(f"🔧 Using custom GeminiChatGenerator for model: {config.model}")
-
-            # GeminiChatGenerator handles client initialization internally with new SDK
             generator = GeminiChatGenerator(
                 model_name=config.model,
                 generation_config=generation_config
             )
-
+            
             logger.info(f"✅ Successfully created custom GeminiChatGenerator")
             return generator
     
@@ -332,7 +324,7 @@ def load_config_from_environment() -> AgentLLMConfig:
         # Determine default provider based on availability
         if GEMINI_AVAILABLE:
             default_provider = "gemini"  
-            default_model = "gemini-2.5-flash"
+            default_model = "gemini-2.0-flash"
         else:
             default_provider = "openai"
             default_model = "gpt-4o-mini"
@@ -365,10 +357,10 @@ def load_config_from_environment() -> AgentLLMConfig:
 
 
 # Factory functions for easy configuration
-def create_gemini_config(model: str = "gemini-2.5-flash") -> AgentLLMConfig:
+def create_gemini_config(model: str = "gemini-2.0-flash") -> AgentLLMConfig:
     """Create configuration using Gemini for all agents"""
     if not GEMINI_AVAILABLE:
-        raise ImportError("Gemini not available. Install google-genai.")
+        raise ImportError("Gemini not available. Install google-generativeai.")
     
     base_config = LLMConfig(
         provider=LLMProvider.GEMINI,
@@ -388,12 +380,12 @@ def create_mixed_config() -> AgentLLMConfig:
     """Create a mixed configuration with different providers for different agents"""
     # Choose providers based on availability
     primary_provider = LLMProvider.GEMINI if GEMINI_AVAILABLE else LLMProvider.OPENAI
-    primary_model = "gemini-2.5-flash" if GEMINI_AVAILABLE else "gpt-4o-mini"
+    primary_model = "gemini-2.0-flash" if GEMINI_AVAILABLE else "gpt-4o-mini"
     
     # Use different provider for interface if possible
     interface_provider = (LLMProvider.OPENAI if OPENAI_AVAILABLE else 
                          (LLMProvider.GEMINI if GEMINI_AVAILABLE else primary_provider))
-    interface_model = "gpt-4o-mini" if OPENAI_AVAILABLE else ("gemini-2.5-flash" if GEMINI_AVAILABLE else primary_model)
+    interface_model = "gpt-4o-mini" if OPENAI_AVAILABLE else ("gemini-2.0-flash" if GEMINI_AVAILABLE else primary_model)
     
     return AgentLLMConfig(
         scenario_generator=LLMConfig(
