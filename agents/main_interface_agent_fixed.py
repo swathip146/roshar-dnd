@@ -349,8 +349,7 @@ WORKFLOW:
 1. Analyze the player input and current game context for intent classification
 2. Extract key information: action verb, arguments, questions, target
 3. CRITICALLY EVALUATE: Does the current game context and quest context provide sufficient information, or would additional RAG context genuinely help?
-4. STEP 1: Call record_intent_analysis with your analysis
-5. STEP 2: Call classify_player_intent to process the recorded analysis
+4. Call record_intent_analysis with your analysis
 
 INTENT CATEGORIES:
     - rules_lookup: Questions about game mechanics, spells, damage, stats, rules
@@ -427,7 +426,6 @@ STEP 1: record_intent_analysis(
     rag_reasoning="Current location context sufficient for describing what player sees"
 )
 
-Always do BOTH steps in order.
 """
 
     agent = Agent(
