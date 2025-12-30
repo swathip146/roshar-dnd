@@ -3,6 +3,12 @@
 
 cd "$(dirname "$0")"
 
+# Load environment variables from .env file
+if [ -f ".env" ]; then
+    echo "✅ Loading environment variables from .env..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
 # Check if virtual environment exists
 if [ -d ".venv" ]; then
     echo "✅ Activating virtual environment..."

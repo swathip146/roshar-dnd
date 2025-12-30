@@ -15,19 +15,17 @@ from .rules import RulesEnforcer
 
 # Phase 1: New Haystack components
 from .session_manager import SessionManager
-from .inventory_manager import InventoryManager
 
 __all__ = [
     # Core components
     'CharacterManager',
-    'DiceRoller', 
+    'DiceRoller',
     'GameEngine',
     'PolicyEngine',
     'RulesEnforcer',
-    
+
     # Phase 1: New components
     'SessionManager',
-    'InventoryManager'
 ]
 
 # Version info for Phase 1 completion

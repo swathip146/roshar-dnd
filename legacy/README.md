@@ -16,8 +16,6 @@ This directory contains code that has been superseded or is no longer used by th
 - `components/haystack_native/` - Legacy Haystack components that were replaced
 
 ### Tier 3: Unintegrated Components
-- `components/dice.py` - Dice roller that was never integrated
-- `components/rules.py` - Rules engine that was never integrated
 - `components/inventory_manager.py` - Inventory system that was never implemented
 
 ### Tier 4: Integration/Migration Code
@@ -31,9 +29,9 @@ This directory contains code that has been superseded or is no longer used by th
 - `debug/` - Old test and debug scripts
 - `tests/` - Deprecated test files
 
-## Active System (17 files)
+## Active System (19 files)
 
-The current working D&D game uses only 17 core files:
+The current working D&D game uses only 19 core files:
 
 **Entry Point:**
 - `haystack_dnd_game.py`
@@ -46,6 +44,8 @@ The current working D&D game uses only 17 core files:
 - `components/policy.py`
 - `components/campaign_config.py`
 - `components/shared_contract.py`
+- `components/dice.py`
+- `components/rules.py`
 
 **Configuration:**
 - `config/llm_config.py`
