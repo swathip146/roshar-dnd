@@ -5,7 +5,17 @@ Combines PDF and text processing with Qdrant Vector Storage
 
 # Set tokenizers parallelism to avoid fork warnings - MUST be set before any imports
 import os
+import sys
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Add parent directory to path so we can import from generators package
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import centralized logging configuration
+from config.logging_config import get_logger
+
+# Initialize logger using centralized config (logs to file + console)
+logger = get_logger(__name__)
 
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -15,8 +25,13 @@ from haystack.components.writers import DocumentWriter
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 
-from haystack.components.converters.pypdf import PyPDFToDocument
-from haystack.components.converters import TextFileToDocument
+# Import Docling converters (new implementation)
+from generators.batch_docling_config import BatchDoclingConfig, load_batch_config
+from generators.docling_converter import (
+    convert_pdf_to_documents_docling,
+    convert_text_to_documents_docling,
+    convert_image_to_documents_docling
+)
 
 
 def clear_qdrant_collection(collection_name: str, storage_path: str = "./qdrant_storage"):
@@ -28,13 +43,13 @@ def clear_qdrant_collection(collection_name: str, storage_path: str = "./qdrant_
     
     if collection_path.exists():
         shutil.rmtree(collection_path)
-        print(f"Cleared local Qdrant collection: {collection_name}")
+        logger.info(f"Cleared local Qdrant collection: {collection_name}")
     else:
-        print(f"Collection {collection_name} does not exist at {storage_path}")
+        logger.info(f"Collection {collection_name} does not exist at {storage_path}")
 
 
 def setup_qdrant_store(collection_name: str = "dnd_documents",
-                      embedding_dim: int = 384,
+                      embedding_dim: int = 1024,
                       storage_path: str = "./qdrant_storage",
                       clear_existing: bool = False) -> QdrantDocumentStore:
     """Set up local Qdrant vector store for document storage"""
@@ -51,82 +66,14 @@ def setup_qdrant_store(collection_name: str = "dnd_documents",
         embedding_dim=embedding_dim
     )
     
-    print(f"Initialized local Qdrant collection: {collection_name}")
+    logger.info(f"Initialized local Qdrant collection: {collection_name}")
     return document_store
 
 
-def convert_pdf_to_documents(pdf_path: str, folder_tags: List[str],
-                           chunk_size: int = 800,
-                           chunk_overlap: int = 100) -> List[Document]:
-    """Convert PDF to Haystack documents with chunking"""
-    # Initialize PDF converter
-    converter = PyPDFToDocument()
-    
-    # Convert PDF to documents
-    result = converter.run(sources=[Path(pdf_path)])
-    documents = result["documents"]
-    
-    # Initialize document splitter for chunking
-    splitter = DocumentSplitter(
-        split_by="word",
-        split_length=chunk_size,
-        split_overlap=chunk_overlap
-    )
-    
-    # Split documents into chunks
-    split_result = splitter.run(documents=documents)
-    chunked_documents = split_result["documents"]
-    
-    # Add metadata to all documents
-    for doc in chunked_documents:
-        if doc.meta is None:
-            doc.meta = {}
-        doc.meta.update({
-            "source_file": os.path.basename(pdf_path),
-            "folder_tags": folder_tags,
-            "document_tag": "/".join(folder_tags) if folder_tags else "root",
-            "file_type": "pdf"
-        })
-    
-    return chunked_documents
+# Old PDF converter removed - now using convert_pdf_to_documents_docling() from docling_converter module
 
 
-def convert_text_to_documents(text_path: str, folder_tags: List[str],
-                             chunk_size: int = 800,
-                             chunk_overlap: int = 100) -> List[Document]:
-    """Convert text file to Haystack documents with chunking"""
-    # Initialize text file converter
-    converter = TextFileToDocument()
-    
-    # Convert text file to documents
-    result = converter.run(sources=[Path(text_path)])
-    documents = result["documents"]
-    
-    # Initialize document splitter for chunking
-    splitter = DocumentSplitter(
-        split_by="word",
-        split_length=chunk_size,
-        split_overlap=chunk_overlap
-    )
-    
-    # Split documents into chunks
-    split_result = splitter.run(documents=documents)
-    chunked_documents = split_result["documents"]
-    
-    # Add metadata to all documents
-    file_extension = Path(text_path).suffix.lower()
-    for doc in chunked_documents:
-        if doc.meta is None:
-            doc.meta = {}
-        doc.meta.update({
-            "source_file": os.path.basename(text_path),
-            "folder_tags": folder_tags,
-            "document_tag": "/".join(folder_tags) if folder_tags else "root",
-            "file_type": "text",
-            "file_extension": file_extension
-        })
-    
-    return chunked_documents
+# Old text converter removed - now using convert_text_to_documents_docling() from docling_converter module
 
 
 def save_text_output(documents: List[Document], output_path: str):
@@ -146,9 +93,9 @@ def save_text_output(documents: List[Document], output_path: str):
 
 def store_in_qdrant(documents: List[Document], document_store: QdrantDocumentStore):
     """Store documents in Qdrant vector database with embeddings"""
-    # Initialize embedder
+    # Initialize embedder with BGE large model (1024-dim embeddings)
     embedder = SentenceTransformersDocumentEmbedder(
-        model="sentence-transformers/all-MiniLM-L6-v2",
+        model="BAAI/bge-large-en-v1.5",
         progress_bar=False
     )
     
@@ -169,7 +116,19 @@ def store_in_qdrant(documents: List[Document], document_store: QdrantDocumentSto
 def find_all_documents(root_folder, file_types=None):
     """Recursively find all document files in a folder and its subfolders"""
     if file_types is None:
-        file_types = ["*.pdf", "*.txt", "*.md"]
+        # Support PDFs, text files, markdown files, and image files
+        file_types = [
+            "*.pdf",
+            "*.txt",
+            "*.md",
+            "*.png",
+            "*.jpg",
+            "*.jpeg",
+            "*.gif",
+            "*.bmp",
+            "*.tiff",
+            "*.webp"
+        ]
     
     document_files = []
     root_path = Path(root_folder)
@@ -183,6 +142,85 @@ def find_all_documents(root_folder, file_types=None):
             document_files.append((str(doc_file), folder_tags, file_extension))
     
     return document_files
+
+
+def save_documents_to_parsed_data(
+    documents: List[Document],
+    source_file: str,
+    session_timestamp: str,
+    parsed_data_dir: str = "./parsed_data"
+) -> None:
+    """
+    Save extracted documents to parsed_data directory with organized structure.
+
+    Matches the directory structure used by enhanced parser system:
+    parsed_data/{file_stem}_{timestamp}/
+        ├── markdown/       # Markdown content files
+        ├── metadata/       # JSON metadata files
+        ├── image_files/    # Already extracted by docling_converter
+        └── tables/         # Already extracted by docling_table_utils
+
+    Args:
+        documents: List of Haystack documents to save
+        source_file: Original source file path
+        session_timestamp: Timestamp for this processing session (YYYYMMDD_HHMMSS)
+        parsed_data_dir: Base directory for parsed data
+    """
+    import json
+    from collections import defaultdict
+
+    # Get source file stem
+    file_stem = Path(source_file).stem
+
+    # Create session folder
+    session_folder = Path(parsed_data_dir) / f"{file_stem}_{session_timestamp}"
+    markdown_dir = session_folder / "markdown"
+    metadata_dir = session_folder / "metadata"
+
+    # Create directories
+    markdown_dir.mkdir(parents=True, exist_ok=True)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+
+    # Track document type counters
+    type_counters = defaultdict(int)
+
+    for doc in documents:
+        # Determine document type (fixed: use 'content_type' to match actual metadata)
+        doc_type = doc.meta.get('content_type', 'text')
+        type_counters[doc_type] += 1
+        index = type_counters[doc_type]
+
+        # Generate filename based on document type
+        page_number = doc.meta.get('page_number')
+        if page_number is not None and doc_type == 'text':
+            markdown_filename = f"{doc_type}_{index:03d}_page{page_number}.md"
+        elif doc_type == 'table':
+            table_idx = doc.meta.get('table_index', index)
+            markdown_filename = f"{doc_type}_{index:03d}_idx{table_idx}.md"
+        elif doc_type == 'image':
+            # Extract source file stem and image index for caption naming
+            source_file = doc.meta.get('source_file', 'unknown')
+            # Remove extension if present (e.g., "file.pdf" → "file")
+            source_stem = Path(source_file).stem if '.' in source_file else source_file
+            image_idx = doc.meta.get('image_index', index)
+            # Use pattern: {source_stem}_image_{idx}_caption.md
+            markdown_filename = f"{source_stem}_image_{image_idx}_caption.md"
+        else:
+            markdown_filename = f"{doc_type}_{index:03d}.md"
+
+        # Save markdown content
+        markdown_path = markdown_dir / markdown_filename
+        with open(markdown_path, 'w', encoding='utf-8') as f:
+            f.write(doc.content)
+
+        # Save metadata JSON
+        metadata_filename = markdown_filename.replace('.md', '_metadata.json')
+        metadata_path = metadata_dir / metadata_filename
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            # Use default=str to handle any non-serializable types
+            json.dump(doc.meta, f, indent=2, default=str)
+
+        logger.debug(f"  ✓ Saved {doc_type} document: {markdown_filename}")
 
 
 def find_all_pdfs(root_folder):
@@ -262,8 +300,18 @@ def get_user_inputs():
     return root_folder, use_qdrant, collection_name, clear_existing
 
 
-def process_all_documents(root_folder, use_qdrant=True, collection_name="dnd_documents", clear_existing=False):
+def process_all_documents(root_folder, use_qdrant=True, collection_name="dnd_documents", clear_existing=False, config_path=None):
     """Process all document files (PDFs, TXT, MD) in a folder and its subfolders"""
+
+    # Load Docling configuration
+    config = load_batch_config(config_path)
+    logger.info(f"Loaded Docling config: OCR={config.do_ocr}, Tables={config.do_table_structure}, Images={config.generate_picture_images}")
+
+    # Generate session timestamp once for this batch run
+    from datetime import datetime
+    session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger.info(f"Session timestamp: {session_timestamp}")
+
     # Find all document files
     document_files = find_all_documents(root_folder)
     
@@ -295,22 +343,40 @@ def process_all_documents(root_folder, use_qdrant=True, collection_name="dnd_doc
     
     all_documents = []
     successful_count = 0
-    
+
+    # Define supported image extensions
+    IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp'}
+
     # Process each document file
     for i, (doc_path, folder_tags, file_ext) in enumerate(document_files, 1):
         tag_display = "/".join(folder_tags) if folder_tags else "root"
         print(f"[{i}/{len(document_files)}] Processing: {os.path.basename(doc_path)} (tags: {tag_display})")
-        
+
         try:
             # Convert document to Haystack documents based on file type
             if file_ext == ".pdf":
-                documents = convert_pdf_to_documents(doc_path, folder_tags)
+                documents = convert_pdf_to_documents_docling(doc_path, folder_tags, config, session_timestamp)
             elif file_ext in [".txt", ".md"]:
-                documents = convert_text_to_documents(doc_path, folder_tags)
+                documents = convert_text_to_documents_docling(doc_path, folder_tags, config, session_timestamp)
+            elif file_ext in IMAGE_EXTENSIONS:
+                # Handle standalone image files
+                documents = convert_image_to_documents_docling(doc_path, folder_tags, config, session_timestamp)
             else:
                 print(f"  ⚠️  Unsupported file type: {file_ext}")
                 continue
-                
+
+            # Save documents to parsed_data directory
+            if config and config.save_parsed_artifacts:
+                try:
+                    save_documents_to_parsed_data(
+                        documents=documents,
+                        source_file=doc_path,
+                        session_timestamp=session_timestamp,
+                        parsed_data_dir=config.parsed_data_dir
+                    )
+                except Exception as e:
+                    print(f"  ⚠️  Failed to save parsed artifacts: {e}")
+
             all_documents.extend(documents)
             
             # Store in vector database if available
@@ -341,9 +407,9 @@ def process_all_documents(root_folder, use_qdrant=True, collection_name="dnd_doc
         print("No documents were processed successfully.")
 
 
-def process_all_pdfs(root_folder, use_qdrant=True, collection_name="dnd_documents", clear_existing=False):
+def process_all_pdfs(root_folder, use_qdrant=True, collection_name="dnd_documents", clear_existing=False, config_path=None):
     """Legacy function for backward compatibility - now processes all document types"""
-    return process_all_documents(root_folder, use_qdrant, collection_name, clear_existing)
+    return process_all_documents(root_folder, use_qdrant, collection_name, clear_existing, config_path)
 
 
 def main():

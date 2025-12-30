@@ -179,7 +179,7 @@ class CharacterGenerator:
         try:
             self.vector_client = QdrantClient(host="localhost", port=6333)
             self.embedder = SentenceTransformersTextEmbedder(
-                model="sentence-transformers/all-MiniLM-L6-v2"
+                model="BAAI/bge-large-en-v1.5"
             )
             self.embedder.warm_up()
             if self.verbose:

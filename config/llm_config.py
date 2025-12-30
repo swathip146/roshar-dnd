@@ -25,7 +25,8 @@ except (ImportError, TypeError, AttributeError) as e:
     _OPENAI_IMPORT_ERROR = str(e)
     
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -43,40 +44,37 @@ try:
         GEMINI_CHAT_GENERATOR_AVAILABLE = False
         _GEMINI_GENERATOR_IMPORT_ERROR = str(e)
         logger.info(f"GEMINI_CHAT_GENERATOR_AVAILABLE: {GEMINI_CHAT_GENERATOR_AVAILABLE} {_GEMINI_GENERATOR_IMPORT_ERROR} Using fallback GeminiChatGenerator")
-        
-        # Create a simple fallback GeminiChatGenerator
+
+        # Create a simple fallback GeminiChatGenerator for new SDK
         class GeminiChatGenerator:
-            """Fallback Gemini generator when full Haystack integration isn't available"""
-            
+            """Fallback Gemini generator when full Haystack integration isn't available (new SDK)"""
+
             def __init__(self, model_name: str, generation_config: dict = None):
                 if not GEMINI_AVAILABLE:
                     logger.info(f"GEMINI_AVAILABLE: {GEMINI_AVAILABLE}")
-                    raise ImportError("google-generativeai package not available")
-                
+                    raise ImportError("google-genai package not available")
+
                 self.model_name = model_name
                 self.generation_config = generation_config or {}
-                
-                # Configure genai if not already configured
+
+                # Initialize client with new SDK
                 api_key = os.getenv("GEMINI_API_KEY")
-                if api_key:
-                    genai.configure(api_key=api_key)
-                
-                self.model = genai.GenerativeModel(
-                    model_name=model_name,
-                    generation_config=generation_config
-                )
-                
+                if not api_key:
+                    raise ValueError("GEMINI_API_KEY environment variable not set")
+
+                self.client = genai.Client(api_key=api_key)
+
                 # Add Haystack component metadata for compatibility
                 self.__haystack_input__ = {
-                    'messages': {'type': 'List[ChatMessage]'}, 
+                    'messages': {'type': 'List[ChatMessage]'},
                     'tools': {'type': 'Optional[List[Any]]', 'default': None}
                 }
                 self.__haystack_output__ = {
                     'replies': {'type': 'List[ChatMessage]'}
                 }
-            
+
             def run(self, messages, tools=None):
-                """Simple run method for basic functionality"""
+                """Simple run method for basic functionality using new SDK"""
                 # Convert messages to prompt
                 if hasattr(messages[0], 'text'):
                     prompt = messages[0].text
@@ -84,18 +82,28 @@ try:
                     prompt = messages[0].content
                 else:
                     prompt = str(messages[0])
-                
-                # Generate response
-                response = self.model.generate_content(prompt)
-                
+
+                # Build config
+                config = types.GenerateContentConfig(
+                    temperature=self.generation_config.get('temperature', 0.7),
+                    max_output_tokens=self.generation_config.get('max_output_tokens', 2000)
+                )
+
+                # Generate response using new SDK
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config
+                )
+
                 # Return in expected format
                 class SimpleMessage:
                     def __init__(self, content):
                         self.text = content  # Primary property
                         self.content = content  # Backward compatibility
-                
+
                 return {"replies": [SimpleMessage(response.text)]}
-        
+
 except (ImportError, TypeError, AttributeError) as e:
     UTILS_AVAILABLE = False
     GEMINI_CHAT_GENERATOR_AVAILABLE = False
@@ -251,56 +259,56 @@ class LLMConfigManager:
         return OpenAIChatGenerator(**params)
     
     def _create_gemini_generator(self, config: LLMConfig) -> Any:
-        """Create Gemini chat generator with proper configuration"""
+        """Create Gemini chat generator with proper configuration (new SDK)"""
         if not GEMINI_AVAILABLE:
-            raise ImportError("Gemini requested but google-generativeai package not available")
-        
-        # Configure the Gemini API with the API key
+            raise ImportError("Gemini requested but google-genai package not available")
+
+        # Validate API key is available
         api_key = config.api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set or api_key not provided")
-        
-        genai.configure(api_key=api_key)
-        
+
         # Create generation config
         generation_config = {}
         if config.temperature is not None:
             generation_config["temperature"] = config.temperature
         if config.max_tokens:
             generation_config["max_output_tokens"] = config.max_tokens
-        
+
         # Add extra parameters
         generation_config.update(config.extra_params)
-        
+
         # Try to use official Haystack Google GenAI integration (v2.17+) if available
         try:
             from haystack_integrations.components.generators.google_genai import GoogleGenAIChatGenerator
             logger.debug(f"🔧 Using official GoogleGenAIChatGenerator for model: {config.model}")
-            
+
             # Create official Haystack Gemini generator (handles tools/function-calling)
             generator = GoogleGenAIChatGenerator(
                 model=config.model
                 # Note: generation_config is not a valid parameter for this generator
                 # The official GoogleGenAIChatGenerator uses different parameter names
             )
-            
+
             logger.info(f"✅ Successfully created GoogleGenAIChatGenerator")
             return generator
         except ImportError:
             # Fall back to custom GeminiChatGenerator from llm_utils
             logger.warning(f"Official haystack_integrations not available, using custom GeminiChatGenerator")
-            
+
             if not UTILS_AVAILABLE:
                 raise ImportError("Neither haystack_integrations nor config.llm_utils available for Gemini generator")
-            
+
             from config.llm_utils import GeminiChatGenerator
-            
+
             logger.debug(f"🔧 Using custom GeminiChatGenerator for model: {config.model}")
+
+            # GeminiChatGenerator handles client initialization internally with new SDK
             generator = GeminiChatGenerator(
                 model_name=config.model,
                 generation_config=generation_config
             )
-            
+
             logger.info(f"✅ Successfully created custom GeminiChatGenerator")
             return generator
     
