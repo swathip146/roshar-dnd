@@ -1,8 +1,8 @@
 #!/bin/bash
 # D&D System Dependencies Installation Script
-# Based on DEPENDENCIES_INSTALLATION_GUIDE.md
+# Installs all dependencies from requirements.txt using Conda/Anaconda
 
-# Don't exit on error immediately - we want to handle Python detection gracefully
+# Don't exit on error immediately - we want to handle detection gracefully
 set +e
 
 echo "🎲 Setting up Roshar D&D System Dependencies..."
@@ -12,62 +12,93 @@ echo "============================================================"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
-# Check if virtual environment exists and is valid
-if [ ! -d ".venv" ]; then
-    echo "⚠️ Virtual environment not found. Creating one..."
-    python3 -m venv .venv
-    echo "✅ Virtual environment created"
-elif [ -e ".venv/bin/python" ]; then
-    # Check if the Python symlink target exists
-    PYTHON_TARGET=$(readlink -f .venv/bin/python 2>/dev/null || readlink .venv/bin/python 2>/dev/null)
-    if [ -n "$PYTHON_TARGET" ] && [ ! -f "$PYTHON_TARGET" ]; then
-        echo "⚠️ Virtual environment Python symlink is broken (target missing)"
-        echo "   Recreating virtual environment..."
-        rm -rf .venv
-        python3 -m venv .venv
-        echo "✅ Virtual environment recreated"
-    fi
+# Virtual environment name
+ENV_NAME="dndenv"
+
+# Check if conda is available
+if command -v conda &> /dev/null; then
+    echo "✅ Conda detected - using conda for environment management"
+    USE_CONDA=true
+else
+    echo "⚠️  Conda not found - falling back to venv"
+    USE_CONDA=false
 fi
 
-# Determine Python executable
-# Priority 1: If venv is activated, use that Python (most reliable)
-if [ -n "$VIRTUAL_ENV" ]; then
-    PYTHON="$(command -v python 2>/dev/null || command -v python3 2>/dev/null)"
-    if [ -n "$PYTHON" ] && [ -x "$PYTHON" ]; then
-        echo "✅ Using Python from activated virtual environment: $PYTHON"
+# Create or verify environment
+if [ "$USE_CONDA" = true ]; then
+    # Conda environment management
+    if conda env list | grep -q "^${ENV_NAME} "; then
+        echo "✅ Conda environment '$ENV_NAME' already exists"
     else
-        PYTHON=""
+        echo "⚠️  Conda environment not found. Creating '$ENV_NAME'..."
+        conda create -n "$ENV_NAME" python=3.12 -y
+        echo "✅ Conda environment '$ENV_NAME' created"
     fi
-fi
 
-# Priority 2: Try venv/bin/python (even if symlink target missing, might work)
-if [ -z "$PYTHON" ]; then
-    if [ -e ".venv/bin/python" ]; then
-        PYTHON=".venv/bin/python"
-    elif [ -e ".venv/bin/python3" ]; then
-        PYTHON=".venv/bin/python3"
+    # Determine Python executable from conda
+    PYTHON=$(conda run -n "$ENV_NAME" which python)
+    if [ -z "$PYTHON" ] || [ ! -x "$PYTHON" ]; then
+        echo "❌ Could not find Python in conda environment '$ENV_NAME'"
+        exit 1
     fi
-fi
-
-# Priority 3: System python3
-if [ -z "$PYTHON" ]; then
-    PYTHON="$(command -v python3 2>/dev/null)"
-    if [ -n "$PYTHON" ]; then
-        echo "⚠️ Using system python3: $PYTHON"
+else
+    # Traditional venv management
+    if [ ! -d "$ENV_NAME" ]; then
+        echo "⚠️  Virtual environment not found. Creating '$ENV_NAME'..."
+        python3 -m venv "$ENV_NAME"
+        echo "✅ Virtual environment '$ENV_NAME' created"
+    elif [ -e "$ENV_NAME/bin/python" ]; then
+        # Check if the Python symlink target exists
+        PYTHON_TARGET=$(readlink -f "$ENV_NAME/bin/python" 2>/dev/null || readlink "$ENV_NAME/bin/python" 2>/dev/null)
+        if [ -n "$PYTHON_TARGET" ] && [ ! -f "$PYTHON_TARGET" ]; then
+            echo "⚠️  Virtual environment Python symlink is broken (target missing)"
+            echo "   Recreating virtual environment..."
+            rm -rf "$ENV_NAME"
+            python3 -m venv "$ENV_NAME"
+            echo "✅ Virtual environment recreated"
+        fi
     fi
-fi
 
-# Verify we found a Python
-if [ -z "$PYTHON" ] || [ ! -x "$PYTHON" ]; then
-    echo "❌ Could not find a working Python executable"
-    echo "   Checked:"
-    [ -n "$VIRTUAL_ENV" ] && echo "   - Activated venv: $VIRTUAL_ENV"
-    echo "   - .venv/bin/python"
-    echo "   - .venv/bin/python3"
-    echo "   - system python3"
-    echo ""
-    echo "💡 Try activating your venv first: source .venv/bin/activate"
-    exit 1
+    # Determine Python executable
+    # Priority 1: If venv is activated, use that Python (most reliable)
+    if [ -n "$VIRTUAL_ENV" ]; then
+        PYTHON="$(command -v python 2>/dev/null || command -v python3 2>/dev/null)"
+        if [ -n "$PYTHON" ] && [ -x "$PYTHON" ]; then
+            echo "✅ Using Python from activated virtual environment: $PYTHON"
+        else
+            PYTHON=""
+        fi
+    fi
+
+    # Priority 2: Try venv/bin/python
+    if [ -z "$PYTHON" ]; then
+        if [ -e "$ENV_NAME/bin/python" ]; then
+            PYTHON="$ENV_NAME/bin/python"
+        elif [ -e "$ENV_NAME/bin/python3" ]; then
+            PYTHON="$ENV_NAME/bin/python3"
+        fi
+    fi
+
+    # Priority 3: System python3
+    if [ -z "$PYTHON" ]; then
+        PYTHON="$(command -v python3 2>/dev/null)"
+        if [ -n "$PYTHON" ]; then
+            echo "⚠️  Using system python3: $PYTHON"
+        fi
+    fi
+
+    # Verify we found a Python
+    if [ -z "$PYTHON" ] || [ ! -x "$PYTHON" ]; then
+        echo "❌ Could not find a working Python executable"
+        echo "   Checked:"
+        [ -n "$VIRTUAL_ENV" ] && echo "   - Activated venv: $VIRTUAL_ENV"
+        echo "   - $ENV_NAME/bin/python"
+        echo "   - $ENV_NAME/bin/python3"
+        echo "   - system python3"
+        echo ""
+        echo "💡 Try activating your venv first: source $ENV_NAME/bin/activate"
+        exit 1
+    fi
 fi
 
 # Re-enable exit on error for rest of script
@@ -75,28 +106,47 @@ set -e
 
 echo "📦 Using Python: $PYTHON"
 echo "   Version: $($PYTHON --version)"
+if [ "$USE_CONDA" = true ]; then
+    echo "   Environment Manager: Conda"
+else
+    echo "   Environment Manager: venv"
+fi
 
 # Upgrade pip
 echo ""
-echo "⬆️ Upgrading pip..."
-$PYTHON -m pip install --upgrade pip --quiet
+echo "⬆️  Upgrading pip..."
+if [ "$USE_CONDA" = true ]; then
+    conda run -n "$ENV_NAME" python -m pip install --upgrade pip --quiet
+else
+    $PYTHON -m pip install --upgrade pip --quiet
+fi
 
-# Install core dependencies
+# Check if requirements.txt exists
+if [ ! -f "requirements.txt" ]; then
+    echo "❌ requirements.txt not found in $SCRIPT_DIR"
+    exit 1
+fi
+
+# Install dependencies
 echo ""
-echo "📦 Installing core dependencies..."
-echo "   This may take several minutes..."
+echo "📦 Installing dependencies..."
+echo "   This may take several minutes (downloading models: BGE large ~1.34GB, BGE reranker ~2.24GB)..."
+echo ""
 
-echo "   → Installing haystack-ai..."
-$PYTHON -m pip install haystack-ai
+if [ "$USE_CONDA" = true ]; then
+    # Try to install common packages via conda first (faster and better compatibility)
+    echo "   → Installing conda packages (where available)..."
+    conda install -n "$ENV_NAME" -c conda-forge -y \
+        numpy pandas pyarrow pillow pyyaml pytest beautifulsoup4 2>/dev/null || true
 
-echo "   → Installing qdrant-haystack..."
-$PYTHON -m pip install qdrant-haystack
-
-echo "   → Installing google-generativeai..."
-$PYTHON -m pip install google-generativeai
-
-echo "   → Installing sentence-transformers..."
-$PYTHON -m pip install "sentence-transformers>=4.1.0"
+    # Install remaining packages via pip in conda environment
+    echo ""
+    echo "   → Installing remaining packages via pip..."
+    conda run -n "$ENV_NAME" pip install -r requirements.txt
+else
+    # Standard pip installation in venv
+    $PYTHON -m pip install -r requirements.txt
+fi
 
 # Verify installation
 echo ""
@@ -122,10 +172,28 @@ except ImportError as e:
 
 try:
     import sentence_transformers
-    print('✅ Sentence Transformers: Available')
+    print(f'✅ Sentence Transformers: {sentence_transformers.__version__}')
 except ImportError as e:
     print(f'❌ Sentence Transformers: {e}')
     sys.exit(1)
+
+try:
+    import docling
+    print('✅ Docling: Available')
+except ImportError as e:
+    print(f'⚠️  Docling: {e} (optional for document processing)')
+
+try:
+    import pandas
+    print(f'✅ Pandas: {pandas.__version__}')
+except ImportError as e:
+    print(f'⚠️  Pandas: {e}')
+
+try:
+    import PIL
+    print('✅ Pillow (PIL): Available')
+except ImportError as e:
+    print(f'⚠️  Pillow: {e}')
 
 try:
     from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
@@ -151,11 +219,43 @@ echo ""
 echo "============================================================"
 echo "🎉 Installation complete!"
 echo ""
-echo "⚠️ Don't forget to set your GEMINI_API_KEY environment variable:"
-echo "   export GEMINI_API_KEY='your_api_key_here'"
+echo "📝 Next steps:"
 echo ""
-echo "🚀 To run the game:"
-echo "   source .venv/bin/activate"
+echo "1️⃣  Set your GEMINI_API_KEY in .env file:"
+echo "   echo 'GEMINI_API_KEY=your_api_key_here' > .env"
+echo ""
+if [ "$USE_CONDA" = true ]; then
+    echo "2️⃣  Activate the conda environment:"
+    echo "   conda activate $ENV_NAME"
+else
+    echo "2️⃣  Activate the virtual environment:"
+    echo "   source $ENV_NAME/bin/activate"
+fi
+echo ""
+echo "3️⃣  Run the game:"
 echo "   python3 haystack_dnd_game.py"
+echo ""
+echo "📦 Installed packages:"
+echo "   - Haystack Framework (haystack-ai, qdrant-haystack)"
+echo "   - Google Gemini AI (google-generativeai)"
+echo "   - Embeddings (sentence-transformers with BGE models)"
+echo "   - Vector DB (qdrant-client)"
+echo "   - Document Processing (docling, pandas, pyarrow, pillow)"
+echo "   - And more... (see requirements.txt)"
+echo ""
+if [ "$USE_CONDA" = true ]; then
+    echo "🔧 Environment Manager: Conda ($ENV_NAME)"
+    echo "   To activate: conda activate $ENV_NAME"
+    echo "   To deactivate: conda deactivate"
+    echo "   To list envs: conda env list"
+else
+    echo "🔧 Environment Manager: venv ($ENV_NAME)"
+    echo "   To activate: source $ENV_NAME/bin/activate"
+    echo "   To deactivate: deactivate"
+fi
+echo ""
+echo "🤖 Models that will be downloaded on first use:"
+echo "   - BAAI/bge-large-en-v1.5 (~1.34GB)"
+echo "   - BAAI/bge-reranker-v2-m3 (~2.24GB)"
 echo ""
 

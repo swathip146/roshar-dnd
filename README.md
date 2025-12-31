@@ -234,14 +234,8 @@ See **[docs/CURRENT_SYSTEM_ARCHITECTURE.md](docs/CURRENT_SYSTEM_ARCHITECTURE.md)
 ### Running Tests
 
 ```bash
-# Run all unit tests
 python -m pytest tests/
-
-# Run integration test
-python3 tests/test_integration.py
 ```
-
-**Latest Test Report**: See **[docs/reports/TEST_REPORT_INTEGRATION.md](docs/reports/TEST_REPORT_INTEGRATION.md)** for comprehensive integration test results (Overall rating: 8.5/10)
 
 ### Debugging
 

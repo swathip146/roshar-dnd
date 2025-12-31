@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 # Configuration constants
-DEFAULT_TOP_K = 20
+DEFAULT_TOP_K = 10
 DEFAULT_RANKER_TOP_K = 5
-DEFAULT_EMBEDDING_DIM = 384
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-RANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+DEFAULT_EMBEDDING_DIM = 1024
+EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
+# RANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 DEFAULT_STORAGE = "./qdrant_storage"
 
 class SimpleDocumentStore:
@@ -34,22 +34,22 @@ class SimpleDocumentStore:
         
         # Initialize embedder with specific model
         self.embedder = SentenceTransformersTextEmbedder(model=self.model_name)
-        self.ranker = SentenceTransformersSimilarityRanker(
-            model= RANKER_MODEL,
-            top_k=ranker_top_k
-        )
+        # self.ranker = SentenceTransformersSimilarityRanker(
+        #     model= RANKER_MODEL,
+        #     top_k=ranker_top_k
+        # )
         
         # Warm up the embedder
         print("🔥 Warming up embedder model...")
         self.embedder.warm_up()
         
-        print("🔥 Warming up ranker model...")
-        self.ranker.warm_up()
+        # print("🔥 Warming up ranker model...")
+        # self.ranker.warm_up()
         
         # Initialize Qdrant document store with unique storage path to avoid conflicts
         self.storage_path = storage_path
         
-        # Initialize Qdrant document store with correct embedding dimension (384 for all-MiniLM-L6-v2)
+        # Initialize Qdrant document store with correct embedding dimension (1024 for bge-large-en-v1.5)
         self.document_store = QdrantDocumentStore(
             path=storage_path,
             index=collection_name,
@@ -76,11 +76,11 @@ class SimpleDocumentStore:
         # Add components
         pipeline.add_component("embedder", self.embedder)
         pipeline.add_component("retriever", self.retriever)
-        pipeline.add_component("ranker", self.ranker)
+        # pipeline.add_component("ranker", self.ranker)
         
         # Connect components
         pipeline.connect("embedder.embedding", "retriever.query_embedding")
-        pipeline.connect("retriever.documents", "ranker.documents")
+        # pipeline.connect("retriever.documents", "ranker.documents")
         # Note: ranker.query will be provided directly when running the pipeline
         
         return pipeline
@@ -244,14 +244,14 @@ class SimpleDocumentStore:
         """Enhanced search that returns documents with metadata"""
         try:
             result = self.retrieval_pipeline.run({
-                "embedder": {"text": query},
-                "ranker": {"query": query}  # Provide query text directly to ranker
+                "embedder": {"text": query}
+                # "ranker": {"query": query}  # Provide query text directly to ranker
             })
             
-            # Get documents from ranker (ranked) or retriever (fallback)
-            documents = result.get("ranker", {}).get("documents", [])
-            if not documents:
-                documents = result.get("retriever", {}).get("documents", [])
+            # Get documents from retriever
+            # documents = result.get("ranker", {}).get("documents", [])
+            # if not documents:
+            documents = result.get("retriever", {}).get("documents", [])
             
             results = []
             for doc in documents[:top_k]:
@@ -320,14 +320,14 @@ class SimpleDocumentStore:
         """Retrieve documents for RAG - returns Haystack Document objects"""
         try:
             result = self.retrieval_pipeline.run({
-                "embedder": {"text": query},
-                "ranker": {"query": query}  # Provide query text directly to ranker
+                "embedder": {"text": query}
+                # "ranker": {"query": query}  # Provide query text directly to ranker
             })
             
-            # Get documents from ranker (ranked) or retriever (fallback)
-            documents = result.get("ranker", {}).get("documents", [])
-            if not documents:
-                documents = result.get("retriever", {}).get("documents", [])
+            # Get documents from retriever
+            # documents = result.get("ranker", {}).get("documents", [])
+            # if not documents:
+            documents = result.get("retriever", {}).get("documents", [])
                 
             return documents[:top_k]
             
