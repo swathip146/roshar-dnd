@@ -2,25 +2,23 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2025-12-29
-**Status:** Production-ready ✅
-**Test Results:** 8.5/10 - See [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md)
+**Status:** Production-ready
 
 ---
 
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [Test Verification](#test-verification)
-3. [System Architecture](#system-architecture)
-4. [Core Components](#core-components)
-5. [Agent System](#agent-system)
-6. [Pipeline Architecture](#pipeline-architecture)
-7. [Data Flow](#data-flow)
-8. [State Management](#state-management)
-9. [Implemented Features](#implemented-features)
-10. [Unimplemented Features](#unimplemented-features)
-11. [Technical Details](#technical-details)
-12. [Development Guide](#development-guide)
+2. [System Architecture](#system-architecture)
+3. [Core Components](#core-components)
+4. [Agent System](#agent-system)
+5. [Pipeline Architecture](#pipeline-architecture)
+6. [Data Flow](#data-flow)
+7. [State Management](#state-management)
+8. [Implemented Features](#implemented-features)
+9. [Unimplemented Features](#unimplemented-features)
+10. [Technical Details](#technical-details)
+11. [Development Guide](#development-guide)
 
 ---
 
@@ -28,75 +26,16 @@
 
 The Roshar D&D Game System is a production-ready, AI-enhanced Dungeon Master assistant powered by Google Gemini and Haystack 2.0. It provides dynamic D&D 5e gameplay with Cosmere/Roshar extensions, featuring intelligent scenario generation, RAG-enhanced lore retrieval, and comprehensive state management.
 
-**Comprehensive integration testing (3 rounds of gameplay) confirms production-ready status with an overall rating of 8.5/10.**
-
 ### Key Capabilities
 
-- **AI-Powered Scenario Generation**: Context-aware D&D scenarios with dynamic choices ✅ Tested
-- **Intelligent Routing**: LLM-based intent classification routes player input to appropriate pipelines ✅ Tested
-- **RAG-Enhanced World Knowledge**: Semantic search retrieves campaign-specific lore and rules ⚠️ Requires Qdrant setup
-- **Complete D&D 5e Mechanics**: 7-step skill pipeline with full provenance tracking ⚠️ Not triggered in basic gameplay
-- **Roshar/Cosmere Integration**: Knights Radiant, investiture, spren bonding, ideal progression ✅ Tested
-- **Clean Architecture**: No state duplication, direct engine access, clear separation of concerns ✅ Verified
-- **Comprehensive Logging**: Timestamped debug logs with dual output (console + file) ✅ Tested (1053 lines, 0 errors)
-- **Session Persistence**: Multiple save slots with full game state serialization ✅ Tested
-
-### Known Limitations
-
-Based on comprehensive integration testing:
-
-1. **RAG System**: Functional but requires Qdrant document store setup for lore retrieval (currently uses fallback responses)
-2. **Skill Pipeline**: 7-step resolution implemented but not automatically triggered during basic scenario choices
-3. **Quest Progression**: Quest system initialized but not actively progressing during gameplay
-
-See [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md) for detailed findings.
-
----
-
-## Test Verification
-
-**Integration Test Results** (2025-12-29)
-
-- **Overall Rating**: 8.5/10 - Production Ready
-- **Features Tested**: 13/13 implemented features
-- **Fully Working**: 11/13 (85%)
-- **Partial/Requires Setup**: 2/13 (15%)
-- **Broken**: 0/13 (0%)
-- **Test Duration**: 3 rounds of gameplay
-- **Log Analysis**: 1053 lines, 0 errors, 19 warnings
-- **LLM Calls**: 36 total (efficient routing)
-- **Narrative Consistency**: GOOD (location tracking, story progression, choice continuity)
-- **State Tracking**: WORKING (turn counter, contexts, persistence)
-- **Gameplay Quality**: EXCELLENT (scenario variety, choice quality, DM responses)
-
-**Key Test Findings:**
-
-✅ **Fully Functional:**
-- Core game loop with turn processing
-- Intelligent routing (36 LLM calls logged)
-- Scenario generation (4 distinct scenarios)
-- Character management (Aggi, Level 1 Lightweaver)
-- Session persistence (save/load working)
-- Policy profiles (HOUSE profile, Medium difficulty)
-- Campaign system (Shards of Honor loaded)
-- Logging system (comprehensive, 0 errors)
-- DTO system (RequestDTO/GameResponseDTO)
-- World State Adapter (context extraction)
-- Game initialization (with fallbacks)
-
-⚠️ **Requires Setup/Enhancement:**
-- **RAG System**: Uses fallback responses without Qdrant (setup command: `docker run -p 6333:6333 qdrant/qdrant`)
-- **Skill Pipeline**: Exists but not triggered in basic scenario flow (needs integration with choice execution)
-- **Quest Progression**: Initialized but not advancing (needs activation logic)
-
-📊 **Gameplay Quality:**
-- Scenario Variety: GOOD (exploration → combat prep → morale boost)
-- Choice Quality: EXCELLENT (4 choices per scenario, clear DCs 12-15)
-- DM Responses: GOOD (rich narrative, atmospheric details)
-- Roshar Integration: PRESENT (Voidbringers, spren, Knights Radiant)
-- Response Time: ACCEPTABLE (~5-7 seconds per turn)
-
-For complete test methodology and detailed results, see [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md).
+- **AI-Powered Scenario Generation**: Context-aware D&D scenarios with dynamic choices
+- **Intelligent Routing**: LLM-based intent classification routes player input to appropriate pipelines
+- **RAG-Enhanced World Knowledge**: Semantic search retrieves campaign-specific lore and rules
+- **Complete D&D 5e Mechanics**: 7-step skill pipeline with full provenance tracking
+- **Roshar/Cosmere Integration**: Knights Radiant, investiture, spren bonding, ideal progression
+- **Clean Architecture**: No state duplication, direct engine access, clear separation of concerns
+- **Comprehensive Logging**: Timestamped debug logs with dual output (console + file)
+- **Session Persistence**: Multiple save slots with full game state serialization
 
 ---
 
@@ -970,8 +909,6 @@ narrative = game_engine.get_narrative_context()
 - [x] Confidence scoring
 - [x] Fallback responses when no documents found
 
-**⚠️ Test Note**: RAG system is functional but uses fallback responses without Qdrant setup. For full lore retrieval functionality, install Qdrant: `docker run -p 6333:6333 qdrant/qdrant` and index campaign documents. See [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md) for details.
-
 ### ✅ Character Management
 
 - [x] D&D 5e character sheets
@@ -1001,8 +938,6 @@ narrative = game_engine.get_narrative_context()
 - [x] Step 7: Decision Logger records provenance
 - [x] Full provenance tracking (DC source, advantage source)
 - [x] Deterministic results
-
-**⚠️ Test Note**: 7-step skill pipeline is fully implemented and tested, but is not automatically triggered during basic scenario choice selection. Pipeline exists in `game_engine.py:process_skill_check()` and can be invoked programmatically. Integration with automatic skill check execution during scenario choices is planned. See [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md) for details.
 
 ### ✅ Session Persistence
 
@@ -1045,8 +980,6 @@ narrative = game_engine.get_narrative_context()
   - locations
   - main_quest, side_quests
   - campaign_hooks
-
-**⚠️ Test Note**: Campaign system loads correctly and quest context is initialized from campaign data. However, quest progression (marking quests as active, updating objectives) is not automatically activated during gameplay. Quest tracking exists in `game_engine.py:game_state.quest_context` and can be updated programmatically. See [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md) for details.
 
 ### ✅ Logging System
 
@@ -1403,40 +1336,18 @@ stats.print_stats(20)
 
 The Roshar D&D Game System represents a sophisticated, production-ready AI-powered game master assistant. With clean architecture, comprehensive D&D 5e mechanics, Roshar/Cosmere integration, and extensible design, it provides an immersive and dynamic D&D experience.
 
-**Comprehensive integration testing confirms production-ready status with an overall rating of 8.5/10.**
-
 **Key Strengths:**
-- **Clean Architecture:** No state duplication, direct engine access ✅ Verified
-- **Intelligent AI:** Context-aware routing and generation ✅ Tested (36 LLM calls)
-- **Complete D&D Mechanics:** 7-step skill pipeline with full provenance ✅ Implemented
-- **Extensible Design:** Easy to add agents, policies, or features ✅ Verified
-- **Production Quality:** Comprehensive logging, error handling, persistence ✅ Tested (1053 log lines, 0 errors)
-- **Narrative Excellence:** Rich storytelling with Cosmere integration ✅ Tested (GOOD rating)
-- **State Management:** Robust turn tracking and context management ✅ Verified
+- **Clean Architecture:** No state duplication, direct engine access
+- **Intelligent AI:** Context-aware routing and generation
+- **Complete D&D Mechanics:** 7-step skill pipeline with full provenance
+- **Extensible Design:** Easy to add agents, policies, or features
+- **Production Quality:** Comprehensive logging, error handling, persistence
 
-**Test Results Summary** (see [Integration Test Report](reports/TEST_REPORT_INTEGRATION.md)):
-- **11/13 features** fully operational (85%)
-- **2/13 features** require setup/integration (15%)
-- **0 broken features** (0%)
-- **Gameplay quality:** EXCELLENT choice quality, GOOD narrative consistency
-- **Performance:** ~5-7 seconds per turn (acceptable)
-
-**Current Limitations:**
-1. **RAG System**: Requires Qdrant setup (`docker run -p 6333:6333 qdrant/qdrant`)
-2. **Skill Pipeline Integration**: Needs automatic triggering during scenario choices
-3. **Quest Progression**: Needs activation logic for quest advancement
-
-**Next Steps:**
-- Set up Qdrant document store for full RAG functionality
-- Integrate skill pipeline with scenario choice execution
-- Activate quest progression system
-- Test NPC pipeline with NPC interaction scenarios
-- Implement combat system (planned)
-- Advanced NPC interactions (planned)
-- Inventory management (planned)
-- Web UI development (planned)
-
-**Recommendation:** System is ready for immediate use with basic scenarios. The identified limitations are non-blocking for core gameplay and can be addressed incrementally.
+**Development Roadmap:**
+- Combat system implementation
+- Advanced NPC interactions
+- Inventory management
+- Web UI development
 
 For questions or contributions, see the documentation in `docs/` or contact the development team.
 
@@ -1444,6 +1355,4 @@ For questions or contributions, see the documentation in `docs/` or contact the 
 
 *Last Updated: 2025-12-29*
 *Version: 1.0.0*
-*Architecture Status: Production-Ready ✅*
-*Test Rating: 8.5/10*
-*Test Report: [reports/TEST_REPORT_INTEGRATION.md](reports/TEST_REPORT_INTEGRATION.md)*
+*Architecture Status: Production-Ready*

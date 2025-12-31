@@ -1,0 +1,114 @@
+# ============================================================================
+# Roshar D&D Game System - Requirements
+# ============================================================================
+# Complete dependency list for the AI-powered D&D assistant
+# Excludes legacy/ directory components
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Haystack Framework & Integrations
+# ----------------------------------------------------------------------------
+haystack-ai>=2.0.0                  # Core Haystack pipeline framework
+qdrant-haystack>=4.0.0              # Qdrant integration for Haystack
+
+# ----------------------------------------------------------------------------
+# Google AI (Gemini)
+# ----------------------------------------------------------------------------
+google-genai>=0.1.0                 # NEW Gemini SDK (replaces deprecated google-generativeai)
+
+# ----------------------------------------------------------------------------
+# Embeddings & Transformers
+# ----------------------------------------------------------------------------
+sentence-transformers>=2.2.0        # Text embeddings (BGE models)
+                                   # Models: BAAI/bge-large-en-v1.5, BAAI/bge-reranker-v2-m3
+
+# ----------------------------------------------------------------------------
+# Vector Database
+# ----------------------------------------------------------------------------
+qdrant-client>=1.7.0               # Qdrant vector database client
+
+# ----------------------------------------------------------------------------
+# Document Processing (Docling)
+# ----------------------------------------------------------------------------
+docling>=2.0.0                     # PDF/document parsing and extraction
+docling-core>=2.0.0                # Docling core data structures
+
+# ----------------------------------------------------------------------------
+# Data Processing
+# ----------------------------------------------------------------------------
+pyarrow>=10.0.0                    # Apache Arrow for Parquet file handling
+pandas>=2.0.0                      # DataFrame operations for table extraction
+
+# ----------------------------------------------------------------------------
+# Image Processing
+# ----------------------------------------------------------------------------
+pillow>=10.0.0                     # PIL - Image loading and manipulation
+imagehash>=4.3.0                   # Perceptual hashing for image deduplication
+numpy>=1.24.0                      # Array operations for image analysis
+
+# ----------------------------------------------------------------------------
+# Validation & Data Models
+# ----------------------------------------------------------------------------
+pydantic>=2.0.0                    # Data validation and settings management
+
+# ----------------------------------------------------------------------------
+# Environment Variables
+# ----------------------------------------------------------------------------
+python-dotenv>=1.0.0               # Load environment variables from .env file
+
+# ----------------------------------------------------------------------------
+# YAML Configuration
+# ----------------------------------------------------------------------------
+pyyaml>=6.0                        # YAML file parsing for configuration
+
+# ----------------------------------------------------------------------------
+# Development & Testing
+# ----------------------------------------------------------------------------
+pytest>=7.4.0                      # Testing framework
+
+# ============================================================================
+# OPTIONAL DEPENDENCIES
+# ============================================================================
+# Uncomment if needed:
+
+# MCP (Model Context Protocol) Integration
+# mcp>=1.0.0                       # Model Context Protocol
+# mcp-haystack>=0.4.0             # MCP integration for Haystack
+
+# Haystack Experimental Features
+# haystack-experimental>=0.12.0   # Experimental Haystack components
+
+# Additional Document Processing (alternative to Docling)
+# pdfplumber>=0.11.0              # PDF table extraction
+# pdf2image>=1.17.0               # PDF to image conversion
+# PyMuPDF>=1.24.0                 # Fast PDF processing
+
+# Additional Testing Tools
+# pytest-cov>=4.0.0               # Code coverage for tests
+# pytest-mock>=3.10.0             # Mocking support
+# pytest-xdist>=3.0.0             # Parallel test execution
+
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# Model Downloads:
+# The following models will be automatically downloaded from HuggingFace:
+# - BAAI/bge-large-en-v1.5 (~1.34GB) - Embedding model
+# - BAAI/bge-reranker-v2-m3 (~2.24GB) - Reranking model
+# - gemini-2.0-flash-exp (API-based, no local download)
+#
+# Qdrant Storage:
+# Local Qdrant storage uses ~1024-dimensional vectors (BGE large)
+# Default storage path: ./qdrant_storage
+#
+# API Keys Required:
+# - GEMINI_API_KEY: Store in .env file for Gemini LLM access
+#
+# Python Version:
+# Requires Python 3.10+
+#
+# Installation:
+# pip install -r requirements.txt
+#
+# ============================================================================

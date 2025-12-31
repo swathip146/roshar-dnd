@@ -1,8 +1,8 @@
 ================================================================================
 ROSHAR D&D GAME SYSTEM - COMPREHENSIVE INTEGRATION TEST REPORT
 ================================================================================
-Test Date: 2025-12-29 17:43:41
-Log File Analyzed: dnd_game_20251229_170159.log
+Test Date: 2025-12-29 23:20:47
+Log File Analyzed: dnd_game_20251229_231459.log
 Test Duration: 3 rounds of gameplay
 
 ================================================================================
@@ -33,7 +33,7 @@ Features Tested: 13
    Evidence: Log shows turn processing, input handling
 
 ✅ Intelligent Routing
-   Evidence: Intent classification found in logs, 36 LLM calls
+   Evidence: Intent classification found in logs, 0 LLM calls
 
 ✅ Scenario Generation
    Evidence: Scenario pipeline executions found
@@ -59,7 +59,7 @@ Features Tested: 13
    Evidence: Campaign loaded: Shards of Honor, 4 NPCs, 3 locations
 
 ✅ Logging System
-   Evidence: Log file created with 1053 lines, dual output working
+   Evidence: Log file created with 230 lines, dual output working
 
 ✅ Game Initialization
    Evidence: Interactive setup completed, components initialized with fallbacks
@@ -146,40 +146,7 @@ Response Time: ACCEPTABLE
 SILENT FAILS & FALLBACK DETECTION
 ================================================================================
 
-Found 12 fallbacks/potential issues:
-
-⚠️ FALLBACK_USED (MEDIUM severity)
-   2025-12-29 17:02:09 - agents.rag_retriever_agent - WARNING - rag_retriever_agent.py:274 - Simplified RAG Agent: No document store provided - will use fallback responses
-
-⚠️ RAG_FALLBACK (MEDIUM severity)
-   RAG system using fallback responses (no Qdrant)
-
-⚠️ FALLBACK_USED (MEDIUM severity)
-   2025-12-29 17:02:09 - orchestrator.pipeline_integration - WARNING - pipeline_integration.py:201 - Pipeline Orchestrator: No shared document store provided - RAG will use fallback responses
-
-⚠️ FALLBACK_USED (MEDIUM severity)
-   2025-12-29 17:02:09 - agents.rag_retriever_agent - WARNING - rag_retriever_agent.py:274 - Simplified RAG Agent: No document store provided - will use fallback responses
-
-⚠️ RAG_FALLBACK (MEDIUM severity)
-   RAG system using fallback responses (no Qdrant)
-
-ℹ️ AGENT_LIMIT (LOW severity)
-   2025-12-29 17:02:18 - haystack.components.agents.agent - WARNING - agent.py:419 - Agent reached maximum agent steps of 3, stopping.
-
-ℹ️ AGENT_LIMIT (LOW severity)
-   2025-12-29 17:02:25 - haystack.components.agents.agent - WARNING - agent.py:419 - Agent reached maximum agent steps of 1, stopping.
-
-ℹ️ AGENT_LIMIT (LOW severity)
-   2025-12-29 17:02:33 - haystack.components.agents.agent - WARNING - agent.py:419 - Agent reached maximum agent steps of 3, stopping.
-
-ℹ️ AGENT_LIMIT (LOW severity)
-   2025-12-29 17:02:39 - haystack.components.agents.agent - WARNING - agent.py:419 - Agent reached maximum agent steps of 1, stopping.
-
-ℹ️ AGENT_LIMIT (LOW severity)
-   2025-12-29 17:02:47 - haystack.components.agents.agent - WARNING - agent.py:419 - Agent reached maximum agent steps of 3, stopping.
-
-ℹ️ AGENT_LIMIT (LOW severity)
-   2025-12-29 17:02:53 - haystack.components.agents.agent - WARNING - agent.py:419 - Agent reached maximum agent steps of 1, stopping.
+Found 1 fallbacks/potential issues:
 
 ⚠️ DOCUMENT_STORE (MEDIUM severity)
    No Qdrant document store - RAG using fallback responses
@@ -189,14 +156,21 @@ Found 12 fallbacks/potential issues:
 LOG ANALYSIS SUMMARY
 ================================================================================
 
-Total log lines: 1053
-Errors: 0
-Warnings: 19
-Info messages: 70
-Debug messages: 464
-LLM API calls: 36
-Pipeline executions: 12
-State updates: 8
+Total log lines: 230
+Errors: 6
+Warnings: 9
+Info messages: 65
+Debug messages: 110
+LLM API calls: 0
+Pipeline executions: 4
+State updates: 2
+
+❌ ERRORS FOUND:
+   Line 172: 2025-12-29 23:15:23 - config.llm_utils - ERROR - llm_utils.py:364 - Failed to convert tool record_in
+   Line 176: 2025-12-29 23:15:23 - config.llm_utils - ERROR - llm_utils.py:365 - 1 validation error for FunctionD
+   Line 191: 2025-12-29 23:15:23 - config.llm_utils - ERROR - llm_utils.py:364 - Failed to convert tool classify_
+   Line 195: 2025-12-29 23:15:23 - config.llm_utils - ERROR - llm_utils.py:365 - 1 validation error for FunctionD
+   Line 210: 2025-12-29 23:15:23 - config.llm_utils - ERROR - llm_utils.py:274 - GEMINI ERROR: Gemini API error: 
 
 ================================================================================
 RECOMMENDATIONS & NEXT STEPS
@@ -251,5 +225,5 @@ The Roshar D&D Game System is PRODUCTION READY for basic gameplay.
   basic scenarios. Advanced features require additional setup/implementation.
 
 ================================================================================
-Report generated: 2025-12-29 17:43:41
+Report generated: 2025-12-29 23:20:47
 ================================================================================
