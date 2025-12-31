@@ -185,4 +185,4 @@ data/raw/
 data/processed/
 
 # Data
-data/rules/
+data/rules/external/dnd_engine/
