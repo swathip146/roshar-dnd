@@ -49,6 +49,7 @@ class HaystackDnDGame:
         self.character_manager = config.character_manager
         self.game_engine = config.game_engine
         self.policy_engine = config.policy_engine
+        self.dnd_engine_wrapper = config.dnd_engine_wrapper  # PHASE 2: dnd_engine integration
         
         try:
             # Enhanced orchestrator with all game components from fallback-enabled initialization
@@ -228,11 +229,12 @@ class HaystackDnDGame:
             "Generate the opening scenario for this campaign. Set the scene, introduce the setting, and provide initial choices for the player to begin their adventure.",
             {}
         )
-        
+
         request_dto["_game_engine_ref"] = self.game_engine
         request_dto["_policy_engine_ref"] = self.policy_engine
+        request_dto["_dnd_engine_wrapper_ref"] = self.dnd_engine_wrapper  # PHASE 2
         request_dto["type"] = "scenario"
-        
+
         return request_dto
      
     def _process_input(self, player_input: str) -> Dict[str, Any]:
@@ -304,7 +306,8 @@ class HaystackDnDGame:
             request_dto["type"] = processed_input.get("type", "gameplay_turn")
             request_dto["_game_engine_ref"] = self.game_engine
             request_dto["_policy_engine_ref"] = self.policy_engine
-            
+            request_dto["_dnd_engine_wrapper_ref"] = self.dnd_engine_wrapper  # PHASE 2
+
             logger.info(f"🎯 Processing turn {self.turn_counter} with enhanced response system")
             
             # Use existing orchestrator

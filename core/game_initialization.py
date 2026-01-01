@@ -30,6 +30,7 @@ from components.character_manager import CharacterManager, CharacterData
 from components.session_manager import create_session_manager, SessionManager, GameSession
 from components.game_engine import GameEngine, GameState
 from components.campaign_config import CampaignConfig, create_default_campaign_config
+from components.dnd_engine_wrapper import create_dnd_engine_wrapper
 
 from config.llm_config import get_global_config_manager
 from storage.simple_document_store import SimpleDocumentStore
@@ -54,6 +55,7 @@ class GameInitConfig:
     character_manager: Optional[CharacterManager] = None
     session_manager: Optional[SessionManager] = None
     policy_engine: Optional[PolicyEngine] = None
+    dnd_engine_wrapper: Optional[Any] = None  # NEW: Phase 2 integration
     
 
 
@@ -250,9 +252,21 @@ class GameInitializationSystem:
             
             # Add to GameEngine for runtime state management (GameEngine will also add to its CharacterManager)
             config.game_engine.add_character(character_data)
-            
+
             logger.info(f"   👤 Created selected character: {config.player_name}")
-        
+
+        # PHASE 2: Create dnd_engine_wrapper after characters are loaded
+        try:
+            config.dnd_engine_wrapper = create_dnd_engine_wrapper(
+                game_engine=config.game_engine,
+                character_manager=config.character_manager
+            )
+            logger.info(f"   🎲 DnD Engine Wrapper: ✅ Created with {len(config.dnd_engine_wrapper.entities)} entities")
+        except Exception as e:
+            logger.warning(f"   ⚠️ DnD Engine Wrapper initialization failed: {e}")
+            logger.warning(f"   Continuing without dnd_engine (will use fallback mechanics)")
+            config.dnd_engine_wrapper = None
+
         # Finalize setup
         print(f"\n✅ Game initialization complete!")
         print(f"   Player: {config.player_name}")
