@@ -59,6 +59,18 @@ All logging uses centralized config from `config/logging_config.py` (dual consol
 
 ---
 
+## MUST FOLLOW INSTRUCTIONS
+
+- Use Open Source license libraries only
+
+- Follow the file directory structure and add code that belongs to the relevant directories. Example: Test scripts should be under tests, md files should be under docs, agentic code should be in agents, non agentic shared components should be components etc.
+
+- For the codebase, always create modular code in a hierarchial style. Add new files whenever needed instead of huge changes to the top hierarchy files. Do not write long code files that are longer than a 1000 lines.
+
+- Always write a test script for any new code or feature additions. The tests should always have logs that report the progress of the test.
+
+- Add helpful logs whenever adding new features following the same logging features available in codebase.
+
 ## High-Level Architecture
 
 ### System Flow
