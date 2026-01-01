@@ -114,19 +114,16 @@ class PipelineOrchestrator:
             logger.debug("🔧 Step 1: Creating Gemini configuration...")
             gemini_config = create_gemini_config()
             debug_print("ORCHESTRATOR", "✅ Gemini config created")
-            print("✅ Step 1 complete: Gemini config created")
             
             debug_print("ORCHESTRATOR", "🔧 Creating LLM config manager...")
             logger.debug("🔧 Step 2: Creating LLM config manager...")
             global_manager = LLMConfigManager(gemini_config)
             debug_print("ORCHESTRATOR", "✅ LLM config manager created")
-            print("✅ Step 2 complete: LLM config manager created")
             
             debug_print("ORCHESTRATOR", "🌐 Setting global config manager...")
             logger.debug("🔧 Step 3: Setting global config manager...")
             set_global_config_manager(global_manager)
             debug_print("ORCHESTRATOR", "✅ Global config manager set")
-            print("✅ Step 3 complete: Global config manager set")
             
             # Create routing context adapter for fixed system integration - ENHANCED: Add CampaignConfig authority
             if hasattr(self, 'game_engine') and self.game_engine:
@@ -147,20 +144,17 @@ class PipelineOrchestrator:
             # Initialize agents - use fixed interface agent for improved performance
             logger.debug("🔧 Step 4: Creating scenario generator agent...")
             scenario_agent = create_scenario_generator_agent()
-            print("✅ Step 4 complete: Scenario generator agent created")
             
             logger.debug("🔧 Step 5: Creating RAG retriever agent...")
             rag_agent = create_rag_retriever_agent_simplified(
                 document_store=self.shared_document_store
             )
             debug_print("ORCHESTRATOR", "✅ RAG retriever agent created")
-            print("✅ Step 5 complete: RAG retriever agent created")
             
             debug_print("ORCHESTRATOR", "🎭 Creating NPC controller agent...")
             logger.debug("🔧 Step 6: Creating NPC controller agent...")
             npc_agent = create_npc_controller_agent()
             debug_print("ORCHESTRATOR", "✅ NPC controller agent created")
-            print("✅ Step 6 complete: NPC controller agent created")
             
             # Use the new fixed interface agent
             debug_print("ORCHESTRATOR", "🔧 Creating fixed interface agent...")
@@ -184,7 +178,6 @@ class PipelineOrchestrator:
             logger.debug(f"   Creating interface agent...")
             interface_agent = create_fixed_interface_agent()
             debug_print("ORCHESTRATOR", "✅ Created fixed interface agent")
-            print("✅ Step 7 complete: Fixed interface agent created")
             
             logger.debug("🔧 Step 8: Storing agents in agents dict...")
             self.agents = {
@@ -203,7 +196,6 @@ class PipelineOrchestrator:
             # Initialize pipelines
             logger.debug("🔧 Step 9: Creating pipelines...")
             self._create_pipelines()
-            print("✅ Step 9 complete: Pipelines created")
             print("✅ Pipeline infrastructure initialization complete!")
             
         except Exception as e:
