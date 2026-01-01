@@ -226,14 +226,35 @@ class GameEngine:
         
         adjusted_dc_result = self.policy_engine.adjust_difficulty(dc, check_request.get("context", {}))
         adjusted_dc = adjusted_dc_result["final_dc"]
-        
+
         # Step 4: Dice Roller → raw rolls (logged)
-        roll_result = self.dice_roller.skill_roll(
-            check_request.get("skill", "ability_check"), 
-            char_data["modifier"],
-            advantage_state,
-            correlation_id
-        )
+        # PHASE 2: Use dnd_engine_wrapper if available, otherwise fallback to dice_roller
+        dnd_wrapper = check_request.get("_dnd_engine_wrapper_ref")
+        if dnd_wrapper:
+            # Use dnd_engine for mechanically accurate rolls
+            wrapper_result = dnd_wrapper.execute_skill_check(
+                character_id=check_request["actor"],
+                skill=check_request.get("skill", ""),
+                dc=adjusted_dc,
+                advantage=advantage_state.get("advantage", False),
+                disadvantage=advantage_state.get("disadvantage", False)
+            )
+
+            # Convert wrapper result to expected format
+            roll_result = {
+                "total": wrapper_result["roll"],
+                "raw_rolls": [wrapper_result["natural_roll"]],
+                "selected_roll": wrapper_result["natural_roll"],
+                "roll_breakdown": wrapper_result.get("breakdown", {})
+            }
+        else:
+            # Fallback: Use original dice roller
+            roll_result = self.dice_roller.skill_roll(
+                check_request.get("skill", "ability_check"),
+                char_data["modifier"],
+                advantage_state,
+                correlation_id
+            )
         
         # Step 5: Rules Enforcer → compare vs DC, success/fail
         success = roll_result["total"] >= adjusted_dc
@@ -308,8 +329,8 @@ class GameEngine:
             campaign_data = {
                 "campaign_started": True,
                 "campaign_name": self.campaign_config.name,
-                "campaign_npcs": [npc.name for npc in self.campaign_config.key_npcs],
-                "campaign_locations": [loc.name for loc in self.campaign_config.locations],
+                "campaign_npcs": [npc.get("name", "") for npc in self.campaign_config.key_npcs],
+                "campaign_locations": [loc.get("name", "") for loc in self.campaign_config.locations],
                 "campaign_quests": self.campaign_config.quests,
                 "campaign_difficulty": self.campaign_config.difficulty,
                 "campaign_theme": self.campaign_config.theme,

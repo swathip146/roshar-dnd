@@ -165,7 +165,8 @@ class RequestDTO(TypedDict, total=False):
     # === ENGINE REFERENCES (NEW - replaces context duplication) ===
     _game_engine_ref: Optional[Any]         # GameEngine reference for direct access
     _policy_engine_ref: Optional[Any]       # PolicyEngine reference for direct access
-    
+    _dnd_engine_wrapper_ref: Optional[Any]  # PHASE 2: dnd_engine wrapper for skill checks/combat
+
     # === LEGACY COMPATIBILITY ===
     context: Dict[str, Any]                 # Legacy context field (keep flexible for compatibility)
     
