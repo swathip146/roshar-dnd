@@ -302,7 +302,7 @@ From test report (`docs/reports/TEST_REPORT_INTEGRATION.md`):
 
 ## Models & Dependencies
 
-**LLM**: gemini-2.0-flash (via google-genai SDK)
+**LLM**: gemini-2.5-flash (via google-genai SDK)
 **Embeddings**: BAAI/bge-large-en-v1.5 (1024-dim vectors)
 **Vector DB**: Qdrant (local storage: `./qdrant_storage/`)
 **Document Parser**: Docling 2.0+

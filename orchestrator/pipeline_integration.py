@@ -586,6 +586,7 @@ class PipelineOrchestrator:
                 response_type="error",
                 error=f"RAG-enhanced scenario pipeline exception: {e}"
             )
+    
     def _run_rag_pipeline(self, dto: RequestDTO) -> GameResponseDTO:
         """Run connected RAG query pipeline with standardized response format"""
         debug_print("RAG", "🔍 Starting connected RAG pipeline")
@@ -773,6 +774,7 @@ class PipelineOrchestrator:
                 "policy_profile": policy_context.get("active_profile", "fallback")
             }
         }
+    
     def get_pipeline_status(self) -> Dict[str, Any]:
         """Get comprehensive pipeline status"""
         status = {
