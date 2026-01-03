@@ -1,10 +1,11 @@
 {
+  "character_id": "aggi",
   "name": "Aggi",
   "race": "Alethi",
   "character_class": "Radiant",
   "level": 1,
   "background": "Folk Hero",
-  "stats": {
+  "ability_scores": {
     "strength": 8,
     "dexterity": 11,
     "constitution": 11,
@@ -12,10 +13,20 @@
     "wisdom": 6,
     "charisma": 13
   },
-  "hit_points": 8,
+  "hit_points": {
+    "current": 8,
+    "maximum": 8,
+    "temporary": 0
+  },
   "armor_class": 10,
   "proficiency_bonus": 2,
-  "skills": [],
+  "skills": {
+    "persuasion": true,
+    "deception": true,
+    "insight": true,
+    "animal_handling": true,
+    "survival": true
+  },
   "equipment": [
     "Without the complete rules text for:",
     "Radiant class starting equipment",

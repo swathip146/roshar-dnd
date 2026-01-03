@@ -117,17 +117,26 @@ class CharacterManager:
     def add_character(self, character_data: Dict[str, Any]) -> str:
         """Add or update a character"""
         char_id = character_data.get("character_id", character_data.get("name", "unknown"))
-        
+
         # Calculate ability modifiers
         ability_scores = character_data.get("ability_scores", {})
         ability_modifiers = {}
         for ability, score in ability_scores.items():
             ability_modifiers[ability] = self._calculate_ability_modifier(score)
-        
+
         # Calculate proficiency bonus from level
         level = character_data.get("level", 1)
         proficiency_bonus = self._calculate_proficiency_bonus(level)
-        
+
+        # Normalize hit_points format (support both dict and simple int)
+        hp_data = character_data.get("hit_points", {"current": 0, "maximum": 0, "temporary": 0})
+        if isinstance(hp_data, int):
+            # Convert simple int to dict format
+            hp_data = {"current": hp_data, "maximum": hp_data, "temporary": 0}
+        elif isinstance(hp_data, dict):
+            # Ensure all required keys exist
+            hp_data.setdefault("temporary", 0)
+
         character = CharacterData(
             character_id=char_id,
             name=character_data.get("name", char_id),
@@ -139,9 +148,9 @@ class CharacterManager:
             expertise_skills=character_data.get("expertise_skills", []),
             conditions=character_data.get("conditions", []),
             features=character_data.get("features", []),
-            
+
             # Enhanced fields with defaults
-            hit_points=character_data.get("hit_points", {"current": 0, "maximum": 0, "temporary": 0}),
+            hit_points=hp_data,
             armor_class=character_data.get("armor_class", 10),
             saving_throw_proficiencies=character_data.get("saving_throw_proficiencies", []),
             character_class=character_data.get("character_class", "Unknown"),
@@ -167,15 +176,95 @@ class CharacterManager:
             tool_proficiencies=character_data.get("tool_proficiencies", []),
             armor_proficiencies=character_data.get("armor_proficiencies", []),
             weapon_proficiencies=character_data.get("weapon_proficiencies", []),
-            
+
             # Initialize action tracking
             action_history=character_data.get("action_history", [])
         )
-        
+
         self.characters[char_id] = character
         logger.info(f"👤 Added character: {character.name} (Level {level})")
-        
+
         return char_id
+
+    def add_npc(self, npc_data: Dict[str, Any]) -> str:
+        """
+        Add NPC with full D&D stats to CharacterManager.
+
+        Supports both "class" and "character_class" field names for backward compatibility.
+        NPC-specific data (attacks, special_abilities, challenge_rating) are stored as
+        attributes on the CharacterData object.
+
+        Args:
+            npc_data: Dict with D&D stats from NPCStatGenerator or templates
+                Required: name, ability_scores, hit_points (dict format)
+                Optional: level, character_class (or class), race, background, etc.
+
+        Returns:
+            char_id: Unique ID for NPC (e.g., "goblin_001")
+        """
+        # Create a copy to avoid modifying input
+        npc_data_copy = npc_data.copy()
+
+        # Generate unique ID if not provided
+        if "character_id" not in npc_data_copy:
+            base_name = npc_data_copy['name'].lower().replace(' ', '_')
+            # Find next available ID
+            counter = 1
+            char_id = f"{base_name}_{counter:03d}"
+            while char_id in self.characters:
+                counter += 1
+                char_id = f"{base_name}_{counter:03d}"
+            npc_data_copy["character_id"] = char_id
+
+        # Support both "class" and "character_class" field names
+        if "class" in npc_data_copy and "character_class" not in npc_data_copy:
+            npc_data_copy["character_class"] = npc_data_copy["class"]
+
+        # Ensure hit_points is in dict format
+        if isinstance(npc_data_copy.get("hit_points"), dict):
+            # Ensure temporary key exists
+            if "temporary" not in npc_data_copy["hit_points"]:
+                npc_data_copy["hit_points"]["temporary"] = 0
+
+        # Use add_character to create the base CharacterData
+        char_id = self.add_character(npc_data_copy)
+
+        # Store NPC-specific data as attributes
+        character = self.characters[char_id]
+        character.attacks = npc_data.get("attacks", [])
+        character.special_abilities = npc_data.get("special_abilities", [])
+        character.challenge_rating = npc_data.get("challenge_rating", 0.5)
+
+        logger.info(f"🧟 Added NPC: {character.name} (CR {character.challenge_rating})")
+
+        return char_id
+
+    def remove_npc(self, char_id: str) -> bool:
+        """
+        Remove NPC from CharacterManager (e.g., when combat ends).
+
+        Args:
+            char_id: Character ID to remove
+
+        Returns:
+            True if removed, False if not found
+        """
+        if char_id in self.characters:
+            npc_name = self.characters[char_id].name
+            del self.characters[char_id]
+            logger.info(f"🗑️ Removed NPC: {char_id} ({npc_name})")
+            return True
+        return False
+
+    def get_npcs(self) -> List[str]:
+        """
+        Return list of NPC char_ids (for cleanup after combat).
+
+        NPCs have numeric suffixes like "_001", "_002" from add_npc().
+        """
+        import re
+        npc_pattern = re.compile(r'.*_\d{3}$')
+        return [cid for cid in self.characters.keys() if npc_pattern.match(cid)]
     
     def get_skill_data(self, character_id: str, skill: str) -> Dict[str, Any]:
         """
