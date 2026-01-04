@@ -1,8 +1,8 @@
 # Combat Engine Implementation Plan
-**Version:** 4.0 (Optimized with dnd_engine Leverage)
+**Version:** 4.1 (Simplified - No Fallbacks, dnd_engine Only)
 **Date:** 2026-01-03
-**Last Updated:** 2026-01-03 (Phase 3 Optimization Analysis)
-**Status:** Phase 1 Complete ✅ | Phase 1.5 Complete ✅ | Phase 2 Paused ⏸️ | Phase 3 Ready ✅
+**Last Updated:** 2026-01-03 (Removed all fallback logic)
+**Status:** Phase 1 Complete ✅ | Phase 1.5 Complete ✅ | Phase 2 Complete ✅ | Phase 3 Ready ✅
 
 ---
 
@@ -62,34 +62,50 @@
 
 ---
 
-### ⏸️ Phase 2: PAUSED (Combat Initialization)
+### ✅ Phase 2: COMPLETE (Combat Initialization)
 **Started:** 2026-01-03
-**Status:** Architecture finalized, implementation paused for Phase 3 planning and optimization
+**Completed:** 2026-01-03
+**Status:** Implementation complete with all tests passing
 
-**Decision Rationale:** Paused Phase 2 implementation to conduct comprehensive Phase 3 optimization analysis. This ensures Phase 3 maximally leverages dnd_engine before committing to Phase 2 initialization code that interfaces with Phase 3.
+**Deliverables Implemented:**
+- ✅ `components/combat/combat_initializer.py` (649 lines)
+- ✅ `tests/combat/test_combat_initializer.py` (21/21 tests passing - 100% success rate)
 
-**Architecture Confirmed:**
-- ✅ All combatants will sync to dnd_engine Entities (line 114: `self.dnd_wrapper._sync_characters_to_entities()`)
-- ✅ Can leverage dnd_engine's action economy tracking (entity.action_economy)
-- ✅ NPC registry integration simplifies predefined NPC loading
-- ✅ Enemy parsing from scenarios will use LLM-based extraction
+**Test Results:** 21/21 unit tests passing (100% success rate)
 
-**Remaining Tasks (will resume after Phase 3 completion):**
-1. ⬜ Create `components/combat/combat_initializer.py` (~600 lines)
-2. ⬜ Implement enemy parsing from scenarios (_parse_enemies_from_scenario)
-3. ⬜ Implement predefined NPC loading (_load_predefined_npcs)
-4. ⬜ Implement NPC generation (_generate_undefined_npcs)
-5. ⬜ Implement initiative rolling (_roll_initiative)
-6. ⬜ Create combat state initialization
-7. ⬜ Write comprehensive tests
+**Key Features:**
+- ✅ Combat trigger detection (supports combat_trigger flag + keyword fallback)
+- ✅ Enemy parsing from scenario text via LLM (handles markdown, invalid JSON)
+- ✅ Predefined NPC loading from NPC registry (case-insensitive lookup)
+- ✅ NPC generation for undefined enemies (multiple instances supported)
+- ✅ Initiative rolling for all combatants (sorted descending)
+- ✅ Combat state initialization (combatant states, end conditions)
+- ✅ Graceful fallback handling (no registry, no enemies, no trigger)
+
+**Integration:**
+- ✅ NPCStatLoader integration for predefined NPCs (Heralds, etc.)
+- ✅ NPCStatGenerator integration for dynamic NPC creation
+- ✅ CharacterManager integration for NPC storage
+- ✅ DnDEngineWrapper integration for initiative rolls
+- ✅ GameEngine integration for state management
+
+**Test Coverage:**
+- Combat trigger detection (4 tests)
+- Enemy parsing (4 tests)
+- Predefined NPC loading (3 tests)
+- NPC generation (3 tests)
+- Initiative rolling (2 tests)
+- Combatant state initialization (2 tests)
+- Full combat initialization (2 tests)
+- Factory function (1 test)
 
 ---
 
-### ✅ Phase 3: ARCHITECTURE READY (Combat Session Manager - OPTIMIZED)
-**Completed:** 2026-01-03 (Architecture & Optimization Analysis)
-**Status:** Ready for implementation with optimized dnd_engine integration
+### ✅ Phase 3: ARCHITECTURE READY (Combat Session Manager - SIMPLIFIED)
+**Completed:** 2026-01-03 (Architecture, Optimization, and Simplification)
+**Status:** Ready for implementation with simplified dnd_engine-only approach
 
-**Key Optimization Analysis:** Conducted comprehensive method-by-method review of all 28 CombatSessionManager methods to identify dnd_engine leverage opportunities.
+**Key Simplification (v4.1):** Removed ALL fallback logic. Assumes dnd_engine is always available and properly initialized. Direct entity access (`entities[char_id]`) instead of defensive `entities.get(char_id)`.
 
 **Documentation:**
 - ✅ `docs/COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md` - Complete optimization analysis
@@ -102,36 +118,33 @@
 1. **Generic, Data-Driven Design** - ACTION_REGISTRY eliminates hardcoded action lists (~25% code reduction)
 2. **dnd_engine Native Integration** - Leverage battle-tested D&D mechanics (health, action economy, conditions)
 3. **Official Roshar Rules** - Based on Cosmere 5e: Radiant's Handbook v2.0 (D&D 5e-compatible)
-4. **Optimized Methods** - 8 methods improved to better leverage dnd_engine (~50-60 lines saved, 7-8% reduction)
+4. **Simplified Methods** - 8 methods improved, ALL fallbacks removed (~55-60 lines saved, 8-9% reduction)
+5. **Fail Fast Design** - Entity lookup failures raise exceptions immediately for easier debugging
 
-**High Priority Optimizations Identified:**
-1. ✅ **`_check_end_conditions()`** - Use `entity.health.is_dead()/is_unconscious()` (proper D&D 5e death rules)
-2. ✅ **`_is_combatant_dead()`** - Use dnd_engine death save system (unconscious/dead/stabilized)
-3. ✅ **`_can_character_afford_action()`** - Use `entity.action_economy.can_afford()` (eliminates sync issues)
-4. ✅ **`_validate_action()`** - Leverage Action._validate() prerequisites (range/LoS for free)
-
-**Medium Priority Optimizations:**
-5. ✅ **`_get_valid_targets()`** - Add range/LoS checks via entity.senses
-6. ✅ **`_advance_turn()`** - Trigger TURN_START events for conditions
-
-**Low Priority Optimizations:**
-7. ✅ **`_has_actions_remaining()`** - Query dnd_engine directly
-8. ✅ **`_build_npc_context()`** - Dynamic action discovery + dnd_engine HP
+**Simplified Methods (No Fallbacks):**
+1. ✅ **`_check_end_conditions()`** - Use `entity.health.is_dead()/is_unconscious()` exclusively
+2. ✅ **`_is_combatant_dead()`** - dnd_engine death save system only (no combat_state fallback)
+3. ✅ **`_can_character_afford_action()`** - `entity.action_economy.can_afford()` exclusively
+4. ✅ **`_consume_action()`** - Direct entity access, sync to combat_state for UI only
+5. ✅ **`_has_actions_remaining()`** - Query dnd_engine directly, no fallback
+6. ✅ **`_build_npc_context()`** - dnd_engine HP only, dynamic action discovery
+7. ✅ **`_validate_action()`** - Leverage Action._validate() prerequisites
+8. ✅ **`_advance_turn()`** - Trigger TURN_START events
 
 **Architectural Benefits:**
-- ✅ **Code Reduction:** ~50-60 lines saved (7-8% reduction from original ~700 lines)
+- ✅ **Code Reduction:** ~55-60 lines saved (8-9% reduction from original ~700 lines)
+- ✅ **Simplified Logic:** No conditional checks for dnd_engine availability
+- ✅ **Cleaner Code:** Direct entity access, less defensive programming
 - ✅ **New Capabilities:** Death saves, temporary HP, damage resistance, range/LoS, condition events
-- ✅ **Single Source of Truth:** dnd_engine is authoritative for HP, action economy, conditions
+- ✅ **Single Source of Truth:** dnd_engine is authoritative, combat_state is UI-only
 - ✅ **Better D&D 5e Compliance:** Proper death/unconscious/stabilized mechanics
-- ✅ **Event System Ready:** Reactions and interrupts work when implemented
+- ✅ **Fail Fast Debugging:** Entity lookup failures raise exceptions immediately
 
 **Implementation Timeline (Updated):**
-- **Phase 3A: High Priority Optimizations** - 1 day
-- **Phase 3B: Medium Priority Optimizations** - 0.5 days
-- **Phase 3C: Low Priority Optimizations** - 0.5 days
-- **Phase 3D: Roshar Extensions** - 2 days (roshar_actions.py, stormlight_manager.py)
-- **Phase 3E: Testing** - 1 day
-- **Total:** ~5 days for optimized Phase 3 implementation
+- **Phase 3A: Core Session Manager** - 1.5 days (simplified implementation)
+- **Phase 3B: Roshar Extensions** - 2 days (roshar_actions.py, stormlight_manager.py)
+- **Phase 3C: Testing** - 1 day
+- **Total:** ~4.5 days for simplified Phase 3 implementation (0.5 days faster due to no fallback logic)
 
 ---
 
@@ -2290,8 +2303,8 @@ class CombatSessionManager:
         """
         Check if character has resources for action using dnd_engine.
 
-        **OPTIMIZED (2026-01-03):** Uses entity.action_economy.can_afford() when available,
-        eliminating sync issues between combat_state and dnd_engine.
+        **SIMPLIFIED (2026-01-03):** Uses entity.action_economy.can_afford() exclusively.
+        No fallback to manual checking.
 
         Args:
             char_id: Character ID
@@ -2300,37 +2313,17 @@ class CombatSessionManager:
         Returns:
             True if character can afford the action, False otherwise
         """
-        entity = self.dnd_wrapper.entities.get(char_id)
+        entity = self.dnd_wrapper.entities[char_id]
+        action_class = action_metadata.get("action_class")
 
-        # Try to use dnd_engine's can_afford() method if available
-        if entity and hasattr(entity, 'action_economy'):
-            action_class = action_metadata.get("action_class")
-            if action_class and hasattr(action_class, "cost_type") and hasattr(action_class, "cost"):
-                cost_type = action_class.cost_type
-                cost = action_class.cost
+        if action_class and hasattr(action_class, "cost_type") and hasattr(action_class, "cost"):
+            cost_type = action_class.cost_type
+            cost = action_class.cost
 
-                # Use dnd_engine's native can_afford() method
-                return entity.action_economy.can_afford(cost_type, cost)
+            # Use dnd_engine's native can_afford() method
+            return entity.action_economy.can_afford(cost_type, cost)
 
-        # Fallback to manual checking if dnd_engine not available
-        char_state = self.combat_state["combatant_states"][char_id]
-        action_type = action_metadata.get("type", "")
-
-        # For dnd_engine actions, check action economy
-        if action_type in ["dnd_action", "roshar_action"]:
-            action_class = action_metadata.get("action_class")
-            if hasattr(action_class, "cost_type"):
-                if action_class.cost_type == "actions":
-                    return char_state["actions_remaining"] > 0
-                elif action_class.cost_type == "bonus_actions":
-                    return char_state["bonus_actions_remaining"] > 0
-                elif action_class.cost_type == "reactions":
-                    return char_state["reaction_available"]
-
-        # For conditions, typically use actions
-        elif action_type in ["dnd_condition", "roshar_condition"]:
-            return char_state["actions_remaining"] > 0
-
+        # Action has no cost defined, assume it's free
         return True
 
     def _character_meets_requirements(self, character, action_metadata: Dict) -> bool:
@@ -2514,53 +2507,29 @@ class CombatSessionManager:
         """
         Sync action economy from dnd_engine to combat state.
 
-        **UPDATED (2026-01-03)**: dnd_engine Actions automatically consume action economy
-        during action.apply(). This method syncs that state to combat_state tracking.
+        **SIMPLIFIED (2026-01-03)**: dnd_engine Actions automatically consume action economy
+        during action.apply(). This method syncs that state to combat_state for UI display only.
 
-        Note: When using dnd_engine Actions (Attack, Lashing, etc.), action economy is
-        consumed automatically. We just need to sync to combat_state for UI display.
+        Note: Action economy is ONLY tracked in dnd_engine. combat_state values are read-only
+        mirrors for UI purposes.
         """
-        entity = self.dnd_wrapper.entities.get(char_id)
-        if entity and hasattr(entity, 'action_economy'):
-            # Sync from dnd_engine to combat_state
-            char_state = self.combat_state["combatant_states"][char_id]
-            char_state["actions_remaining"] = entity.action_economy.actions
-            char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions
-            char_state["reaction_available"] = entity.action_economy.reactions > 0
-        else:
-            # Fallback: manual tracking if dnd_engine not available
-            metadata = self.action_resolver.ACTION_REGISTRY.get(action_type)
-            if metadata:
-                action_class = metadata.get("action_class")
-                if action_class and hasattr(action_class, "cost_type"):
-                    cost_type = action_class.cost_type
-                    char_state = self.combat_state["combatant_states"][char_id]
+        entity = self.dnd_wrapper.entities[char_id]
 
-                    if cost_type == "actions":
-                        char_state["actions_remaining"] -= 1
-                    elif cost_type == "bonus_actions":
-                        char_state["bonus_actions_remaining"] -= 1
-                    elif cost_type == "reactions":
-                        char_state["reaction_available"] = False
-            else:
-                # Unknown action, assume standard action
-                self.combat_state["combatant_states"][char_id]["actions_remaining"] -= 1
+        # Sync from dnd_engine to combat_state (UI display only)
+        char_state = self.combat_state["combatant_states"][char_id]
+        char_state["actions_remaining"] = entity.action_economy.actions
+        char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions
+        char_state["reaction_available"] = entity.action_economy.reactions > 0
 
     def _has_actions_remaining(self, char_id: str) -> bool:
         """
         Check if combatant has actions/bonus actions remaining.
 
-        **OPTIMIZED (2026-01-03):** Queries dnd_engine directly when available for consistency.
+        **SIMPLIFIED (2026-01-03):** Queries dnd_engine directly. No fallback.
         """
-        entity = self.dnd_wrapper.entities.get(char_id)
-        if entity and hasattr(entity, 'action_economy'):
-            return (entity.action_economy.actions > 0 or
-                    entity.action_economy.bonus_actions > 0)
-
-        # Fallback to combat_state
-        char_state = self.combat_state["combatant_states"][char_id]
-        return (char_state["actions_remaining"] > 0 or
-                char_state["bonus_actions_remaining"] > 0)
+        entity = self.dnd_wrapper.entities[char_id]
+        return (entity.action_economy.actions > 0 or
+                entity.action_economy.bonus_actions > 0)
 
     def _advance_turn(self):
         """
@@ -2689,19 +2658,14 @@ class CombatSessionManager:
         """
         Check if combatant is dead/unconscious using dnd_engine.
 
-        **OPTIMIZED (2026-01-03):** Uses entity.health system to properly distinguish
-        between dead, unconscious, and stabilized states (D&D 5e death save mechanics).
+        **SIMPLIFIED (2026-01-03):** Uses entity.health system exclusively. No fallback.
+        D&D 5e death save mechanics are handled entirely by dnd_engine.
 
         Returns:
             True if combatant is unconscious or dead, False otherwise
         """
-        entity = self.dnd_wrapper.entities.get(char_id)
-        if entity and hasattr(entity, 'health'):
-            # dnd_engine tracks death/unconscious/stabilized properly
-            return entity.health.is_unconscious() or entity.health.is_dead()
-
-        # Fallback to combat_state if dnd_engine entity not available
-        return self.combat_state["combatant_states"][char_id]["hp_current"] <= 0
+        entity = self.dnd_wrapper.entities[char_id]
+        return entity.health.is_unconscious() or entity.health.is_dead()
 
     def _log_combat_action(self, action: Dict, result: Dict):
         """Log action to combat log"""
@@ -2731,8 +2695,8 @@ class CombatSessionManager:
         """
         Build context for NPC AI decision.
 
-        **OPTIMIZED (2026-01-03):** Uses dnd_engine HP and dynamically discovers available
-        actions from ACTION_REGISTRY (enables NPCs to use Roshar abilities automatically).
+        **SIMPLIFIED (2026-01-03):** Uses dnd_engine HP exclusively and dynamically discovers
+        available actions from ACTION_REGISTRY (enables NPCs to use Roshar abilities automatically).
 
         Args:
             npc_char_id: NPC character ID
@@ -2741,16 +2705,11 @@ class CombatSessionManager:
             Context dict for NPC AI with available actions and targets
         """
         npc_char = self.character_manager.characters[npc_char_id]
-        entity = self.dnd_wrapper.entities.get(npc_char_id)
+        entity = self.dnd_wrapper.entities[npc_char_id]
 
-        # Get HP from dnd_engine if available
-        if entity and hasattr(entity, 'health'):
-            npc_hp = entity.health.get_current_hit_points()
-            npc_max_hp = entity.health.get_max_hit_points()
-        else:
-            npc_state = self.combat_state["combatant_states"][npc_char_id]
-            npc_hp = npc_state["hp_current"]
-            npc_max_hp = npc_state["hp_max"]
+        # Get HP from dnd_engine
+        npc_hp = entity.health.get_current_hit_points()
+        npc_max_hp = entity.health.get_max_hit_points()
 
         # Dynamically get available actions from ACTION_REGISTRY
         available_actions = [
@@ -2935,9 +2894,15 @@ The following methods use the generic, data-driven architecture and don't requir
 #### Impact Summary
 
 **Code Reduction:**
-- **High Priority Changes:** ~48 lines saved
-- **Total Savings:** ~50-60 lines (7-8% reduction from original ~700 lines)
-- **Final Size:** ~640-650 lines for CombatSessionManager
+- **High Priority Changes:** ~55-60 lines saved (including fallback removal)
+- **Total Savings:** ~55-60 lines (8-9% reduction from original ~700 lines)
+- **Final Size:** ~640-645 lines for CombatSessionManager
+
+**Simplification:**
+- ✅ **No Fallbacks** - All methods assume dnd_engine is available and working
+- ✅ **Direct Entity Access** - Use `entities[char_id]` instead of `entities.get(char_id)`
+- ✅ **Simpler Logic** - Removed conditional checks for dnd_engine availability
+- ✅ **Cleaner Code** - Less defensive programming, more straightforward implementation
 
 **New Capabilities Enabled:**
 - ✅ **Death Saves** - Proper D&D 5e unconscious/stabilized mechanics
@@ -2949,10 +2914,11 @@ The following methods use the generic, data-driven architecture and don't requir
 
 **Architectural Improvements:**
 - ✅ **Single Source of Truth** - dnd_engine is authoritative for HP, action economy, conditions
-- ✅ **Reduced Sync Issues** - Less state duplication between combat_state and dnd_engine
+- ✅ **No State Duplication** - combat_state is UI-only, dnd_engine is authoritative
 - ✅ **Better D&D 5e Compliance** - Proper death/unconscious/stabilized rules
 - ✅ **Event System Ready** - Reactions and interrupts work when implemented
 - ✅ **Improved Maintainability** - Less code to maintain, more reliance on battle-tested dnd_engine
+- ✅ **Fail Fast** - Entity lookup failures raise exceptions immediately for easier debugging
 
 #### Implementation Approach
 
@@ -2965,22 +2931,27 @@ The optimizations are integrated directly into the Phase 3 implementation plan a
 5. **Document edge cases** - Note any differences between dnd_engine and combat_state behavior
 
 **Risk Mitigation:**
-- All optimized methods include fallback logic to combat_state if dnd_engine not available
-- Comprehensive logging for debugging sync issues
+- All methods assume dnd_engine is available and properly initialized
+- Comprehensive logging for debugging any entity lookup failures
 - Unit tests for each optimized method before integration testing
 
 ---
 
-**2. components/combat/combat_action_resolver.py** (~200 lines - SIMPLIFIED)
+**2. components/combat/combat_action_resolver.py** (~150 lines - SIMPLIFIED)
 
 **MAJOR UPDATE (2026-01-03)**: Unified dispatcher for dnd_engine Actions + Roshar extensions.
+**UPDATE (v4.1)**: ACTION_REGISTRY moved to separate modular file for easier expansion.
 
 ```python
 from dnd.actions import Attack, Move, WeaponSlot
 from dnd.conditions import Dashing
 from dnd.core.base_conditions import Duration, DurationType
-from components.combat.roshar_actions import Lashing, ShardbladeAttack, Soulcasting
-from components.combat.roshar_conditions import StormlightInfused, ShardplateArmored
+from components.combat.roshar_actions import Lashing, ShardbladeAttack, ProgressionHealing
+from components.combat.action_registry import ACTION_REGISTRY  # Modular registry
+from config.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class CombatActionResolver:
     """
@@ -2990,86 +2961,13 @@ class CombatActionResolver:
     - D&D 5e actions → Use dnd_engine native Actions
     - Roshar abilities → Custom Actions following dnd_engine patterns
     - Both types integrate seamlessly via event system
+    - ACTION_REGISTRY is external for modular expansion
+
+    **Action Registry:**
+    - Minimal initial registry (5-7 core actions) - Phase 3
+    - Expanded post-Phase 3 with full Surge abilities (~30+ actions)
+    - See: components/combat/action_registry.py and docs/ROSHAR_COMBAT_MECHANICS_INTEGRATION.md
     """
-
-    # Action registry: D&D 5e + Roshar
-    ACTION_REGISTRY = {
-        # ========================================
-        # D&D 5e ACTIONS (via dnd_engine)
-        # ========================================
-        "attack": {
-            "type": "dnd_action",
-            "action_class": Attack,
-            "params": ["target_entity_uuid", "weapon_slot"],
-            "description": "Standard melee/ranged attack"
-        },
-        "move": {
-            "type": "dnd_action",
-            "action_class": Move,
-            "params": ["end_position"],
-            "description": "Move to a position"
-        },
-
-        # ========================================
-        # D&D 5e CONDITIONS (via dnd_engine)
-        # ========================================
-        "dash": {
-            "type": "dnd_condition",
-            "condition_class": Dashing,
-            "duration": Duration(duration=1, duration_type=DurationType.TURNS),
-            "description": "Double movement speed"
-        },
-        # TODO: Add Dodging condition to dnd_engine
-        # "dodge": {
-        #     "type": "dnd_condition",
-        #     "condition_class": Dodging,
-        #     "duration": Duration(duration=1, duration_type=DurationType.TURNS)
-        # },
-
-        # ========================================
-        # ROSHAR ACTIONS (custom extensions)
-        # ========================================
-        "lashing": {
-            "type": "roshar_action",
-            "action_class": Lashing,
-            "params": ["target_entity_uuid", "lashing_type"],
-            "description": "Windrunner gravity manipulation",
-            "requires": "surgebinding"
-        },
-        "shardblade_attack": {
-            "type": "roshar_action",
-            "action_class": ShardbladeAttack,
-            "params": ["target_entity_uuid"],
-            "description": "Attack with summoned Shardblade",
-            "requires": "shardblade"
-        },
-        "soulcasting": {
-            "type": "roshar_action",
-            "action_class": Soulcasting,
-            "params": ["target_entity_uuid", "transmutation_type"],
-            "description": "Transmute matter (Elsecaller/Lightweaver)",
-            "requires": "soulcasting"
-        },
-
-        # ========================================
-        # ROSHAR CONDITIONS (custom extensions)
-        # ========================================
-        "infuse_stormlight": {
-            "type": "roshar_condition",
-            "condition_class": StormlightInfused,
-            "params": ["stormlight_amount"],
-            "duration": None,  # Duration managed by condition (depletes when Stormlight runs out)
-            "description": "Infuse body with Stormlight (healing, enhancement)",
-            "requires": "stormlight_spheres"
-        },
-        "shardplate_armor": {
-            "type": "roshar_condition",
-            "condition_class": ShardplateArmored,
-            "duration": None,  # Permanent while wearing
-            "description": "Shardplate protection (+5 AC, damage resistance)",
-            "requires": "shardplate"
-        }
-    }
 
     def __init__(self, dnd_engine_wrapper, character_manager, combat_state):
         self.dnd_wrapper = dnd_engine_wrapper
@@ -3077,15 +2975,16 @@ class CombatActionResolver:
         self.combat_state = combat_state
         self.logger = get_logger(__name__)
 
+
     def resolve_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Unified action resolution for D&D + Roshar.
 
         Args:
             action: {
-                "actor": "aggi",
-                "action_type": "attack" | "lashing" | "infuse_stormlight",
-                "target": "goblin_001",  # Optional
+                "actor": "char_id",
+                "action_type": "attack" | "lashing" | "progression_healing",
+                "target": "target_char_id",  # Optional
                 ...params
             }
 
@@ -3098,15 +2997,15 @@ class CombatActionResolver:
         """
         action_type = action["action_type"]
 
-        # Lookup in registry
-        if action_type not in self.ACTION_REGISTRY:
+        # Lookup in external registry
+        if action_type not in ACTION_REGISTRY:
             self.logger.error(f"Unknown action type: {action_type}")
             return {
                 "success": False,
                 "error": f"Unknown action: {action_type}"
             }
 
-        metadata = self.ACTION_REGISTRY[action_type]
+        metadata = ACTION_REGISTRY[action_type]
 
         # Dispatch based on type
         if metadata["type"] in ["dnd_action", "roshar_action"]:
@@ -3279,7 +3178,280 @@ class CombatActionResolver:
 - **Event system** enables reactions (Shield, Counterspell, etc.)
 - **Easy to extend** - just add to ACTION_REGISTRY
 
-**3. components/combat/combat_narrative_generator.py** (~400 lines)
+**3. components/combat/action_registry.py** (~150 lines - NEW v4.1)
+
+**ADDED (2026-01-03)**: Modular ACTION_REGISTRY for easier expansion and maintenance.
+
+```python
+"""
+Combat Action Registry - Modular Action Definitions
+
+This file defines all available combat actions for the Roshar D&D combat system.
+Actions are registered here with metadata for generic discovery and validation.
+
+**Design Philosophy:**
+- D&D 5e actions use dnd_engine native implementations
+- Roshar-specific actions implemented as custom Action classes
+- Registry enables metadata-driven discovery (no hardcoded action lists)
+
+**Expansion Plan:**
+- Phase 3: Minimal registry (5-7 core actions)
+- Post-Phase 3: Full Surge abilities (~30+ actions)
+- See: docs/ROSHAR_COMBAT_MECHANICS_INTEGRATION.md for complete Surge list
+"""
+
+from dnd.actions import Attack, Move, WeaponSlot
+from dnd.conditions import Dashing, Dodging
+from dnd.core.base_conditions import Duration, DurationType
+
+# Import Roshar actions (to be implemented in Phase 3)
+from components.combat.roshar_actions import (
+    Lashing,
+    ShardbladeAttack,
+    ProgressionHealing
+)
+
+
+# ============================================================================
+# MINIMAL INITIAL REGISTRY (Phase 3)
+# ============================================================================
+
+ACTION_REGISTRY = {
+    # ========================================================================
+    # D&D 5e STANDARD ACTIONS (via dnd_engine)
+    # ========================================================================
+
+    "attack": {
+        "type": "dnd_action",
+        "action_class": Attack,
+        "description": "Attack with weapon",
+        "params": ["target_entity_uuid", "weapon_slot"],
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": None
+    },
+
+    "move": {
+        "type": "dnd_action",
+        "action_class": Move,
+        "description": "Move to new position",
+        "params": ["end_position"],
+        "cost_type": "movement",
+        "cost": None,  # Variable based on distance
+        "requires": None
+    },
+
+    # ========================================================================
+    # D&D 5e STANDARD CONDITIONS (via dnd_engine)
+    # ========================================================================
+
+    "dash": {
+        "type": "dnd_condition",
+        "condition_class": Dashing,
+        "description": "Double movement speed",
+        "duration": Duration(1, DurationType.TURNS),
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": None
+    },
+
+    "dodge": {
+        "type": "dnd_condition",
+        "condition_class": Dodging,
+        "description": "Impose disadvantage on attacks against you",
+        "duration": Duration(1, DurationType.TURNS),
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": None
+    },
+
+    # ========================================================================
+    # ROSHAR-SPECIFIC ACTIONS (Custom implementations)
+    # ========================================================================
+
+    "lashing": {
+        "type": "roshar_action",
+        "action_class": Lashing,
+        "description": "Manipulate gravity (Windrunner/Skybreaker)",
+        "params": ["target_entity_uuid", "lashing_type", "target_direction"],
+        "cost_type": "actions",
+        "cost": 1,
+        "stormlight_cost": 1,
+        "requires_order": ["Windrunner", "Skybreaker"],
+        "min_surgebinding_level": 1,
+        "surge_type": "Gravitation"
+    },
+
+    "shardblade_attack": {
+        "type": "roshar_equipment",
+        "action_class": ShardbladeAttack,
+        "description": "Attack with Shardblade (soul damage)",
+        "params": ["target_entity_uuid"],
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": "shardblade_summoned"
+    },
+
+    "progression_healing": {
+        "type": "roshar_action",
+        "action_class": ProgressionHealing,
+        "description": "Heal wounds with Progression (Edgedancer/Truthwatcher)",
+        "params": ["target_entity_uuid", "healing_amount"],
+        "cost_type": "actions",
+        "cost": 1,
+        "stormlight_cost": 2,
+        "requires_order": ["Edgedancer", "Truthwatcher"],
+        "min_surgebinding_level": 2,
+        "surge_type": "Progression"
+    }
+}
+
+
+# ============================================================================
+# FUTURE EXPANSION (Post-Phase 3)
+# ============================================================================
+"""
+Planned additions (~30+ actions total):
+
+GRAVITATION SURGE (Windrunner, Skybreaker):
+- full_lashing: Reverse personal gravity completely
+- reverse_lashing: Create gravity source on object
+- gravitation_jump: Launch into air with partial lashing
+
+ADHESION SURGE (Windrunner, Bondsmith):
+- adhesion_bind: Stick objects together
+- adhesion_shield: Create pressure barrier
+- adhesion_climb: Stick to surfaces
+
+DIVISION SURGE (Dustbringer, Skybreaker):
+- division_blast: Disintegrate object
+- division_flame: Create controlled fire
+- friction_manipulation: Reduce friction
+
+PROGRESSION SURGE (Edgedancer, Truthwatcher):
+- regrowth_major: Heal critical wounds (3d8+mod)
+- regrowth_minor: Heal light wounds (1d8+mod)
+- life_sense: Detect living creatures
+
+TRANSFORMATION SURGE (Lightweaver, Elsecaller):
+- soulcasting_stone: Transform to stone
+- soulcasting_smoke: Transform to smoke
+- soulcasting_fire: Transform to fire
+
+TRANSPORTATION SURGE (Elsecaller, Willshaper):
+- elsecalling: Teleport through Cognitive Realm
+- cognitive_step: Short-range teleport (30 ft)
+
+ILLUMINATION SURGE (Lightweaver, Truthwatcher):
+- illusion_visual: Create visual illusion
+- illusion_sound: Create auditory illusion
+- illusion_full: Create full sensory illusion
+
+TENSION SURGE (Stoneward, Willshaper):
+- tension_harden: Increase object durability
+- tension_soften: Weaken object structure
+
+COHESION SURGE (Stoneward, Dustbringer):
+- cohesion_mold: Shape stone/crystal
+- cohesion_shatter: Break crystalline structures
+
+SPIRITUAL ADHESION (Bondsmith - unique):
+- spiritual_connection: Form Connection bond
+- spiritual_healing: Heal spirit/Connection damage
+
+SHARDPLATE ACTIONS:
+- shardplate_summon: Summon living Shardplate (4th Ideal)
+- shardplate_repair: Repair Shardplate with Stormlight
+- shardplate_strength: Enhanced strength burst (+4 STR for 1 turn)
+
+SHARDBLADE ACTIONS:
+- shardblade_summon: Summon Shardblade (1 Bonus Action)
+- shardblade_dismiss: Dismiss to mist (Free Action)
+- shardblade_form_change: Change living blade form (Bonus Action)
+
+VOIDBINDING (Fused - enemy abilities):
+- voidbinding_corruption: Spread Voidlight corruption
+- gravity_spren: Manipulate gravity (similar to Lashing)
+- destruction_surge: Enhanced Division-like power
+
+See docs/ROSHAR_COMBAT_MECHANICS_INTEGRATION.md for complete specifications.
+"""
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def get_actions_by_type(action_type: str) -> Dict[str, Dict]:
+    """Get all actions of specified type."""
+    return {
+        name: metadata
+        for name, metadata in ACTION_REGISTRY.items()
+        if metadata["type"] == action_type
+    }
+
+
+def get_actions_for_radiant_order(order: str) -> Dict[str, Dict]:
+    """Get all actions available to specific Radiant Order."""
+    return {
+        name: metadata
+        for name, metadata in ACTION_REGISTRY.items()
+        if ("requires_order" in metadata and
+            order in metadata["requires_order"])
+    }
+
+
+def get_actions_requiring_stormlight() -> Dict[str, Dict]:
+    """Get all actions that consume Stormlight."""
+    return {
+        name: metadata
+        for name, metadata in ACTION_REGISTRY.items()
+        if "stormlight_cost" in metadata
+    }
+```
+
+**Registry Structure:**
+
+Each action entry contains:
+- `type`: `"dnd_action"`, `"dnd_condition"`, `"roshar_action"`, `"roshar_equipment"`
+- `action_class`/`condition_class`: Python class implementing the action
+- `description`: Human-readable description
+- `params`: List of required parameters
+- `cost_type`: `"actions"`, `"bonus_actions"`, `"reactions"`, `"movement"`
+- `cost`: Action economy cost (integer or None for variable)
+- `stormlight_cost`: Stormlight spheres consumed (Roshar actions only)
+- `requires`: Prerequisites (e.g., `"shardblade_summoned"`)
+- `requires_order`: Radiant Orders that can use (Roshar actions only)
+- `min_surgebinding_level`: Minimum Ideal level required
+- `surge_type`: Which Surge this action uses
+
+**Expansion Path:**
+
+1. **Phase 3 (Initial)**: 7 core actions
+   - 2 D&D actions (attack, move)
+   - 2 D&D conditions (dash, dodge)
+   - 3 Roshar actions (lashing, shardblade_attack, progression_healing)
+
+2. **Post-Phase 3 (Full Surge System)**: ~30+ actions
+   - 10 Surges × 3-4 abilities each
+   - Shardplate actions (summon, repair, strength)
+   - Shardblade actions (summon, dismiss, form change)
+   - Voidbinding (enemy abilities)
+
+3. **Future (Advanced)**: ~50+ actions
+   - Resonance abilities (Order-specific synergies)
+   - Herald abilities (advanced powers)
+   - Fused forms (Regal powers)
+   - Listener Rhythms (Singer abilities)
+
+**Benefits:**
+- ✅ **Modular:** Add actions without modifying CombatSessionManager
+- ✅ **Discoverable:** Helper functions for querying by type/order/requirements
+- ✅ **Maintainable:** Single file for all action definitions
+- ✅ **Extensible:** Clear path from minimal (7) to full (~30+) to advanced (~50+)
+- ✅ **Type-Safe:** Enforced metadata structure for validation
+
+**4. components/combat/combat_narrative_generator.py** (~400 lines)
 
 ```python
 class CombatNarrativeGenerator:
@@ -4072,14 +4244,16 @@ def test_game_with_combat():
 - [x] Integration with CharacterManager verified
 - [x] Documentation complete (3 new docs created)
 
-### Phase 2 🔄 IN PROGRESS
-- [ ] Combat initializes from scenario
-- [ ] Enemies extracted from scene/gm_notes
-- [ ] Predefined NPCs loaded from NPC registry (simplified approach)
-- [ ] Generated NPCs created for undefined enemies
-- [ ] Initiative rolls correctly
-- [ ] Combat state dict created properly
-- [ ] All Phase 2 tests pass (>90% coverage)
+### Phase 2 (Combat Initialization) ✅ COMPLETE
+- [x] Combat initializes from scenario
+- [x] Enemies extracted from scene/gm_notes (LLM parsing with JSON validation)
+- [x] Predefined NPCs loaded from NPC registry (simplified approach)
+- [x] Generated NPCs created for undefined enemies (multiple instances supported)
+- [x] Initiative rolls correctly (d20 + DEX mod, sorted descending)
+- [x] Combat state dict created properly (combatants, initiative order, states)
+- [x] All Phase 2 tests pass (21/21 tests passing - 100% success rate)
+- [x] Combat trigger detection (flag + keyword fallback)
+- [x] Graceful fallback handling (no registry, no enemies, no trigger)
 
 ### Phase 3
 - [ ] Combat loop runs to completion
@@ -4111,10 +4285,12 @@ roshar-dnd/
 │   ├── combat/                                    # NEW
 │   │   ├── __init__.py                            ✅ Created
 │   │   ├── npc_stat_generator.py                 ✅ Created (475 lines)
-│   │   ├── combat_initializer.py                 ⬜ Phase 2 (~600 lines)
+│   │   ├── combat_initializer.py                 ✅ Created (649 lines)
+│   │   ├── action_registry.py                    ⬜ Phase 3 (~150 lines) NEW v4.1
 │   │   ├── combat_session_manager.py             ⬜ Phase 3 (~700 lines)
-│   │   ├── combat_action_resolver.py             ⬜ Phase 3 (~400 lines)
-│   │   └── combat_narrative_generator.py         ⬜ Phase 3 (~400 lines)
+│   │   ├── combat_action_resolver.py             ⬜ Phase 3 (~150 lines)
+│   │   ├── combat_narrative_generator.py         ⬜ Phase 3 (~400 lines)
+│   │   └── roshar_actions.py                     ⬜ Phase 3 (~400 lines)
 │   ├── character_manager.py                       ✅ Updated (+NPC methods)
 │   └── game_engine.py                             (no changes needed)
 │
@@ -4142,7 +4318,7 @@ roshar-dnd/
 │   ├── combat/                                    # NEW
 │   │   ├── __init__.py                            ✅ Created
 │   │   ├── test_npc_stat_generator.py            ✅ Created (358 lines)
-│   │   ├── test_combat_initializer.py            ⬜ Phase 2 (~400 lines)
+│   │   ├── test_combat_initializer.py            ✅ Created (21/21 tests passing)
 │   │   ├── test_combat_session_manager.py        ⬜ Phase 3 (~400 lines)
 │   │   ├── test_combat_action_resolver.py        ⬜ Phase 3 (~200 lines)
 │   │   ├── test_combat_integration.py            ⬜ Phase 4 (~300 lines)
@@ -4158,18 +4334,24 @@ roshar-dnd/
 │
 └── haystack_dnd_game.py                            (no changes needed yet)
 
-✅ NEW FILES CREATED: 11
+✅ NEW FILES CREATED: 12 (includes combat_initializer.py)
 ✅ MODIFIED FILES: 3
-✅ TOTAL NEW LINES: ~1,750
-⬜ REMAINING FILES: 11
-⬜ REMAINING LINES: ~4,050
+✅ TOTAL NEW LINES: ~2,400 (includes 649 lines from combat_initializer.py)
+⬜ REMAINING FILES: 11 (includes action_registry.py)
+⬜ REMAINING LINES: ~3,550
 ```
 
 **Progress Summary:**
 - **Phase 1:** 100% Complete (4 files, 8/8 tests passing)
 - **Phase 1.5:** 100% Complete (7 files, 10/10 tests passing)
-- **Phase 2:** 0% Complete (starting implementation)
-- **Overall:** ~30% Complete
+- **Phase 2:** 100% Complete (1 file, 21/21 tests passing) ✅
+- **Overall:** ~40% Complete (up from 30%)
+
+**v4.1 Updates:**
+- ✅ All fallback logic removed (simplified implementation)
+- ✅ ACTION_REGISTRY moved to modular file (easier expansion)
+- ✅ Minimal registry defined (7 core actions)
+- ✅ Expansion path documented (~30+ actions post-Phase 3)
 
 ---
 
