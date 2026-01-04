@@ -105,13 +105,13 @@ See **[legacy/README.md](legacy/README.md)** for complete details on what was mo
 **Latest:** Phase 3 optimization analysis complete with dnd_engine integration improvements
 
 ### Master Plans
-- **[COMBAT_ENGINE_IMPLEMENTATION_PLAN.md](COMBAT_ENGINE_IMPLEMENTATION_PLAN.md)** - Complete combat system implementation plan (4400+ lines, Version 4.0)
+- **[COMBAT_ENGINE_IMPLEMENTATION_PLAN.md](COMBAT_ENGINE_IMPLEMENTATION_PLAN.md)** - Complete combat system implementation plan (4400+ lines, Version 4.1)
   - 4-phase implementation strategy
   - Generic, data-driven architecture with ACTION_REGISTRY
-  - **UPDATED:** Phase 3 optimized with dnd_engine leverage (8 methods improved, ~50-60 lines saved)
+  - **UPDATED:** Version 4.1 - All fallback logic removed, simplified dnd_engine-only approach
   - dnd_engine integration for HP tracking, action economy, death saves
   - Roshar mechanics support (Cosmere 5e compatible)
-  - All component specifications with optimized code examples
+  - All component specifications with simplified code examples
 
 - **[COMBAT_SYSTEM_READINESS_REPORT.md](COMBAT_SYSTEM_READINESS_REPORT.md)** - Overall status and readiness assessment
   - Phase 1/1.5 completion summary (✅ COMPLETE - 18/18 tests passing)
@@ -140,13 +140,27 @@ See **[legacy/README.md](legacy/README.md)** for complete details on what was mo
   - Shardblade/Shardplate rules (soul damage, armor HP)
   - Updated ACTION_REGISTRY with Roshar actions
 
-- **[COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md](COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md)** - **NEW** Phase 3 optimization analysis
+- **[COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md](COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md)** - Phase 3 optimization analysis
   - Method-by-method review of all 28 CombatSessionManager methods
   - Identifies dnd_engine leverage opportunities
   - 8 methods optimized (4 high priority, 2 medium, 2 low)
   - 16 methods already optimal with generic architecture
   - Code reduction: ~50-60 lines (7-8% improvement)
   - New capabilities: death saves, temp HP, resistance, range/LoS, condition events
+
+- **[CHARACTER_MANAGER_ROSHAR_UPDATE.md](CHARACTER_MANAGER_ROSHAR_UPDATE.md)** - CharacterManager Roshar combat support (2026-01-03)
+  - 10 new CharacterData fields (Stormlight, Shardblade, Shardplate, Surgebinding)
+  - 9 new management methods (4 Stormlight, 3 Shardblade, 3 Shardplate)
+  - Auto-migration from legacy investiture_points
+  - Backward compatibility with existing characters
+  - ✅ Fully tested (6/6 test categories passing)
+
+- **[COMBAT_PLAN_SIMPLIFICATION_V4.1.md](COMBAT_PLAN_SIMPLIFICATION_V4.1.md)** - **NEW** Version 4.1 simplification (2026-01-03)
+  - Removed ALL fallback logic from combat plan
+  - Direct entity access (`entities[char_id]`) instead of defensive `.get()`
+  - Fail-fast philosophy for easier debugging
+  - ~5-10 additional lines saved per method
+  - 0.5 days faster implementation (4.5 days vs 5 days)
 
 ### Implementation Reports
 - **[PHASE_1_IMPLEMENTATION_COMPLETE.md](PHASE_1_IMPLEMENTATION_COMPLETE.md)** - Phase 1 completion report
