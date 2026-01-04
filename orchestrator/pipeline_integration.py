@@ -24,6 +24,8 @@ from agents.scenario_generator_agent import create_scenario_generator_agent, Pro
 from agents.rag_retriever_agent import create_rag_retriever_agent_simplified, RAGFormatterComponent
 from agents.npc_controller_agent import create_npc_controller_agent
 from agents.main_interface_agent_fixed import create_fixed_interface_agent
+from agents.combat_agent import create_combat_agent
+from agents.npc_combat_ai import create_npc_combat_ai
 from components.shared_contract import (
     normalize_incoming, new_dto, RequestDTO, GameResponseDTO, RAGBlock, Scenario,
     request_dto_from_game_request, game_response_from_dto,
@@ -179,25 +181,109 @@ class PipelineOrchestrator:
             interface_agent = create_fixed_interface_agent()
             debug_print("ORCHESTRATOR", "✅ Created fixed interface agent")
             
-            logger.debug("🔧 Step 8: Storing agents in agents dict...")
+            logger.debug("🔧 Step 8: Creating combat components...")
+            # Create combat components only if we have necessary dependencies
+            combat_agent = None
+            if (hasattr(self, 'game_engine') and self.game_engine and
+                hasattr(self, 'character_manager') and self.character_manager):
+
+                try:
+                    from components.combat.combat_initializer import CombatInitializer
+                    from components.combat.combat_action_resolver import CombatActionResolver
+                    from components.combat.combat_narrative_generator import CombatNarrativeGenerator
+                    from components.dnd_engine_wrapper import DnDEngineWrapper
+                    from core.npc_stat_loader import NPCStatLoader
+                    from components.combat.npc_stat_generator import NPCStatGenerator
+
+                    # Initialize DnD engine wrapper if not already available
+                    if not hasattr(self, 'dnd_wrapper') or self.dnd_wrapper is None:
+                        self.dnd_wrapper = DnDEngineWrapper(self.game_engine, self.character_manager)
+                        logger.debug("   Created DnDEngineWrapper for combat")
+
+                    # Create NPC stat loader and generator
+                    npc_registry = NPCStatLoader(npc_directory="data/players/")
+                    logger.debug(f"   Loaded {npc_registry.get_npc_count()} NPCs into registry")
+
+                    npc_generator_llm = config_manager.create_generator(agent_name="npc_generator", temperature=0.2)
+                    npc_stat_generator = NPCStatGenerator(
+                        llm=npc_generator_llm,
+                        document_store=self.shared_document_store
+                    )
+                    logger.debug("   Created NPCStatGenerator")
+
+                    # Create combat initializer
+                    combat_initializer = CombatInitializer(
+                        game_engine=self.game_engine,
+                        character_manager=self.character_manager,
+                        dnd_engine_wrapper=self.dnd_wrapper,
+                        npc_stat_generator=npc_stat_generator,
+                        npc_registry=npc_registry,
+                        llm=config_manager.create_generator(agent_name="combat_init", temperature=0.1)
+                    )
+                    logger.debug("   Created CombatInitializer")
+
+                    # Create combat action resolver
+                    combat_action_resolver = CombatActionResolver(
+                        dnd_engine_wrapper=self.dnd_wrapper,
+                        character_manager=self.character_manager,
+                        combat_state={}  # Will be set by session manager
+                    )
+                    logger.debug("   Created CombatActionResolver")
+
+                    # Create combat narrative generator
+                    combat_narrative_gen = CombatNarrativeGenerator(
+                        llm=config_manager.create_generator(agent_name="combat_narrative", temperature=0.7)
+                    )
+                    logger.debug("   Created CombatNarrativeGenerator")
+
+                    # Create NPC combat AI
+                    npc_combat_ai = create_npc_combat_ai(
+                        llm_generator=config_manager.create_generator(agent_name="npc_combat_ai", temperature=0.3)
+                    )
+                    logger.debug("   Created NPCCombatAI")
+
+                    # Create combat agent
+                    combat_agent = create_combat_agent(
+                        game_engine=self.game_engine,
+                        character_manager=self.character_manager,
+                        dnd_engine_wrapper=self.dnd_wrapper,
+                        combat_initializer=combat_initializer,
+                        combat_action_resolver=combat_action_resolver,
+                        combat_narrative_generator=combat_narrative_gen,
+                        npc_combat_ai=npc_combat_ai
+                    )
+                    logger.info("   ✅ Combat system initialized successfully")
+
+                except ImportError as ie:
+                    logger.warning(f"   ⚠️ Combat system not available (missing modules): {ie}")
+                except Exception as ce:
+                    logger.warning(f"   ⚠️ Combat system initialization failed: {ce}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                logger.warning("   ⚠️ Combat system disabled (missing game_engine or character_manager)")
+
+            logger.debug("🔧 Step 9: Storing agents in agents dict...")
             self.agents = {
                 "scenario_generator": scenario_agent,
                 "rag_retriever": rag_agent,
                 "npc_controller": npc_agent,
                 "main_interface": interface_agent  # Fixed system agent
             }
-            logger.info(f"✅ Step 8 complete: Agents stored. Keys: {list(self.agents.keys())}")
-            
+            if combat_agent:
+                self.agents["combat"] = combat_agent
+            logger.info(f"✅ Step 9 complete: Agents stored. Keys: {list(self.agents.keys())}")
+
             if self.shared_document_store:
                 logger.info(f"📚 Pipeline Orchestrator: Using shared document store for '{self.shared_document_store.collection_name}'")
             else:
                 logger.warning("Pipeline Orchestrator: No shared document store provided - RAG will use fallback responses")
-            
+
             # Initialize pipelines
-            logger.debug("🔧 Step 9: Creating pipelines...")
+            logger.debug("🔧 Step 10: Creating pipelines...")
             self._create_pipelines()
             print("✅ Pipeline infrastructure initialization complete!")
-            
+
         except Exception as e:
             pipeline_logger.error(f"Failed to initialize pipeline infrastructure: {e}")
             logger.error(f"Pipeline initialization error: {e}")
@@ -268,7 +354,16 @@ class PipelineOrchestrator:
             interface_pipeline.connect("prompt_builder", "interface_agent")
             self.pipelines["interface_processing"] = interface_pipeline
             debug_print("PIPELINES", "✅ Created Interface pipeline")
-            
+
+            # Combat Pipeline (single component - combat agent handles everything)
+            if "combat" in self.agents:
+                combat_pipeline = Pipeline()
+                combat_pipeline.add_component("combat_agent", self.agents["combat"])
+                self.pipelines["combat_pipeline"] = combat_pipeline
+                debug_print("PIPELINES", "✅ Created Combat pipeline")
+            else:
+                debug_print("PIPELINES", "⚠️ Combat pipeline skipped (combat agent not available)")
+
             debug_print("PIPELINES", f"🔗 All pipelines created with proper connections: {list(self.pipelines.keys())}")
             
         except Exception as e:
@@ -290,7 +385,10 @@ class PipelineOrchestrator:
             debug_print("PIPELINE", f"🎯 DTO routing", {"type": dto_type, "route": route, "correlation_id": correlation_id})
             
             # Route based on DTO type or explicit route
-            if route == "rag_pipeline" or dto_type == "rag_query":
+            if route == "combat_pipeline" or dto_type == "combat":
+                debug_print("PIPELINE", "⚔️ Routing to Combat pipeline")
+                pipeline_result = self._run_combat_pipeline(dto)
+            elif route == "rag_pipeline" or dto_type == "rag_query":
                 debug_print("PIPELINE", "🔍 Routing to RAG pipeline")
                 pipeline_result = self._run_rag_pipeline(dto)
             elif route == "npc_pipeline" or dto_type == "npc_interaction":
@@ -671,6 +769,66 @@ class PipelineOrchestrator:
         except Exception as e:
             pipeline_logger.error(f"NPC pipeline failed: {e}")
             return {"error": f"NPC pipeline failed: {e}"}
+
+    def _run_combat_pipeline(self, dto: RequestDTO) -> GameResponseDTO:
+        """
+        Run combat pipeline - executes complete combat session.
+
+        Args:
+            dto: RequestDTO with:
+                - scenario_context: Scenario with combat trigger
+                - player_character_id: PC char_id
+                - _game_engine_ref: GameEngine reference
+
+        Returns:
+            GameResponseDTO with combat results
+        """
+        debug_print("COMBAT", "⚔️ Starting combat pipeline")
+
+        combat_pipeline = self.pipelines.get("combat_pipeline")
+        if not combat_pipeline:
+            logger.error("Combat pipeline not available")
+            return create_unified_game_response(
+                response_type="error",
+                error="Combat pipeline not available"
+            )
+
+        try:
+            # Run combat pipeline (combat agent handles complete combat session)
+            debug_print("COMBAT", "🎯 Running combat agent")
+            result = combat_pipeline.run({
+                "combat_agent": {"dto": dto}
+            })
+
+            # Extract combat agent response
+            if "combat_agent" in result and "response" in result["combat_agent"]:
+                combat_response = result["combat_agent"]["response"]
+                debug_print("COMBAT", f"✅ Combat complete: {combat_response.get('outcome')}")
+
+                # Create unified game response
+                return create_unified_game_response(
+                    response_type=combat_response.get("response_type", "combat_complete"),
+                    scenario={
+                        "scene": combat_response.get("narrative", "Combat ended."),
+                        "choices": [],
+                        "gm_notes": f"Combat: {combat_response.get('outcome')} in {combat_response.get('rounds')} rounds"
+                    }
+                )
+            else:
+                logger.error("Invalid combat pipeline response format")
+                return create_unified_game_response(
+                    response_type="error",
+                    error="Invalid combat pipeline response"
+                )
+
+        except Exception as e:
+            logger.error(f"Combat pipeline failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return create_unified_game_response(
+                response_type="error",
+                error=f"Combat pipeline failed: {e}"
+            )
 
     def _create_enhanced_manual_scenario(self, dto: RequestDTO) -> Dict[str, Any]:
         """Create enhanced manual scenario using available context"""
