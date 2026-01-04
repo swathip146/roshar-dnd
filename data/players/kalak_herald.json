@@ -1,0 +1,142 @@
+{
+  "character_id": "kalak_herald",
+  "name": "Kalak",
+  "race": "Herald",
+  "character_class": "Herald",
+  "level": 20,
+  "background": "Herald Mentor",
+  "ability_scores": {
+    "strength": 22,
+    "dexterity": 18,
+    "constitution": 24,
+    "intelligence": 20,
+    "wisdom": 16,
+    "charisma": 19
+  },
+  "hit_points": {
+    "current": 400,
+    "maximum": 400,
+    "temporary": 0
+  },
+  "armor_class": 22,
+  "proficiency_bonus": 6,
+  "skills": {
+    "athletics": true,
+    "history": true,
+    "insight": true,
+    "intimidation": true,
+    "investigation": true,
+    "medicine": true,
+    "perception": true,
+    "persuasion": true,
+    "religion": true,
+    "survival": true
+  },
+  "expertise_skills": [
+    "athletics",
+    "history",
+    "religion"
+  ],
+  "equipment": [
+    "Kalak's Honorblade (Legendary weapon, grants Windrunner and Stoneward Surges)",
+    "Ancient Shardplate (Adaptive, changes properties based on need)",
+    "Herald's Cloak (Absorbs and stores Stormlight from any source)",
+    "Perfect Dun Spheres x10 (Never lose their Stormlight)",
+    "Ancient Maps of Roshar (Show hidden locations and Oathgates)",
+    "Oathpact Medallion (Symbol of Herald authority)",
+    "Portable Fabrial Workshop (Can create and repair fabrials)",
+    "Herald's Seal of Authority (Grants access to any location or organization)"
+  ],
+  "spells": [],
+  "features": [
+    "Immortal: Cannot die of old age, resurrects after death through the Oathpact",
+    "Honorblade Bond: Can use any Surge through Kalak's Honorblade (Windrunner/Stoneward Surges: Adhesion and Gravitation, Cohesion and Tension)",
+    "Stormlight Infusion: Automatically draws Stormlight from storms and can hold massive amounts",
+    "Ancient Knowledge: Knows the complete history of all Desolations and their patterns",
+    "Herald Authority: Commands natural respect and obedience from Knights Radiant and spren",
+    "Planar Awareness: Can sense threats to the Physical Realm from Shadesmar and the Spiritual Realm",
+    "Oathpact Connection: Mystically linked to the other nine Heralds, can sense their locations and status",
+    "Divine Resistance: Resistance to all damage types, immunity to disease and poison",
+    "Legendary Actions: Can take 3 legendary actions per turn in combat",
+    "Lair Actions: Controls environmental effects in places of power (Urithiru, ancient battlefields)",
+    "Master Combatant: Proficiency with all weapons and armor, expertise in military strategy",
+    "Surgebinding Mastery: Can teach and enhance the abilities of Knights Radiant",
+    "Herald's Presence: Inspires courage in allies and can break enemy morale with a glance"
+  ],
+  "saving_throw_proficiencies": [
+    "strength",
+    "constitution",
+    "wisdom",
+    "charisma"
+  ],
+  "languages": [
+    "Ancient Alethi",
+    "Modern Alethi",
+    "Azish",
+    "Thaylen",
+    "Veden",
+    "Herdazian",
+    "Dawnchant",
+    "Spiritual Realm Communication"
+  ],
+  "speed": 30,
+  "identity": "Herald",
+  "radiant_order": "None (Predates the Orders)",
+  "ideal_level": 5,
+  "investiture_points": {
+    "current": 100,
+    "maximum": 100
+  },
+  "spren": {
+    "type": "Honorblade",
+    "name": "Kalak's Honorblade",
+    "status": "bonded"
+  },
+  "surges_known": [
+    "Adhesion",
+    "Gravitation",
+    "Cohesion",
+    "Tension"
+  ],
+  "cantrips_known": [
+    "Stormlight Healing",
+    "Honorblade Summon",
+    "Herald Presence",
+    "Ancient Knowledge"
+  ],
+  "invested_arts_known": [
+    "Mass Healing",
+    "Planar Travel",
+    "Divine Intervention",
+    "Time Dilation",
+    "Reality Anchor",
+    "Desolation Ward",
+    "Herald's Command"
+  ],
+  "tool_proficiencies": [
+    "Smith's Tools",
+    "Mason's Tools",
+    "Ancient Engineering",
+    "Fabrial Construction",
+    "Military Strategy"
+  ],
+  "personality_traits": "Kalak bears the weight of millennia and countless Desolations. He is deeply committed to training new Knights Radiant but struggles with overwhelming guilt over abandoning the Oathpact. Despite his divine nature, he shows genuine care for mortals and their struggles. He speaks with the authority of ages but maintains humility about his past failures. When teaching, he becomes animated and passionate, but in quiet moments, the weight of his experiences shows clearly.",
+  "ideals": "Redemption through service and sacrifice. Kalak believes that by properly training the new generation of Knights Radiant, he can atone for the Heralds' abandonment of their sacred duties. He values courage above all else, but tempers it with wisdom earned through countless battles. He believes that every life has value and that the strong must protect the weak, even at great personal cost.",
+  "bonds": "Bound to the other Heralds through the Oathpact, though that connection is strained by guilt and millennia of separation. Connected to Honor's legacy and the preservation of Roshar against the forces of Odium. Has formed new bonds with the Knights Radiant he mentors, seeing them as the hope for the future and perhaps his path to redemption. Feels responsible for every person who dies to the Voidbringers.",
+  "flaws": "Haunted by millennia of guilt and the memory of countless deaths during the Desolations. The torture he endured between Desolations has left psychological scars that sometimes manifest as moments of paralyzing fear or rage. Can become overwhelmed by the scope of the threat facing Roshar, leading to periods of despair. Sometimes becomes overly protective of new Radiants, potentially limiting their growth through excessive caution born from his fear of losing more people he cares about.",
+  "backstory": "Kalak is one of the ten Heralds, divine champions chosen by Honor to fight against the Voidbringers through the endless cycle of Desolations. After the Last Desolation, Kalak and eight other Heralds made the fateful decision to abandon the Oathpact, unable to bear the torture that awaited them in Damnation. Only Taln remained to face the torture alone. For centuries, Kalak wandered Roshar in disguise, haunted by what he had done. Now, with the Everstorm awakening ancient enemies, Kalak has emerged from hiding to mentor new Knights Radiant, seeking redemption through service.",
+  "conditions": [],
+  "rulebook": "Cosmere 5e (Roshar)",
+  "tags": [
+    "Character",
+    "Herald",
+    "Herald Mentor",
+    "Level20",
+    "Ideal5",
+    "NPC",
+    "Mentor",
+    "Kalak",
+    "Windrunner",
+    "Stoneward"
+  ]
+}

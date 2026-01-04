@@ -1,0 +1,185 @@
+{
+  "goblin": {
+    "name": "Goblin",
+    "level": 1,
+    "character_class": "Warrior",
+    "race": "Goblin",
+    "background": "Tribal Warrior",
+    "ability_scores": {
+      "strength": 8,
+      "dexterity": 14,
+      "constitution": 10,
+      "intelligence": 10,
+      "wisdom": 8,
+      "charisma": 8
+    },
+    "hit_points": {"maximum": 7, "current": 7, "temporary": 0},
+    "armor_class": 15,
+    "proficiency_bonus": 2,
+    "skills": {
+      "stealth": true,
+      "survival": true
+    },
+    "attacks": [
+      {
+        "name": "Scimitar",
+        "attack_bonus": 4,
+        "damage_dice": "1d6",
+        "damage_bonus": 2,
+        "damage_type": "slashing"
+      },
+      {
+        "name": "Shortbow",
+        "attack_bonus": 4,
+        "damage_dice": "1d6",
+        "damage_bonus": 2,
+        "damage_type": "piercing"
+      }
+    ],
+    "special_abilities": ["Nimble Escape"],
+    "challenge_rating": 0.25
+  },
+  "bandit": {
+    "name": "Bandit",
+    "level": 1,
+    "character_class": "Rogue",
+    "race": "Human",
+    "background": "Criminal",
+    "ability_scores": {
+      "strength": 11,
+      "dexterity": 12,
+      "constitution": 12,
+      "intelligence": 10,
+      "wisdom": 10,
+      "charisma": 10
+    },
+    "hit_points": {"maximum": 11, "current": 11, "temporary": 0},
+    "armor_class": 12,
+    "proficiency_bonus": 2,
+    "skills": {
+      "stealth": true,
+      "deception": true
+    },
+    "attacks": [
+      {
+        "name": "Scimitar",
+        "attack_bonus": 3,
+        "damage_dice": "1d6",
+        "damage_bonus": 1,
+        "damage_type": "slashing"
+      },
+      {
+        "name": "Light Crossbow",
+        "attack_bonus": 3,
+        "damage_dice": "1d8",
+        "damage_bonus": 1,
+        "damage_type": "piercing"
+      }
+    ],
+    "special_abilities": [],
+    "challenge_rating": 0.125
+  },
+  "skeleton": {
+    "name": "Skeleton",
+    "level": 1,
+    "character_class": "Warrior",
+    "race": "Undead",
+    "background": "Reanimated",
+    "ability_scores": {
+      "strength": 10,
+      "dexterity": 14,
+      "constitution": 15,
+      "intelligence": 6,
+      "wisdom": 8,
+      "charisma": 5
+    },
+    "hit_points": {"maximum": 13, "current": 13, "temporary": 0},
+    "armor_class": 13,
+    "proficiency_bonus": 2,
+    "skills": {},
+    "attacks": [
+      {
+        "name": "Shortsword",
+        "attack_bonus": 4,
+        "damage_dice": "1d6",
+        "damage_bonus": 2,
+        "damage_type": "piercing"
+      },
+      {
+        "name": "Shortbow",
+        "attack_bonus": 4,
+        "damage_dice": "1d6",
+        "damage_bonus": 2,
+        "damage_type": "piercing"
+      }
+    ],
+    "special_abilities": ["Undead Fortitude"],
+    "challenge_rating": 0.25
+  },
+  "wolf": {
+    "name": "Wolf",
+    "level": 1,
+    "character_class": "Beast",
+    "race": "Wolf",
+    "background": "Wild",
+    "ability_scores": {
+      "strength": 12,
+      "dexterity": 15,
+      "constitution": 12,
+      "intelligence": 3,
+      "wisdom": 12,
+      "charisma": 6
+    },
+    "hit_points": {"maximum": 11, "current": 11, "temporary": 0},
+    "armor_class": 13,
+    "proficiency_bonus": 2,
+    "skills": {
+      "perception": true,
+      "stealth": true
+    },
+    "attacks": [
+      {
+        "name": "Bite",
+        "attack_bonus": 4,
+        "damage_dice": "2d4",
+        "damage_bonus": 2,
+        "damage_type": "piercing"
+      }
+    ],
+    "special_abilities": ["Pack Tactics", "Keen Hearing and Smell"],
+    "challenge_rating": 0.25
+  },
+  "guard": {
+    "name": "Guard",
+    "level": 2,
+    "character_class": "Fighter",
+    "race": "Human",
+    "background": "Soldier",
+    "ability_scores": {
+      "strength": 13,
+      "dexterity": 12,
+      "constitution": 12,
+      "intelligence": 10,
+      "wisdom": 11,
+      "charisma": 10
+    },
+    "hit_points": {"maximum": 16, "current": 16, "temporary": 0},
+    "armor_class": 16,
+    "proficiency_bonus": 2,
+    "skills": {
+      "athletics": true,
+      "perception": true
+    },
+    "attacks": [
+      {
+        "name": "Spear",
+        "attack_bonus": 3,
+        "damage_dice": "1d6",
+        "damage_bonus": 1,
+        "damage_type": "piercing"
+      }
+    ],
+    "special_abilities": [],
+    "challenge_rating": 0.125
+  }
+}
