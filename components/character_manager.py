@@ -57,12 +57,34 @@ class CharacterData:
     background: str
     spell_slots: Dict[int, Dict[str, int]] = None  # {level: {"current": X, "maximum": Y}}
 
-    # Roshar-specific and general state extensions
+    # Roshar-specific and general state extensions (UPDATED 2026-01-03 for Combat Plan v4.0)
     rulebook: str = "Cosmere 5e (Roshar)"
     identity: str = "Unknown"  # Roshar cultural identity, e.g., Alethi, Azish
     radiant_order: Optional[str] = None  # e.g., Lightweaver, Windrunner
     ideal_level: int = 0  # Radiant ideal progression: 0=no oaths, 1=First Ideal, 2=Second, etc.
-    investiture_points: Dict[str, int] = None  # {"current": X, "maximum": Y}
+
+    # Stormlight tracking (Combat Plan v4.0 requirement)
+    stormlight_current: int = 0  # Current spheres held
+    stormlight_capacity: int = 0  # Max spheres = Radiant Level × 2
+
+    # Shardblade tracking (Combat Plan v4.0 requirement)
+    has_shardblade: bool = False
+    shardblade_summoned: bool = False
+    shardblade_type: Optional[str] = None  # "living" (bonded) or "dead" (ancient)
+    shardblade_name: Optional[str] = None  # Name of the blade
+
+    # Shardplate tracking (Combat Plan v4.0 requirement)
+    has_shardplate: bool = False
+    shardplate_hp_current: int = 0
+    shardplate_hp_maximum: int = 0  # Typically Level × 5
+    shardplate_type: Optional[str] = None  # "living" (bonded) or "dead" (ancient)
+
+    # Surgebinding progression (Combat Plan v4.0 requirement)
+    surgebinding_level: int = 0  # Derived from ideal_level for combat checks
+
+    # Legacy field - kept for backward compatibility
+    investiture_points: Dict[str, int] = None  # {"current": X, "maximum": Y} - use stormlight_current/capacity instead
+
     spren: Dict[str, Any] = None  # {"type": "Cryptic", "name": "...", "status": "active"}
     surges_known: List[str] = None  # e.g., ["Illumination", "Transformation"]
     cantrips_known: List[str] = None  # Surgebinding cantrips (0-level Invested Arts)
@@ -158,12 +180,34 @@ class CharacterManager:
             background=character_data.get("background", "Unknown"),
             spell_slots=character_data.get("spell_slots", {}),
 
-            # Roshar + general state
+            # Roshar + general state (UPDATED 2026-01-03 for Combat Plan v4.0)
             rulebook=character_data.get("rulebook", "Cosmere 5e (Roshar)"),
             identity=character_data.get("identity", character_data.get("race", "Unknown")),
             radiant_order=character_data.get("radiant_order"),
             ideal_level=character_data.get("ideal_level", 0),
+
+            # Stormlight tracking (Combat Plan v4.0)
+            stormlight_current=character_data.get("stormlight_current", 0),
+            stormlight_capacity=character_data.get("stormlight_capacity", 0),
+
+            # Shardblade tracking (Combat Plan v4.0)
+            has_shardblade=character_data.get("has_shardblade", False),
+            shardblade_summoned=character_data.get("shardblade_summoned", False),
+            shardblade_type=character_data.get("shardblade_type"),
+            shardblade_name=character_data.get("shardblade_name"),
+
+            # Shardplate tracking (Combat Plan v4.0)
+            has_shardplate=character_data.get("has_shardplate", False),
+            shardplate_hp_current=character_data.get("shardplate_hp_current", 0),
+            shardplate_hp_maximum=character_data.get("shardplate_hp_maximum", 0),
+            shardplate_type=character_data.get("shardplate_type"),
+
+            # Surgebinding progression (Combat Plan v4.0)
+            surgebinding_level=character_data.get("surgebinding_level", character_data.get("ideal_level", 0)),
+
+            # Legacy field - kept for backward compatibility
             investiture_points=character_data.get("investiture_points", {"current": 0, "maximum": 0}),
+
             spren=character_data.get("spren", {"type": None, "name": None, "status": "dormant"}),
             surges_known=character_data.get("surges_known", []),
             cantrips_known=character_data.get("cantrips_known", []),
@@ -180,6 +224,29 @@ class CharacterManager:
             # Initialize action tracking
             action_history=character_data.get("action_history", [])
         )
+
+        # Auto-migrate investiture_points to stormlight if needed (backward compatibility)
+        if character.investiture_points and character.stormlight_capacity == 0:
+            character.stormlight_current = character.investiture_points.get("current", 0)
+            character.stormlight_capacity = character.investiture_points.get("maximum", 0)
+            logger.debug(f"   Migrated investiture_points to stormlight for {character.name}")
+
+        # Calculate stormlight capacity from level if Radiant and not set
+        if character.radiant_order and character.stormlight_capacity == 0:
+            character.stormlight_capacity = level * 2
+            character.stormlight_current = min(character.stormlight_current, character.stormlight_capacity)
+            logger.debug(f"   Calculated stormlight capacity for {character.name}: {character.stormlight_capacity}")
+
+        # Set surgebinding_level from ideal_level if not explicitly set
+        if character.surgebinding_level == 0 and character.ideal_level > 0:
+            character.surgebinding_level = character.ideal_level
+            logger.debug(f"   Set surgebinding_level from ideal_level for {character.name}: {character.surgebinding_level}")
+
+        # Calculate Shardplate HP if has_shardplate but HP not set
+        if character.has_shardplate and character.shardplate_hp_maximum == 0:
+            character.shardplate_hp_maximum = level * 5
+            character.shardplate_hp_current = character.shardplate_hp_maximum
+            logger.debug(f"   Calculated Shardplate HP for {character.name}: {character.shardplate_hp_maximum}")
 
         self.characters[char_id] = character
         logger.info(f"👤 Added character: {character.name} (Level {level})")
@@ -1317,9 +1384,299 @@ class CharacterManager:
             "action_types": action_types,
             "first_action": character.action_history[0] if character.action_history else None,
             "last_action": character.action_history[-1] if character.action_history else None,
-            "turns_active": len(set(action.get("turn_number") for action in character.action_history 
+            "turns_active": len(set(action.get("turn_number") for action in character.action_history
                                   if action.get("turn_number") is not None))
         }
+
+    # Stormlight Management Methods (Combat Plan v4.0)
+
+    def consume_stormlight(self, character_id: str, amount: int) -> bool:
+        """
+        Consume Stormlight spheres for Surge use.
+
+        Args:
+            character_id: Character ID
+            amount: Number of spheres to consume
+
+        Returns:
+            True if successful, False if insufficient Stormlight
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+        if character.stormlight_current < amount:
+            logger.warning(f"{character.name} has insufficient Stormlight ({character.stormlight_current}/{amount})")
+            return False
+
+        character.stormlight_current -= amount
+        logger.info(f"⚡ {character.name} consumed {amount} Stormlight ({character.stormlight_current} remaining)")
+        return True
+
+    def replenish_stormlight(self, character_id: str, amount: int) -> bool:
+        """
+        Add Stormlight spheres (from Highstorm, loot, etc.).
+
+        Args:
+            character_id: Character ID
+            amount: Number of spheres to add
+
+        Returns:
+            True if successful, False if character not found
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+
+        # Cap at maximum capacity
+        new_amount = min(
+            character.stormlight_current + amount,
+            character.stormlight_capacity
+        )
+
+        gained = new_amount - character.stormlight_current
+        character.stormlight_current = new_amount
+
+        logger.info(f"⚡ {character.name} gained {gained} Stormlight ({character.stormlight_current}/{character.stormlight_capacity})")
+        return True
+
+    def set_stormlight_capacity(self, character_id: str, capacity: int) -> bool:
+        """
+        Set character's Stormlight capacity (typically Level × 2 for Radiants).
+
+        Args:
+            character_id: Character ID
+            capacity: New capacity value
+
+        Returns:
+            True if successful, False if character not found
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+        character.stormlight_capacity = max(0, capacity)
+
+        # Ensure current doesn't exceed capacity
+        character.stormlight_current = min(character.stormlight_current, character.stormlight_capacity)
+
+        logger.info(f"💎 {character.name}'s Stormlight capacity set to {character.stormlight_capacity}")
+        return True
+
+    def apply_passive_stormlight_healing(self, character_id: str, rest_type: str = "short") -> int:
+        """
+        Apply passive Stormlight healing during rest (1 HP per sphere held).
+
+        Args:
+            character_id: Character ID
+            rest_type: "short" or "long" (currently only short rest applies passive healing)
+
+        Returns:
+            Amount of HP healed
+        """
+        if character_id not in self.characters:
+            return 0
+
+        character = self.characters[character_id]
+
+        if character.stormlight_current <= 0:
+            return 0
+
+        if rest_type == "short":
+            # Heal 1 HP per sphere held
+            healing = character.stormlight_current
+            character.hit_points["current"] = min(
+                character.hit_points["current"] + healing,
+                character.hit_points["maximum"]
+            )
+
+            logger.info(f"✨ {character.name} passively healed {healing} HP from Stormlight")
+            return healing
+
+        return 0
+
+    # Shardblade Management Methods (Combat Plan v4.0)
+
+    def summon_shardblade(self, character_id: str) -> bool:
+        """
+        Summon bonded Shardblade (1 Bonus Action in combat, 6 seconds).
+
+        Args:
+            character_id: Character ID
+
+        Returns:
+            True if successful, False if doesn't have Shardblade or already summoned
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+
+        if not character.has_shardblade:
+            logger.warning(f"{character.name} does not have a Shardblade")
+            return False
+
+        if character.shardblade_summoned:
+            logger.info(f"{character.name}'s Shardblade is already summoned")
+            return False
+
+        character.shardblade_summoned = True
+        logger.info(f"⚔️ {character.name} summoned their Shardblade!")
+
+        if character.shardblade_name:
+            logger.debug(f"   Blade: {character.shardblade_name}")
+
+        return True
+
+    def dismiss_shardblade(self, character_id: str) -> bool:
+        """
+        Dismiss Shardblade to mist (free action).
+
+        Args:
+            character_id: Character ID
+
+        Returns:
+            True if successful, False if character not found or blade not summoned
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+
+        if not character.shardblade_summoned:
+            logger.debug(f"{character.name}'s Shardblade is not currently summoned")
+            return False
+
+        character.shardblade_summoned = False
+        logger.info(f"💨 {character.name} dismissed their Shardblade")
+        return True
+
+    def grant_shardblade(self, character_id: str, blade_type: str = "living", blade_name: str = None) -> bool:
+        """
+        Grant Shardblade to character (typically at Third Ideal for living blades).
+
+        Args:
+            character_id: Character ID
+            blade_type: "living" (bonded) or "dead" (ancient)
+            blade_name: Optional name for the blade
+
+        Returns:
+            True if successful, False if character not found
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+        character.has_shardblade = True
+        character.shardblade_type = blade_type
+        character.shardblade_name = blade_name
+
+        logger.info(f"⚔️ {character.name} has been granted a {blade_type} Shardblade!")
+        if blade_name:
+            logger.debug(f"   Blade Name: {blade_name}")
+
+        return True
+
+    # Shardplate Management Methods (Combat Plan v4.0)
+
+    def damage_shardplate(self, character_id: str, damage: int) -> Dict[str, Any]:
+        """
+        Apply damage to Shardplate HP.
+
+        Args:
+            character_id: Character ID
+            damage: Amount of damage to apply
+
+        Returns:
+            Dict with shattered status and remaining HP
+        """
+        if character_id not in self.characters:
+            return {"error": "Character not found"}
+
+        character = self.characters[character_id]
+
+        if not character.has_shardplate:
+            return {"error": "Character does not have Shardplate"}
+
+        old_hp = character.shardplate_hp_current
+        character.shardplate_hp_current = max(0, character.shardplate_hp_current - damage)
+
+        shattered = character.shardplate_hp_current == 0
+
+        if shattered:
+            logger.warning(f"🛡️ {character.name}'s Shardplate shattered!")
+        else:
+            logger.info(f"🛡️ {character.name}'s Shardplate damaged: {old_hp} → {character.shardplate_hp_current} HP")
+
+        return {
+            "shattered": shattered,
+            "hp_current": character.shardplate_hp_current,
+            "hp_maximum": character.shardplate_hp_maximum,
+            "damage_dealt": old_hp - character.shardplate_hp_current
+        }
+
+    def repair_shardplate(self, character_id: str, amount: int = None) -> bool:
+        """
+        Repair Shardplate HP (typically during Long Rest with Stormlight).
+
+        Args:
+            character_id: Character ID
+            amount: Amount to repair (None = full repair)
+
+        Returns:
+            True if successful, False if character not found or no Shardplate
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+
+        if not character.has_shardplate:
+            logger.warning(f"{character.name} does not have Shardplate")
+            return False
+
+        if amount is None:
+            # Full repair
+            character.shardplate_hp_current = character.shardplate_hp_maximum
+            logger.info(f"🛡️ {character.name}'s Shardplate fully repaired to {character.shardplate_hp_maximum} HP")
+        else:
+            old_hp = character.shardplate_hp_current
+            character.shardplate_hp_current = min(
+                character.shardplate_hp_current + amount,
+                character.shardplate_hp_maximum
+            )
+            repaired = character.shardplate_hp_current - old_hp
+            logger.info(f"🛡️ {character.name}'s Shardplate repaired by {repaired} HP ({character.shardplate_hp_current}/{character.shardplate_hp_maximum})")
+
+        return True
+
+    def grant_shardplate(self, character_id: str, plate_type: str = "living") -> bool:
+        """
+        Grant Shardplate to character (typically at Fourth Ideal for living plate).
+
+        Args:
+            character_id: Character ID
+            plate_type: "living" (bonded) or "dead" (ancient)
+
+        Returns:
+            True if successful, False if character not found
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+        character.has_shardplate = True
+        character.shardplate_type = plate_type
+
+        # Set HP based on level (Level × 5)
+        character.shardplate_hp_maximum = character.level * 5
+        character.shardplate_hp_current = character.shardplate_hp_maximum
+
+        logger.info(f"🛡️ {character.name} has been granted {plate_type} Shardplate!")
+        logger.debug(f"   Plate HP: {character.shardplate_hp_maximum}")
+
+        return True
 
 
 # Factory function for easy integration

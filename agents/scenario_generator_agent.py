@@ -202,11 +202,19 @@ Create a JSON response with this exact structure:
       "skill_hints": ["relevant_skill1", "relevant_skill2"],
       "suggested_dc": 12,
       "combat_trigger": false
+    }},
+    {{
+      "id": "c2",
+      "title": "Attack the enemies **Combat**",
+      "description": "Engage in combat with hostile creatures",
+      "skill_hints": [],
+      "suggested_dc": 0,
+      "combat_trigger": true
     }}
   ],
   "effects": {{}},
   "hooks": ["Future story hooks based on party strengths/weaknesses"],
-  "gm_notes": "Hidden information for DM",
+  "gm_notes": "Hidden information for DM - describe enemies (name, count, CR) for combat encounters",
   "state_changes": {{}},
   "difficulty_used": {{}}
 }}
@@ -237,7 +245,22 @@ CHOICE VARIETY GUIDANCE:
 - **Skill-based choices**: Only when investigation, physical action, or expertise naturally applies
 - **Social choices**: Only when NPCs or communication opportunities exist
 - **Combat choices**: Only when threats or aggressive options make narrative sense
+  - Set "combat_trigger": true for choices that initiate combat
+  - Include **Combat** marker in title for combat choices
+  - Describe enemies in gm_notes (name, count, estimated CR)
+  - Examples: "Attack the goblins **Combat**", "Engage in battle **Combat**"
 - **Creative/risky choices**: Think outside the box for clever or unconventional approaches
+
+COMBAT TRIGGER RULES:
+- Set "combat_trigger": true ONLY when:
+  1. The choice directly initiates combat (e.g., "Attack", "Fight", "Engage enemies")
+  2. Hostile creatures are present and the action leads to battle
+  3. The scene describes an imminent threat requiring combat resolution
+- Set "combat_trigger": false for:
+  1. Non-combat actions (diplomacy, sneaking, fleeing, investigating)
+  2. Skill checks that might avoid combat
+  3. Peaceful or neutral interactions
+- When combat_trigger is true, include enemy details in gm_notes for combat initialization
 
 DC SCALING (based on {difficulty_target} and {policy_profile}):
 - Easy: 8-11, Medium: 12-15, Hard: 16-19, Very Hard: 20+
