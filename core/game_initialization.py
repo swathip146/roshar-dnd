@@ -34,6 +34,7 @@ from components.dnd_engine_wrapper import create_dnd_engine_wrapper
 
 from config.llm_config import get_global_config_manager
 from storage.simple_document_store import SimpleDocumentStore
+from core.npc_stat_loader import NPCStatLoader
 
 
 @dataclass
@@ -43,19 +44,20 @@ class GameInitConfig:
     collection_name: str = "dnd_documents"
     game_mode: str = "new_campaign"
     player_name: str = "Adventurer"
-    
+
     # Optional enhanced fields
     campaign_config: Optional[CampaignConfig] = None
     save_file: Optional[str] = None
     shared_document_store: Optional[Any] = None
     selected_character_data: Optional[Dict[str, Any]] = None
-    
+
     # Component instances (properly typed with actual classes)
     game_engine: Optional[GameEngine] = None
     character_manager: Optional[CharacterManager] = None
     session_manager: Optional[SessionManager] = None
     policy_engine: Optional[PolicyEngine] = None
     dnd_engine_wrapper: Optional[Any] = None  # NEW: Phase 2 integration
+    npc_registry: Optional[Any] = None  # NEW: NPC stat loader for combat
     
 
 
@@ -267,13 +269,27 @@ class GameInitializationSystem:
             logger.warning(f"   Continuing without dnd_engine (will use fallback mechanics)")
             config.dnd_engine_wrapper = None
 
+        # COMBAT PHASE: Load NPC registry for combat initialization
+        try:
+            config.npc_registry = NPCStatLoader(npc_directory="data/players/")
+            npc_count = config.npc_registry.get_npc_count()
+            if npc_count > 0:
+                npc_names = ", ".join(config.npc_registry.list_available_npcs())
+                logger.info(f"   🎭 NPC Registry: ✅ Loaded {npc_count} predefined NPCs ({npc_names})")
+            else:
+                logger.info(f"   🎭 NPC Registry: ✅ Created (no NPCs found)")
+        except Exception as e:
+            logger.warning(f"   ⚠️ NPC Registry initialization failed: {e}")
+            logger.warning(f"   Combat will use generated NPCs only")
+            config.npc_registry = None
+
         # Finalize setup
         print(f"\n✅ Game initialization complete!")
         print(f"   Player: {config.player_name}")
         print(f"   Mode: {config.game_mode}")
         print(f"   Collection: {config.collection_name}")
         print(f"   All components initialized and ready")
-        
+
         return config
     
     def _create_campaign_config(self) -> CampaignConfig:
