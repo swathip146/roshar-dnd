@@ -145,7 +145,7 @@ class CombatActionResolver:
                     "event": event,
                     "attack_outcome": event.attack_outcome if hasattr(event, 'attack_outcome') else None,
                     "damage": sum(roll.total for roll in event.damage_rolls) if hasattr(event, 'damage_rolls') and event.damage_rolls else 0,
-                    "critical": event.attack_outcome == AttackOutcome.CRIT_HIT if hasattr(event, 'attack_outcome') else False,
+                    "critical": event.attack_outcome == AttackOutcome.CRIT if hasattr(event, 'attack_outcome') else False,
                     "description": self._format_attack_result(event)
                 }
             elif isinstance(event, LashingEvent):
@@ -289,7 +289,7 @@ class CombatActionResolver:
         if event.attack_outcome == AttackOutcome.HIT:
             damage = sum(roll.total for roll in event.damage_rolls) if hasattr(event, 'damage_rolls') and event.damage_rolls else 0
             return f"Hit! Dealt {damage} damage."
-        elif event.attack_outcome == AttackOutcome.CRIT_HIT:
+        elif event.attack_outcome == AttackOutcome.CRIT:
             damage = sum(roll.total for roll in event.damage_rolls) if hasattr(event, 'damage_rolls') and event.damage_rolls else 0
             return f"Critical Hit! Dealt {damage} damage!"
         elif event.attack_outcome == AttackOutcome.MISS:
