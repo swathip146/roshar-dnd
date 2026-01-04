@@ -59,26 +59,30 @@ def _map_primary_to_type(primary: str) -> str:
 
 def _determine_final_route(intent_data: Dict[str, Any]) -> str:
     """Determine final route based on intent analysis"""
-    
+
     primary = intent_data.get("type", "scenario")
     #extract rag.needed from intent_data
     rag = intent_data.get("rag", {})
     rag_needed = bool (rag.get("needed", False))
-    
+
+    # Combat route (highest priority - check for combat keywords or combat_trigger)
+    if primary == "combat" or "combat" in str(intent_data).lower():
+        return "combat_pipeline"
+
     # Rules lookup route
     if primary == "rag_query":
         return "rag_pipeline"
-    
+
     # NPC interaction route
     if primary == "npc_interaction":
         return "npc_pipeline"
-    
+
     if primary == "scenario":
         if rag_needed:
             return "scenario_with_rag_pipeline"
         else:
             return "scenario_pipeline"
-    
+
     # Everything else goes to scenario (potentially with RAG)
     return "scenario_pipeline"
 
@@ -353,6 +357,7 @@ WORKFLOW:
 5. STEP 2: Call classify_player_intent to process the recorded analysis
 
 INTENT CATEGORIES:
+    - combat: Entering combat, fighting, attacking during combat scenarios
     - rules_lookup: Questions about game mechanics, spells, damage, stats, rules
     - npc_interaction: Talking to, asking, or interacting with NPCs
     - scenario_action: Physical actions in the game world
