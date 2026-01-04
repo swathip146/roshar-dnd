@@ -99,6 +99,69 @@ See **[legacy/README.md](legacy/README.md)** for complete details on what was mo
 
 ---
 
+## ⚔️ Combat System Documentation
+
+**Status:** Phase 3 Ready for Implementation (Updated: 2026-01-03)
+**Latest:** Phase 3 optimization analysis complete with dnd_engine integration improvements
+
+### Master Plans
+- **[COMBAT_ENGINE_IMPLEMENTATION_PLAN.md](COMBAT_ENGINE_IMPLEMENTATION_PLAN.md)** - Complete combat system implementation plan (4400+ lines, Version 4.0)
+  - 4-phase implementation strategy
+  - Generic, data-driven architecture with ACTION_REGISTRY
+  - **UPDATED:** Phase 3 optimized with dnd_engine leverage (8 methods improved, ~50-60 lines saved)
+  - dnd_engine integration for HP tracking, action economy, death saves
+  - Roshar mechanics support (Cosmere 5e compatible)
+  - All component specifications with optimized code examples
+
+- **[COMBAT_SYSTEM_READINESS_REPORT.md](COMBAT_SYSTEM_READINESS_REPORT.md)** - Overall status and readiness assessment
+  - Phase 1/1.5 completion summary (✅ COMPLETE - 18/18 tests passing)
+  - Phase 2 architecture finalized (paused for Phase 3 optimization)
+  - Phase 3 implementation readiness with optimization analysis
+  - Timeline and risk assessment
+
+### Architecture Documentation
+- **[COMBAT_PLAN_GENERIC_ARCHITECTURE_UPDATE.md](COMBAT_PLAN_GENERIC_ARCHITECTURE_UPDATE.md)** - Generic architecture design
+  - Data-driven action discovery via ACTION_REGISTRY
+  - Metadata-driven validation/consumption
+  - Code reduction analysis (~25% less code)
+  - Extensibility examples
+
+- **[DND_ENGINE_COMBAT_CAPABILITIES.md](DND_ENGINE_COMBAT_CAPABILITIES.md)** - dnd_engine analysis
+  - Event-driven architecture explanation
+  - Native Action framework documentation
+  - Action economy system (actions, bonus actions, reactions)
+  - Condition system patterns
+  - Health system (HP, death saves, temporary HP)
+
+- **[ROSHAR_COMBAT_MECHANICS_INTEGRATION.md](ROSHAR_COMBAT_MECHANICS_INTEGRATION.md)** - Official Roshar rules integration
+  - 9 Radiant Orders specifications (Windrunner, Skybreaker, etc.)
+  - 10 Surges mechanics (Lashing, Soulcasting, etc.)
+  - Stormlight tracking system (capacity = Level × 2)
+  - Shardblade/Shardplate rules (soul damage, armor HP)
+  - Updated ACTION_REGISTRY with Roshar actions
+
+- **[COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md](COMBAT_PLAN_METHOD_OPTIMIZATION_ANALYSIS.md)** - **NEW** Phase 3 optimization analysis
+  - Method-by-method review of all 28 CombatSessionManager methods
+  - Identifies dnd_engine leverage opportunities
+  - 8 methods optimized (4 high priority, 2 medium, 2 low)
+  - 16 methods already optimal with generic architecture
+  - Code reduction: ~50-60 lines (7-8% improvement)
+  - New capabilities: death saves, temp HP, resistance, range/LoS, condition events
+
+### Implementation Reports
+- **[PHASE_1_IMPLEMENTATION_COMPLETE.md](PHASE_1_IMPLEMENTATION_COMPLETE.md)** - Phase 1 completion report
+  - NPC stat generation (8/8 tests passing)
+  - Haystack 2.0 + Pydantic validation
+  - Template loading system
+
+- **[COMBAT_PLAN_NPC_INTEGRATION_GAPS.md](COMBAT_PLAN_NPC_INTEGRATION_GAPS.md)** - NPC registry gap analysis
+- **[NPC_JSON_CONVERSION_COMPLETE.md](NPC_JSON_CONVERSION_COMPLETE.md)** - JSON conversion report
+
+### Other Combat Documents
+- **[COMBAT_AGENT_ARCHITECTURE_DECISION.md](COMBAT_AGENT_ARCHITECTURE_DECISION.md)** - Architecture decision rationale
+
+---
+
 ## 📊 Quick Reference
 
 ### By Purpose
