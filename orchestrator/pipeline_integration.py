@@ -204,7 +204,7 @@ class PipelineOrchestrator:
                     npc_registry = NPCStatLoader(npc_directory="data/players/")
                     logger.debug(f"   Loaded {npc_registry.get_npc_count()} NPCs into registry")
 
-                    npc_generator_llm = config_manager.create_generator(agent_name="npc_generator", temperature=0.2)
+                    npc_generator_llm = config_manager.create_generator(agent_name="npc_generator")
                     npc_stat_generator = NPCStatGenerator(
                         llm=npc_generator_llm,
                         document_store=self.shared_document_store
@@ -218,7 +218,7 @@ class PipelineOrchestrator:
                         dnd_engine_wrapper=self.dnd_wrapper,
                         npc_stat_generator=npc_stat_generator,
                         npc_registry=npc_registry,
-                        llm=config_manager.create_generator(agent_name="combat_init", temperature=0.1)
+                        llm=config_manager.create_generator(agent_name="combat_init")
                     )
                     logger.debug("   Created CombatInitializer")
 
@@ -232,13 +232,14 @@ class PipelineOrchestrator:
 
                     # Create combat narrative generator
                     combat_narrative_gen = CombatNarrativeGenerator(
-                        llm=config_manager.create_generator(agent_name="combat_narrative", temperature=0.7)
+                        llm=config_manager.create_generator(agent_name="combat_narrative"),
+                        character_manager=self.character_manager
                     )
                     logger.debug("   Created CombatNarrativeGenerator")
 
                     # Create NPC combat AI
                     npc_combat_ai = create_npc_combat_ai(
-                        llm_generator=config_manager.create_generator(agent_name="npc_combat_ai", temperature=0.3)
+                        llm_generator=config_manager.create_generator(agent_name="npc_combat_ai")
                     )
                     logger.debug("   Created NPCCombatAI")
 
@@ -300,15 +301,16 @@ class PipelineOrchestrator:
     def _create_pipelines(self) -> None:
         """Create Haystack pipelines with proper component connections"""
         try:
-            # RAG Pipeline with proper connections
+            # RAG Pipeline with wrapper to avoid Marshal/deepcopy issues
+            from agents.rag_retriever_agent import RAGAgentWrapper
             rag_pipeline = Pipeline()
-            rag_pipeline.add_component("retriever_agent", create_rag_retriever_agent_simplified(document_store=self.shared_document_store))
+            rag_pipeline.add_component("retriever_agent", RAGAgentWrapper(document_store=self.shared_document_store))
             rag_pipeline.add_component("formatter", RAGFormatterComponent())
-            
-            # Connect: Agent messages → Formatter messages input
+
+            # Connect: Agent wrapper messages → Formatter messages input
             rag_pipeline.connect("retriever_agent.messages", "formatter.messages")
             self.pipelines["rag_retriever"] = rag_pipeline
-            debug_print("PIPELINES", "✅ Created connected RAG pipeline")
+            debug_print("PIPELINES", "✅ Created connected RAG pipeline with wrapper")
             
             # Scenario Pipeline with proper connections
             scenario_pipeline = Pipeline()
@@ -454,8 +456,10 @@ class PipelineOrchestrator:
                 return self._run_npc_pipeline(interface_dto)
             elif route == "rag_pipeline":
                 return self._run_rag_pipeline(interface_dto)
+            elif route == "combat_pipeline":
+                return self._run_combat_pipeline(interface_dto)
             else:
-                raise Exception("💥 Gameplay DTO pipeline exception")
+                raise Exception(f"💥 Unknown route: {route}")
                 
         except Exception as e:
             debug_print("GAMEPLAY", f"💥 Gameplay DTO pipeline exception: {e}")
@@ -465,8 +469,8 @@ class PipelineOrchestrator:
             )
 
     def _run_interface_pipeline(self, dto: RequestDTO) -> RequestDTO:
-        """Run interface processing with fixed system integration"""
-        
+        """Run interface processing with structured output + intent classifier for DTO conversion"""
+
         try:
             # Get fixed interface agent
             interface_agent = self.agents.get("main_interface")
@@ -474,56 +478,103 @@ class PipelineOrchestrator:
                 error_msg = f"Interface agent not available. Available agents: {list(self.agents.keys())}"
                 debug_print("INTERFACE", f"❌ {error_msg}")
                 logger.error(f"{error_msg}")
-                logger.error(f"Agents dict keys: {list(self.agents.keys())}")
-                logger.error(f"Agents dict: {self.agents}")
-                logger.error(f"Pipeline enabled: {self.enable_pipelines}")
                 raise RuntimeError(f"Interface agent not initialized: {error_msg}")
-            
-            # Extract data from DTO using correct field names
+
+            # Extract data from DTO
             player_input = dto.get("player_input", "")
-            
-            # DTO COMPLIANCE: Get game context from GameEngine directly, not from DTO
-            game_context = {}
+
+            # DTO COMPLIANCE: Get game context from GameEngine directly
             game_engine = dto.get("_game_engine_ref")
-            game_context = game_engine.get_narrative_context().get("current_scene","")
-            quest_context = game_engine.get_quest_context().get("active_quests","")
-            
+            game_context = game_engine.get_narrative_context().get("current_scene","") if game_engine else ""
+            quest_context = game_engine.get_quest_context().get("active_quests","") if game_engine else ""
+
             debug_print("INTERFACE", f"🎯 Processing input: {player_input}")
-            
-            # Create message for fixed interface agent with two-step process
+
+            # Create message for interface agent (structured output mode)
             interface_message = ChatMessage.from_user(f"""
-            Analyze this player input and game context to classify player intent using the two-step workflow:
-            
-            Player Input: "{player_input}"
-            Game Context: "{game_context}"
-            Quest Context: "{quest_context}"
-            
-            STEP 1: Call record_intent_analysis with your analysis parameters
-            STEP 2: Call classify_player_intent with the player_input
-            
-            Follow the examples in the system prompt.
-            """)
-            
-            # Run fixed interface agent with state values as direct kwargs
-            response = interface_agent.run(
-                messages=[interface_message],
-                intent_data={},
-                interface_result={}
+Analyze this player input and game context to classify player intent:
+
+Player Input: "{player_input}"
+Game Context: "{game_context}"
+Quest Context: "{quest_context}"
+
+Return your analysis in the required JSON format.
+""")
+
+            # Run interface agent (returns structured JSON via response schema)
+            response = interface_agent.run(messages=[interface_message])
+
+            # Parse structured output from LLM
+            intent_data = None
+            if response and "messages" in response:
+                last_message = response["messages"][-1]
+
+                # Extract text from ChatMessage object
+                response_text = ""
+                if hasattr(last_message, '_content') and last_message._content:
+                    # Handle TextContent list from ChatMessage
+                    if isinstance(last_message._content, list):
+                        response_text = last_message._content[0].text if last_message._content else ""
+                    else:
+                        response_text = str(last_message._content)
+                elif hasattr(last_message, 'content'):
+                    response_text = last_message.content
+                else:
+                    response_text = str(last_message)
+
+                debug_print("INTERFACE", f"📝 Extracted response text: {response_text[:200]}...")
+
+                # Parse JSON response
+                try:
+                    import json
+                    # Clean up response text
+                    json_start = response_text.find('{')
+                    json_end = response_text.rfind('}') + 1
+                    if json_start >= 0 and json_end > json_start:
+                        json_str = response_text[json_start:json_end]
+                        intent_data = json.loads(json_str)
+                        debug_print("INTERFACE", f"✅ Parsed intent data from structured output")
+                    else:
+                        raise ValueError("No JSON object found in response")
+                except Exception as e:
+                    logger.error(f"Failed to parse intent data from structured output: {e}")
+                    logger.error(f"Response text: {response_text}")
+                    # Fallback to default intent
+                    intent_data = {
+                        "primary": "scenario_generation",
+                        "action_verb": "act",
+                        "arguments": player_input,
+                        "target": "",
+                        "confidence": 0.5,
+                        "rationale": "Fallback due to parsing error",
+                        "rag_needed": False,
+                        "rag_query": "",
+                        "rag_filters": "",
+                        "rag_confidence": 0.5,
+                        "rag_category": "general",
+                        "rag_reasoning": "Fallback"
+                    }
+
+            if not intent_data:
+                raise ValueError("No intent data extracted from agent response")
+
+            # Import intent classifier utility
+            from agents.intent_classifier import classify_player_intent_from_structured_output
+
+            # Convert structured output to DTO using intent classifier
+            interface_dto = classify_player_intent_from_structured_output(
+                player_input=player_input,
+                rag_context=f"{game_context} | {quest_context}",
+                intent_data=intent_data
             )
-            
-            # Extract the RequestDTO from the interface agent response
-            interface_dto = response.get("interface_result") or {}
-            result_dto = merge_dto_updates(dto,interface_dto)
+
+            result_dto = merge_dto_updates(dto, interface_dto)
             route = result_dto.get("route", "scenario_pipeline")
-            
-            debug_print("INTERFACE", f"📥 Agent DTO keys: {list(result_dto.keys()) if isinstance(result_dto, dict) else type(result_dto)}")
+
             debug_print("INTERFACE", f"✅ Got routing result: {route}")
-            
-            # Return the complete interface DTO directly - much cleaner!
             debug_print("INTERFACE", f"📦 Interface DTO keys: {list(result_dto.keys())}")
-            
+
             return result_dto
-                
         except Exception as e:
             debug_print("INTERFACE", f"💥 Interface pipeline exception: {e}")
             pipeline_logger.error(f"Fixed interface pipeline failed: {e}")
@@ -702,13 +753,29 @@ class PipelineOrchestrator:
             rag_pipeline = self.pipelines.get("rag_retriever")
             
             debug_print("RAG", "🔗 Running connected RAG pipeline")
-            
-            # Run connected pipeline with proper inputs
+
+            # Prepare filters as a list (not dict) for the agent's state_schema
+            filter_list = []
+            if isinstance(filters, dict):
+                # Convert dict filters to list format that agent expects
+                if filters:
+                    filter_list = list(filters.values()) if filters.values() else []
+            elif isinstance(filters, list):
+                filter_list = filters
+
+            debug_print("RAG", f"📋 Prepared filters for agent", {"original": filters, "prepared": filter_list})
+
+            # Build message that includes all context
+            user_message = f"""Query: {query}
+Context Type: {context_type}
+Filters: {filter_list if filter_list else 'None'}
+
+Retrieve relevant documents for this query and provide a concise answer based on the retrieved information."""
+
+            # Run connected pipeline - only pass messages, let agent use inputs_from_state for other params
             pipeline_result = rag_pipeline.run({
                 "retriever_agent": {
-                    "messages": [ChatMessage.from_user(f"Query: {query}, Context Type: {context_type}, Filters: {filters}")],
-                    "context_type": context_type,
-                    "filters": filters
+                    "messages": [ChatMessage.from_user(user_message)]
                 }
             })
             
@@ -794,6 +861,24 @@ class PipelineOrchestrator:
             )
 
         try:
+            # Add player_character_id to DTO if not present
+            if "player_character_id" not in dto or not dto.get("player_character_id"):
+                # Get from GameEngine
+                game_engine = dto.get("_game_engine_ref")
+                if game_engine and hasattr(game_engine, 'character_manager'):
+                    # Get first player character from character manager
+                    player_chars = [cid for cid in game_engine.character_manager.characters.keys()
+                                   if cid not in game_engine.character_manager.get_npcs()]
+                    if player_chars:
+                        dto["player_character_id"] = player_chars[0]
+                        debug_print("COMBAT", f"📋 Added player_character_id to DTO: {player_chars[0]}")
+                    else:
+                        logger.warning("No player character found in CharacterManager")
+                        dto["player_character_id"] = "unknown_player"
+                else:
+                    logger.warning("GameEngine or CharacterManager not available")
+                    dto["player_character_id"] = "unknown_player"
+
             # Run combat pipeline (combat agent handles complete combat session)
             debug_print("COMBAT", "🎯 Running combat agent")
             result = combat_pipeline.run({

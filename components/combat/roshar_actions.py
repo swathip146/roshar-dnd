@@ -14,8 +14,15 @@ Based on: Cosmere 5e - Radiant's Handbook v2.0
 **Future Actions:** See docs/ROSHAR_COMBAT_MECHANICS_INTEGRATION.md for full list
 """
 
+import sys
+from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 from uuid import UUID
+
+# Add dnd_engine to path (required for dnd imports)
+dnd_engine_path = Path(__file__).parent.parent.parent / "external" / "dnd_engine"
+if str(dnd_engine_path) not in sys.path:
+    sys.path.insert(0, str(dnd_engine_path))
 
 from dnd.core.base_actions import BaseAction, ActionEvent
 from dnd.core.events import EventPhase, EventType

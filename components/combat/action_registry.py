@@ -15,7 +15,15 @@ Actions are registered here with metadata for generic discovery and validation.
 - See: docs/ROSHAR_COMBAT_MECHANICS_INTEGRATION.md for complete Surge list
 """
 
+import sys
+from pathlib import Path
 from typing import Dict, Any
+
+# Add dnd_engine to path (required for dnd imports)
+dnd_engine_path = Path(__file__).parent.parent.parent / "external" / "dnd_engine"
+if str(dnd_engine_path) not in sys.path:
+    sys.path.insert(0, str(dnd_engine_path))
+
 from dnd.actions import Attack, Move
 from dnd.conditions import Dashing, Dodging
 from dnd.core.base_conditions import Duration, DurationType

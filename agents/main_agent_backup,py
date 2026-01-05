@@ -377,29 +377,31 @@ classify_player_intent_tool = Tool(
 
 def create_fixed_interface_agent(chat_generator=None) -> Agent:
     """
-    Create interface agent with structured output for intent analysis.
-    Returns structured JSON that orchestrator will convert to DTO via classify_player_intent.
-
+    Create Haystack Agent using fixed system logic with proper LLM integration
+    
     Args:
         chat_generator: Optional Haystack chat generator
-
+        
     Returns:
-        Configured Agent that returns structured intent analysis JSON
+        Configured Haystack Agent with deterministic routing
     """
-
-    # Use LLM config manager to get generator with structured output schema
+    
+    # Use LLM config manager to get appropriate generator
     if chat_generator is None:
         config_manager = get_global_config_manager()
-        # Pass intent analysis schema for structured output
-        generator = config_manager.create_generator("main_interface", response_schema=INTENT_ANALYSIS_SCHEMA)
-        logger.info("🎯 Interface agent created with structured output schema for guaranteed valid intent analysis")
+        generator = config_manager.create_generator("main_interface")
     else:
         generator = chat_generator
-
+    
     system_prompt = """
-You are a D&D intent classification agent that analyzes player input and returns structured intent analysis.
+You are a D&D intent classification agent that analyzes player input and determines routing decisions.
 
-CRITICAL: Respond with ONLY a valid JSON object matching the exact schema. No explanations, no extra text.
+WORKFLOW:
+1. Analyze the player input and current game context for intent classification
+2. Extract key information: action verb, arguments, questions, target
+3. CRITICALLY EVALUATE: Does the current game context and quest context provide sufficient information, or would additional RAG context genuinely help?
+4. STEP 1: Call record_intent_analysis with your analysis
+5. STEP 2: Call classify_player_intent to process the recorded analysis
 
 INTENT CATEGORIES:
     - combat: Entering combat, fighting, attacking during combat scenarios
@@ -416,6 +418,7 @@ ONLY set rag_needed=true when:
 ✓ Player asks direct questions about rules/mechanics not covered in current context
 ✓ Player actions involve specific locations/NPCs/lore not already described in current context
 ✓ Scenario generation needs specific campaign details, monster stats, or encounter information not available
+✓ Complex rule clarifications that require detailed mechanics
 ✓ Additional RAG context greatly enriches context for scenario generation
 
 AVOID RAG when:
@@ -424,35 +427,76 @@ AVOID RAG when:
 ✗ Basic social interactions or movement that can be handled with existing context
 ✗ Quest context already contains the necessary details for scenario generation
 
-JSON RESPONSE FORMAT:
-{
-  "primary": "scenario_generation",
-  "action_verb": "start",
-  "arguments": "first encounter",
-  "target": "encounter",
-  "confidence": 0.95,
-  "rationale": "Player wants to initiate scenario",
-  "rag_needed": true,
-  "rag_query": "details for first encounter with Voidbringers",
-  "rag_filters": "campaigns,monsters",
-  "rag_confidence": 0.9,
-  "rag_category": "campaigns",
-  "rag_reasoning": "Need specific encounter details"
-}
+RAG CATEGORIES:
+    - rules: Spell mechanics, game rules, abilities, combat mechanics, skill checks
+    - lore: World history, legends, stories, character backgrounds, past events
+    - monsters: Creature information, bestiary entries, monster behaviors
+    - locations: Place descriptions, geography, notable locations
+    - campaigns: Encounters, quests, storylines
+    - general: Catch-all for other content
 
-Always return valid JSON matching this exact structure.
+EXAMPLE WORKFLOWS:
+
+EXAMPLE 1 - RAG NOT NEEDED:
+For "I attack the orc with my sword" (current context: "in combat with orc"):
+STEP 1: record_intent_analysis(
+    primary="scenario_action",
+    action_verb="attack",
+    arguments="sword attack",
+    target="orc",
+    confidence=0.95,
+    rationale="Simple combat action with sufficient context",
+    rag_needed=false,
+    rag_reasoning="Current combat context provides sufficient information for scenario generation"
+)
+
+EXAMPLE 2 - RAG NEEDED:
+For "what is the damage of longsword" (player asking about mechanics):
+STEP 1: record_intent_analysis(
+    primary="rules_lookup",
+    action_verb="lookup",
+    arguments="longsword damage",
+    target="longsword",
+    confidence=0.95,
+    rationale="Player asking for weapon statistics",
+    rag_needed=true,
+    rag_query="longsword weapon damage statistics",
+    rag_filters="rules,weapons,damage",
+    rag_confidence=0.9,
+    rag_category="rules",
+    rag_reasoning="Need specific weapon stats from rules database"
+)
+
+EXAMPLE 3 - RAG NOT NEEDED:
+For "I look around the room" (current context: "in tavern with detailed description"):
+STEP 1: record_intent_analysis(
+    primary="scenario_action",
+    action_verb="look",
+    arguments="examine surroundings",
+    confidence=0.9,
+    rationale="Simple perception action in described environment",
+    rag_needed=false,
+    rag_reasoning="Current location context sufficient for describing what player sees"
+)
+
+Always do BOTH steps in order.
 """
 
     agent = Agent(
         chat_generator=generator,
-        tools=[],  # No tools - structured output only
+        tools=[record_intent_analysis_tool, classify_player_intent_tool],
         system_prompt=system_prompt,
-        exit_conditions=[],  # No exit conditions
-        max_agent_steps=1,  # Single LLM call
+        exit_conditions=["classify_player_intent"],
+        max_agent_steps=3,  # Allow for analysis, record, then classify
         raise_on_tool_invocation_failure=False,
-        state_schema={}  # Minimal state
+        state_schema={
+            "intent_data": {"type": dict},
+            "interface_result": {"type": dict},
+            "player_input": {"type": str},
+            "rag_context": {"type": str}
+        }
     )
-
+    
     return agent
 
 # --- Simple smoke test (optional) -----------------------------------------------------------------

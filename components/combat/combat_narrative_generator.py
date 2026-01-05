@@ -104,7 +104,7 @@ Generate 2-3 sentence narrative:"""
             )
 
             # Extract narrative from response
-            narrative = response['replies'][0].content.strip()
+            narrative = response['replies'][0].text.strip()
 
         except Exception as e:
             self.logger.error(f"LLM narrative generation failed: {e}")

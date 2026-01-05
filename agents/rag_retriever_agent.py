@@ -215,15 +215,15 @@ class RAGFormatterComponent:
     Haystack component to format RAG response data without LLM coordination overhead.
     Replaces format_rag_response_tool for better pipeline performance.
     """
-    
+
     @component.output_types(formatted_response=dict)
     def run(self, messages: List[ChatMessage]) -> dict:
         """
         Format RAG response data from agent messages into standardized format.
-        
+
         Args:
             messages: List of ChatMessage objects from RAG agent
-            
+
         Returns:
             Dictionary with formatted response
         """
@@ -237,14 +237,55 @@ class RAGFormatterComponent:
                 response_text = last_message.text
             else:
                 response_text = str(last_message)
-        
+
         # Calculate confidence based on response length and quality
         confidence = min(0.8, len(response_text) / 200.0) if response_text else 0.0
-        
+
         return {"formatted_response": {
             "response": response_text,
             "confidence": max(0.0, min(1.0, confidence))
         }}
+
+
+@component
+class RAGAgentWrapper:
+    """
+    Wrapper component for RAG Agent to make it pipeline-compatible.
+
+    This solves the Marshal/deepcopy issue by wrapping the agent execution
+    and only returning serializable data.
+    """
+
+    def __init__(self, document_store: Optional[Any] = None):
+        """Initialize with document store"""
+        self.agent = create_rag_retriever_agent_simplified(document_store=document_store)
+        self.document_store = document_store
+        logger.info("📚 RAGAgentWrapper initialized")
+
+    @component.output_types(messages=List[ChatMessage])
+    def run(self, messages: List[ChatMessage]) -> dict:
+        """
+        Run the RAG agent and return only messages (serializable).
+
+        Args:
+            messages: Input messages for the agent
+
+        Returns:
+            Dictionary with messages list (serializable)
+        """
+        try:
+            # Run the agent
+            result = self.agent.run(messages=messages)
+
+            # Extract only the messages (serializable)
+            output_messages = result.get("messages", messages)
+
+            return {"messages": output_messages}
+        except Exception as e:
+            logger.error(f"RAG agent wrapper error: {e}")
+            # Return error message
+            error_msg = ChatMessage.from_assistant(f"RAG retrieval failed: {str(e)}")
+            return {"messages": messages + [error_msg]}
 
 
 def create_rag_retriever_agent_simplified(chat_generator: Optional[Any] = None,

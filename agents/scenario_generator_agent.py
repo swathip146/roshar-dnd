@@ -23,6 +23,63 @@ from config.logging_config import get_logger
 # Initialize logger
 logger = get_logger(__name__)
 
+# JSON Schema for structured scenario output (enforces valid JSON from LLM)
+# Uses Gemini-compatible schema format (no min/max, only basic JSON Schema)
+SCENARIO_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scene": {
+            "type": "string",
+            "description": "Rich scene description incorporating action results and all context categories"
+        },
+        "choices": {
+            "type": "array",
+            "description": "Array of player choices that emerge naturally from the scene",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Unique identifier for the choice (e.g., 'c1', 'c2')"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Clear action name (add **Skill Check (DC X)** or **Combat** when applicable)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Specific explanation of what this choice involves"
+                    },
+                    "skill_hints": {
+                        "type": "array",
+                        "description": "Relevant D&D 5e skills that might apply",
+                        "items": {"type": "string"}
+                    },
+                    "suggested_dc": {
+                        "type": "integer",
+                        "description": "Difficulty Class for skill checks between 0-30 (0 if not applicable)"
+                    },
+                    "combat_trigger": {
+                        "type": "boolean",
+                        "description": "True if this choice initiates combat, false otherwise"
+                    }
+                },
+                "required": ["id", "title", "description", "skill_hints", "suggested_dc", "combat_trigger"]
+            }
+        },
+        "gm_notes": {
+            "type": "string",
+            "description": "Hidden information for DM (include enemy details for combat: name, count, CR)"
+        },
+        "hooks": {
+            "type": "array",
+            "description": "Future story possibilities based on context",
+            "items": {"type": "string"}
+        }
+    },
+    "required": ["scene", "choices", "gm_notes"]
+}
+
 
 def debug_scenario_print(category: str, message: str, data: Any = None):
     """Centralized debug printing for scenario agent"""
@@ -522,18 +579,21 @@ def create_scenario_generator_agent(chat_generator: Optional[Any] = None) -> Age
     """
     Create a simplified scenario agent that focuses only on LLM creativity.
     Designed for pipeline integration with PromptBuilderComponent and ScenarioValidatorComponent.
-    
+    Uses structured output with JSON schema to guarantee valid JSON responses.
+
     Args:
         chat_generator: Optional chat generator (uses LLM config if None)
-        
+
     Returns:
         Simplified Haystack Agent focused on creative generation only
     """
-    
-    # Use LLM config manager to get appropriate generator
+
+    # Use LLM config manager to get appropriate generator with structured output schema
     if chat_generator is None:
         config_manager = get_global_config_manager()
-        generator = config_manager.create_generator("scenario_generator")
+        # Pass the JSON schema to the generator for structured output
+        generator = config_manager.create_generator("scenario_generator", response_schema=SCENARIO_RESPONSE_SCHEMA)
+        logger.info("🎯 Scenario generator created with structured output schema for guaranteed valid JSON")
     else:
         generator = chat_generator
     

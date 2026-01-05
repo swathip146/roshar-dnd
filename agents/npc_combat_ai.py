@@ -167,7 +167,7 @@ IMPORTANT:
         try:
             # Extract content from Haystack response format
             if 'replies' in response and len(response['replies']) > 0:
-                content = response['replies'][0].content
+                content = response['replies'][0].text
             else:
                 raise ValueError("No replies in LLM response")
 

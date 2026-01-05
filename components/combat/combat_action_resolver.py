@@ -9,9 +9,16 @@ Dispatches combat actions to appropriate handlers:
 Based on: COMBAT_ENGINE_IMPLEMENTATION_PLAN.md Phase 3
 """
 
+import sys
+from pathlib import Path
 from typing import Dict, Any, Optional
 from uuid import UUID
 import json
+
+# Add dnd_engine to path (required for dnd imports)
+dnd_engine_path = Path(__file__).parent.parent.parent / "external" / "dnd_engine"
+if str(dnd_engine_path) not in sys.path:
+    sys.path.insert(0, str(dnd_engine_path))
 
 from dnd.actions import Attack, WeaponSlot, AttackEvent
 from dnd.core.dice import AttackOutcome

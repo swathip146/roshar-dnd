@@ -265,21 +265,27 @@ class HaystackDnDGame:
 
     def _update_state_via_authorities(self, processed_input: Dict[str, Any], response_data: Dict[str, Any]):
         """Update state via authoritative components following hierarchy"""
-        
+
         response_type = response_data.get("response_type", "unknown")
-        
+
         # COMPLIANCE: GameEngine is authoritative for runtime state
         if response_type == "scenario":
             scenario = response_data.get("scenario", {})
             self.game_engine.process_scenario_state_updates(scenario, self.turn_counter)
-        
+
+            # Also store player's action/choice in GameEngine (authoritative state)
+            player_action = processed_input.get("processed_input", "")
+            self.game_engine.update_narrative_context({
+                "last_player_action": player_action
+            })
+
         # COMPLIANCE: SessionManager only for persistence/analytics
         confidence = 0
         if response_type == "scenario":
             confidence = response_data.get("scenario", {}).get("confidence", 0)
         elif response_type == "rag_query":
             confidence = response_data.get("rag_result", {}).get("confidence", 0)
-        
+
         self.session_manager.record_turn_analytics(processed_input, response_type, confidence, self.turn_counter)
 
     def play_turn(self, player_input: str) -> str:
