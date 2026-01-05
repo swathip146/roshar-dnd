@@ -4,7 +4,7 @@
 cd "$(dirname "$0")"
 
 # Virtual environment name
-ENV_NAME=".venv"
+ENV_NAME="dndenv"
 
 # Load environment variables from .env file
 if [ -f ".env" ]; then

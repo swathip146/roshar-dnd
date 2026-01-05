@@ -73,7 +73,8 @@ class CombatInitializer:
     def initialize_combat(
         self,
         scenario: Dict[str, Any],
-        player_character_ids: List[str]
+        player_character_ids: List[str],
+        force_combat: bool = False
     ) -> Optional[Dict[str, Any]]:
         """
         Initialize combat from scenario.
@@ -81,14 +82,15 @@ class CombatInitializer:
         Args:
             scenario: Scenario dict with scene, choices, gm_notes
             player_character_ids: List of PC char_ids participating
+            force_combat: If True, skip combat trigger check (used when routed via combat_pipeline)
 
         Returns:
             combat_state: Initialized combat state dict, or None if no combat
         """
         self.logger.info("⚔️  Initializing combat...")
 
-        # Step 1: Check if combat should trigger
-        if not self._should_trigger_combat(scenario):
+        # Step 1: Check if combat should trigger (skip if force_combat=True)
+        if not force_combat and not self._should_trigger_combat(scenario):
             self.logger.warning("   ⚠️  No combat trigger found in scenario")
             return None
 
@@ -119,8 +121,11 @@ class CombatInitializer:
         # Step 6: Roll initiative
         all_combatant_ids = player_character_ids + predefined_npc_ids + generated_npc_ids
         initiative_order = self._roll_initiative(all_combatant_ids)
-        init_summary = [f"{entry['char_id']}({entry['initiative']})" for entry in initiative_order[:3]]
-        self.logger.info(f"   🎯 Initiative order: {init_summary}...")
+
+        # Log full initiative order for debugging
+        self.logger.info(f"   🎯 Full initiative order ({len(initiative_order)} combatants):")
+        for i, entry in enumerate(initiative_order, 1):
+            self.logger.info(f"      {i}. {entry['char_id']} (initiative: {entry['initiative']})")
 
         # Step 7: Create combat state
         combat_state = {
@@ -188,9 +193,11 @@ class CombatInitializer:
         - scenario['scene']: Narrative text mentioning enemies
         - scenario['gm_notes']: DM notes describing enemies
         - scenario['choices'][*]['combat_trigger']: Boolean flag
+        - scenario['player_choice']: What player chose that led to combat (NEW)
+        - scenario['full_context']: Full previous scenario + player choice (NEW)
 
         Process:
-        1. Combine scene + gm_notes text
+        1. Combine scene + gm_notes + player_choice + all choice options
         2. Use LLM to extract structured enemy data
         3. Return list of enemy dicts with name, count, CR
 
@@ -213,7 +220,33 @@ class CombatInitializer:
         """
         scene_text = scenario.get('scene', '')
         gm_notes = scenario.get('gm_notes', '')
-        combined_text = f"Scene: {scene_text}\n\nGM Notes: {gm_notes}"
+        player_choice = scenario.get('player_choice', '')
+
+        # Get all choice options to provide full context
+        choices = scenario.get('choices', [])
+        choices_text = ""
+        if choices:
+            choices_text = "\n\nAvailable choices player saw:\n"
+            for i, choice in enumerate(choices, 1):
+                title = choice.get('title', f'Option {i}')
+                desc = choice.get('description', '')
+                choices_text += f"{i}. {title}"
+                if desc:
+                    choices_text += f" - {desc}"
+                choices_text += "\n"
+
+        # Build comprehensive context for LLM
+        combined_text = f"""PREVIOUS DM SCENARIO:
+{scene_text}
+
+GM NOTES:
+{gm_notes}
+
+{choices_text}
+
+PLAYER CHOSE:
+{player_choice}
+"""
 
         # LLM prompt to extract enemy data
         system_prompt = """You are a D&D combat analyzer. Extract enemy/hostile creature information from scenario text.
@@ -232,12 +265,13 @@ Output JSON array with enemies:
 ]
 
 Rules:
-- Extract enemy type, count, and description
-- Estimate CR based on description (goblin=0.25, bandit=0.125, guard=0.125, wolf=0.25, skeleton=0.25, etc.)
+- Extract enemy type, count, and description from the DM's scenario narrative
+- Estimate CR based on description (goblin=0.25, bandit=0.125, guard=0.125, wolf=0.25, skeleton=0.25, Voidbringer=3-5, etc.)
 - Role: combatant (normal), minion (weak), boss (strong), support (healer/buffer)
 - Keywords: words that might match templates or campaign NPCs
 - is_predefined: true if named NPC mentioned (e.g., "Kalak", "Nale", "Captain Kholinar"), false otherwise
 - If no enemies mentioned, return empty array: []
+- Look at ALL the text: scene, GM notes, choices, and what player chose
 
 Output ONLY valid JSON, no markdown formatting."""
 
@@ -246,6 +280,17 @@ Output ONLY valid JSON, no markdown formatting."""
 {combined_text}
 
 Return JSON array of enemies:"""
+
+        # Enhanced logging to debug enemy extraction
+        self.logger.info("📋 Calling LLM to extract enemies from scenario...")
+        self.logger.info(f"   Scene text length: {len(scene_text)} chars")
+        self.logger.info(f"   GM notes length: {len(gm_notes)} chars")
+        self.logger.info(f"   Player choice length: {len(player_choice)} chars")
+        self.logger.info(f"   Combined text length: {len(combined_text)} chars")
+        self.logger.debug(f"   Scene: {scene_text[:200]}")
+        self.logger.debug(f"   GM notes: {gm_notes[:200]}")
+        self.logger.debug(f"   Player choice: {player_choice}")
+        self.logger.debug(f"   Combined text: {combined_text[:400]}")
 
         try:
             response = self.llm.run(
@@ -256,10 +301,14 @@ Return JSON array of enemies:"""
             )
 
             # Parse JSON from response
-            content = response['replies'][0].content.strip()
+            content = response['replies'][0].text.strip()
+
+            self.logger.info(f"   LLM response length: {len(content)} chars")
+            self.logger.debug(f"   LLM response: {content[:500]}")
 
             # Handle markdown code blocks if present
             if content.startswith('```'):
+                self.logger.debug("   Removing markdown code block formatting...")
                 content = content.split('```')[1]
                 if content.startswith('json'):
                     content = content[4:]
@@ -271,16 +320,26 @@ Return JSON array of enemies:"""
                 self.logger.warning("   ⚠️  LLM returned non-list response, using empty list")
                 enemies = []
 
-            self.logger.debug(f"   Extracted {len(enemies)} enemy types: {[e.get('name', 'Unknown') for e in enemies]}")
+            self.logger.info(f"   ✅ Successfully extracted {len(enemies)} enemy types")
+            if enemies:
+                for i, enemy in enumerate(enemies, 1):
+                    self.logger.info(f"      {i}. {enemy.get('name', 'Unknown')} x{enemy.get('count', 1)} (CR {enemy.get('estimated_cr', '?')})")
+            else:
+                self.logger.warning("   ⚠️  No enemies found in scenario text!")
+                self.logger.warning(f"   Scenario scene was: '{scenario.get('scene', 'EMPTY')}'")
+                self.logger.warning(f"   GM notes were: '{scenario.get('gm_notes', 'EMPTY')}'")
 
             return enemies
 
         except json.JSONDecodeError as e:
             self.logger.error(f"   ❌ Failed to parse enemies from LLM response: {e}")
-            self.logger.debug(f"   LLM response: {content[:200] if 'content' in locals() else 'N/A'}")
+            self.logger.error(f"   Raw LLM response: {content if 'content' in locals() else 'N/A'}")
             return []
         except Exception as e:
             self.logger.error(f"   ❌ Failed to extract enemies from scenario: {e}")
+            self.logger.error(f"   Exception type: {type(e).__name__}")
+            import traceback
+            self.logger.error(f"   Traceback: {traceback.format_exc()}")
             return []
 
     def _load_predefined_npcs(self, enemies: List[Dict[str, Any]]) -> List[str]:
@@ -408,9 +467,9 @@ Return JSON array of enemies:"""
             return self._roll_initiative_fallback(combatant_ids)
 
         try:
-            from dnd.enums import RollType
+            from dnd.core.dice import RollType
         except ImportError:
-            self.logger.warning("   ⚠️  dnd.enums not available, using fallback initiative")
+            self.logger.warning("   ⚠️  dnd.core.dice not available, using fallback initiative")
             return self._roll_initiative_fallback(combatant_ids)
 
         for char_id in combatant_ids:

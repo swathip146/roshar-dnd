@@ -187,7 +187,7 @@ Generate complete stat block:"""
         )
 
         # Step 4: Parse JSON from response
-        npc_dict = self._parse_json_response(response['replies'][0].content)
+        npc_dict = self._parse_json_response(response['replies'][0].text)
 
         # Step 5: Validate with Pydantic
         try:
@@ -372,16 +372,15 @@ Generate complete stat block:"""
             return {}
 
     def _query_creature_database(self, description: str) -> List[Dict]:
-        """Query RAG for similar creature stats"""
+        """Query RAG for similar creature stats using search_with_metadata"""
         if not self.document_store:
             return []
 
         try:
-            results = self.document_store.query(
-                query=description,
-                filters={"category": "monsters"},
-                top_k=3
-            )
+            # Use search_with_metadata like rag_retriever_agent.py does
+            # Enhance query with category filter for monsters
+            enhanced_query = f"{description} category:monsters"
+            results = self.document_store.search_with_metadata(enhanced_query, top_k=3)
             return results
         except Exception as e:
             self.logger.warning(f"RAG query failed: {e}")

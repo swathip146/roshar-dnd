@@ -166,27 +166,37 @@ def create_message_conversion_pipeline():
 class GeminiChatGenerator:
     """
     A chat generator wrapper for Google's Gemini API that provides Haystack-compatible interface.
+    Supports structured output via JSON schema for reliable JSON generation.
     """
-    
-    def __init__(self, model_name: str, generation_config: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, model_name: str, generation_config: Optional[Dict[str, Any]] = None,
+                 response_schema: Optional[Dict[str, Any]] = None):
         """
         Initialize the Gemini chat generator.
-        
+
         Args:
             model_name: The Gemini model name (e.g., "gemini-2.5-flash")
             generation_config: Configuration for text generation
+            response_schema: JSON schema for structured output (forces valid JSON)
         """
         if not GEMINI_AVAILABLE:
             raise ImportError("google-generativeai package not available")
-            
+
         self.model_name = model_name
         self.generation_config = generation_config or {}
-        
+        self.response_schema = response_schema
+
+        # If response_schema provided, configure for JSON mode
+        if response_schema:
+            self.generation_config['response_mime_type'] = 'application/json'
+            self.generation_config['response_schema'] = response_schema
+            logger.info(f"🎯 GeminiChatGenerator initialized with structured output schema")
+
         # Initialize the model
         try:
             self.model = genai.GenerativeModel(
                 model_name=model_name,
-                generation_config=generation_config
+                generation_config=self.generation_config
             )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Gemini model: {e}")

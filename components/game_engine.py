@@ -53,6 +53,9 @@ class SessionData(TypedDict, total=False):
 class NarrativeContext(TypedDict, total=False):
     """Allowed keys for narrative context"""
     current_scene: str
+    current_scene_full: str  # Full untruncated scene text for combat/scenario continuity
+    last_scenario: Dict[str, Any]  # Complete last scenario with scene, choices, gm_notes
+    last_player_action: str  # Last player input/choice
     pacing: str
     tension_level: str
     narrative_beats: List[str]
@@ -1129,30 +1132,39 @@ class GameEngine:
     
     def process_scenario_state_updates(self, scenario_data: Dict[str, Any], turn_number: int):
         """Process scenario data and update authoritative game state"""
-        
+
         # GameEngine is authoritative for all runtime state updates
+        scene_text = scenario_data.get("scene", "")
         narrative_updates = {
-            "current_scene": scenario_data.get("scene", "")[:100] + "...",
+            "current_scene": scene_text[:100] + "..." if len(scene_text) > 100 else scene_text,  # Truncated for logs
+            "current_scene_full": scene_text,  # Full text for combat/scenario continuity
+            "last_scenario": {
+                "scene": scene_text,
+                "choices": scenario_data.get("choices", []),
+                "gm_notes": scenario_data.get("gm_notes", ""),
+                "scenario_type": scenario_data.get("scenario_type", "unknown"),
+                "confidence": scenario_data.get("confidence", 0)
+            },
             "last_scenario_type": scenario_data.get("scenario_type", "unknown"),
             "scenario_confidence": scenario_data.get("confidence", 0),
             "turn_number": turn_number
         }
         self.update_narrative_context(narrative_updates)
-        
+
         # Process state changes using existing authoritative methods
         state_changes = scenario_data.get("state_changes", {})
         if state_changes:
             if "location" in state_changes:
                 self.set_location(state_changes["location"])
-                
+
             if "flags" in state_changes:
                 for flag_name, flag_value in state_changes["flags"].items():
                     self.set_campaign_flag(flag_name, flag_value)
-            
+
             if "story_hooks" in state_changes:
                 for hook in state_changes["story_hooks"]:
                     self.add_story_hook(hook, "normal")
-            
+
             if "quest_objectives" in state_changes:
                 for objective in state_changes["quest_objectives"]:
                     self.add_quest_objective(objective)

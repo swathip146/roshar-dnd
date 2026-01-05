@@ -87,72 +87,167 @@ class CombatAgent:
                 - combat_log: [...]
                 - narrative: Combat end narrative
         """
-        self.logger.info("⚔️ CombatAgent.run() - Starting complete combat session")
+        self.logger.info("=" * 60)
+        self.logger.info("⚔️ COMBAT AGENT STARTING")
+        self.logger.info("=" * 60)
 
-        scenario = dto.get("scenario_context", {})
-        player_char_id = dto.get("player_character_id", "")
+        try:
+            scenario = dto.get("scenario_context", {})
+            player_char_id = dto.get("player_character_id", "")
+            player_input = dto.get("player_input", "")
 
-        # Get game engine reference if not already set
-        if not hasattr(self, 'game_engine') or self.game_engine is None:
-            self.game_engine = dto.get("_game_engine_ref")
+            self.logger.info(f"📋 Combat Agent Input:")
+            self.logger.info(f"   Scenario keys: {list(scenario.keys()) if scenario else 'None'}")
+            self.logger.info(f"   Player input: '{player_input}'")
 
-        # Phase 1: Initialize Combat
-        self.logger.info("Phase 1: Combat Initialization")
-        combat_state = self.initializer.initialize_combat(
-            scenario=scenario,
-            player_character_ids=[player_char_id]
-        )
+            # COMPLIANCE: Get full scenario context from GameEngine (authoritative source)
+            # This includes the complete DM narrative that led to combat
+            if not scenario and self.game_engine:
+                self.logger.info("   📖 Retrieving full scenario from GameEngine (authoritative source)...")
+                narrative_ctx = self.game_engine.get_narrative_context()
 
-        if combat_state is None:
-            self.logger.warning("Combat initialization failed or no combat trigger")
+                # Get complete last scenario with all choices
+                last_scenario = narrative_ctx.get("last_scenario", {})
+                last_player_action = narrative_ctx.get("last_player_action", player_input)
+
+                if last_scenario:
+                    scenario = {
+                        "scene": last_scenario.get("scene", ""),
+                        "gm_notes": last_scenario.get("gm_notes", ""),
+                        "choices": last_scenario.get("choices", []),
+                        "player_choice": last_player_action,  # What player chose that led to combat
+                        "full_context": {
+                            "previous_scenario": last_scenario.get("scene", ""),
+                            "player_choice": last_player_action
+                        }
+                    }
+                    self.logger.info(f"   ✅ Retrieved full scenario from GameEngine:")
+                    self.logger.info(f"      Scene length: {len(scenario['scene'])} chars")
+                    self.logger.info(f"      Choices: {len(scenario.get('choices', []))} options")
+                    self.logger.info(f"      Player chose: '{last_player_action}'")
+                else:
+                    self.logger.warning("   ⚠️  No last_scenario in GameEngine, creating minimal scenario")
+                    scenario = {
+                        "scene": f"Combat initiated: {player_input}",
+                        "gm_notes": f"Player action: {player_input}",
+                        "choices": [],
+                        "player_choice": player_input
+                    }
+            elif scenario:
+                # Scenario provided in DTO - enrich with player choice if available
+                self.logger.info(f"   Scene: '{scenario.get('scene', 'N/A')[:100]}...'")
+                self.logger.info(f"   GM notes: '{scenario.get('gm_notes', 'N/A')[:100]}...'")
+                self.logger.info(f"   Choices: {len(scenario.get('choices', []))} choices")
+
+                # Add player choice context
+                if "player_choice" not in scenario and self.game_engine:
+                    narrative_ctx = self.game_engine.get_narrative_context()
+                    last_player_action = narrative_ctx.get("last_player_action", player_input)
+                    scenario["player_choice"] = last_player_action
+                    scenario["full_context"] = {
+                        "previous_scenario": scenario.get("scene", ""),
+                        "player_choice": last_player_action
+                    }
+            else:
+                self.logger.warning(f"   ⚠️  NO SCENARIO AVAILABLE! No DTO scenario and no GameEngine")
+                self.logger.info(f"   Available DTO keys: {list(dto.keys())}")
+                scenario = {
+                    "scene": f"Combat initiated: {player_input}",
+                    "gm_notes": f"Player action: {player_input}",
+                    "choices": [],
+                    "player_choice": player_input
+                }
+
+            self.logger.info(f"   Player char_id: {player_char_id}")
+            self.logger.info(f"   DTO keys: {list(dto.keys())}")
+
+            # Get game engine reference if not already set
+            if not hasattr(self, 'game_engine') or self.game_engine is None:
+                self.game_engine = dto.get("_game_engine_ref")
+                self.logger.info(f"   Game engine reference: {'Found' if self.game_engine else 'NOT FOUND'}")
+
+            # Phase 1: Initialize Combat
+            self.logger.info("")
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 1: Combat Initialization")
+            self.logger.info("=" * 60)
+
+            combat_state = self.initializer.initialize_combat(
+                scenario=scenario,
+                player_character_ids=[player_char_id],
+                force_combat=True  # Called from combat_pipeline, so force combat
+            )
+
+            if combat_state is None:
+                self.logger.warning("❌ Combat initialization failed or no combat trigger")
+                return {
+                    "response": {
+                        "response_type": "error",
+                        "message": "No combat to initialize"
+                    }
+                }
+
+            self.logger.info(f"✅ Combat initialized successfully")
+            self.logger.info(f"   Active combatants: {len(combat_state['active_combatants'])}")
+            self.logger.info(f"   Initiative order: {len(combat_state['initiative_order'])} entries")
+
+            # Phase 2: Run Combat Loop
+            self.logger.info("")
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 2: Combat Loop (Internal Turn Management)")
+            self.logger.info("=" * 60)
+
+            session_manager = CombatSessionManager(
+                combat_state=combat_state,
+                game_engine=self.game_engine,
+                character_manager=self.character_manager,
+                dnd_engine_wrapper=self.dnd_wrapper,
+                combat_action_resolver=self.action_resolver,
+                combat_narrative_generator=self.narrative_gen,
+                npc_ai_agent=self.npc_ai
+            )
+
+            combat_result = session_manager.run_combat_loop()
+
+            # Phase 3: Combat End & Cleanup
+            self.logger.info("")
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 3: Combat Cleanup")
+            self.logger.info("=" * 60)
+            self._cleanup_combat(combat_state)
+
+            # Generate end narrative
+            end_narrative = self._generate_end_narrative(combat_result)
+
+            # Display to user
+            print("\n" + "="*60)
+            print(end_narrative)
+            print("="*60)
+
+            self.logger.info(f"✅ Combat complete: {combat_result['outcome']} in {combat_result['rounds']} rounds")
+
+            # Update GameEngine
+            self._update_game_engine(combat_result)
+
+            return {
+                "response": {
+                    "response_type": "combat_complete",
+                    "outcome": combat_result["outcome"],
+                    "rounds": combat_result["rounds"],
+                    "combat_log": combat_result["combat_log"],
+                    "narrative": end_narrative
+                }
+            }
+        except Exception as e:
+            self.logger.error(f"❌ Combat Agent failed with exception: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return {
                 "response": {
                     "response_type": "error",
-                    "message": "No combat to initialize"
+                    "message": f"Combat failed: {str(e)}"
                 }
             }
-
-        # Phase 2: Run Combat Loop
-        self.logger.info("Phase 2: Combat Loop (internal turn management)")
-
-        session_manager = CombatSessionManager(
-            combat_state=combat_state,
-            game_engine=self.game_engine,
-            character_manager=self.character_manager,
-            dnd_engine_wrapper=self.dnd_wrapper,
-            combat_action_resolver=self.action_resolver,
-            combat_narrative_generator=self.narrative_gen,
-            npc_ai_agent=self.npc_ai
-        )
-
-        combat_result = session_manager.run_combat_loop()
-
-        # Phase 3: Combat End & Cleanup
-        self.logger.info("Phase 3: Combat Cleanup")
-        self._cleanup_combat(combat_state)
-
-        # Generate end narrative
-        end_narrative = self._generate_end_narrative(combat_result)
-
-        # Display to user
-        print("\n" + "="*60)
-        print(end_narrative)
-        print("="*60)
-
-        self.logger.info(f"✅ Combat complete: {combat_result['outcome']} in {combat_result['rounds']} rounds")
-
-        # Update GameEngine
-        self._update_game_engine(combat_result)
-
-        return {
-            "response": {
-                "response_type": "combat_complete",
-                "outcome": combat_result["outcome"],
-                "rounds": combat_result["rounds"],
-                "combat_log": combat_result["combat_log"],
-                "narrative": end_narrative
-            }
-        }
 
     def _cleanup_combat(self, combat_state: Dict):
         """
