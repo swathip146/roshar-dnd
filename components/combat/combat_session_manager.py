@@ -87,27 +87,60 @@ class CombatSessionManager:
             }
         """
         self.logger.info("🗡️ Combat loop starting...")
+        self.logger.info(f"   Initial round: {self.combat_state['round_number']}")
+        self.logger.info(f"   Total combatants: {len(self.combat_state['active_combatants'])}")
+        self.logger.info(f"   Combatants: {self.combat_state['active_combatants']}")
 
         # Display combat start
         self._display_combat_start()
 
         # Main combat loop
+        loop_iteration = 0
         while not self._is_combat_over():
+            loop_iteration += 1
+            self.logger.info(f"🔄 COMBAT LOOP ITERATION {loop_iteration}")
+            self.logger.info(f"   Round: {self.combat_state['round_number']}")
+            self.logger.info(f"   Turn index: {self.combat_state['current_turn_index']}")
+
             # Get current actor
             current_actor_id = self._get_current_actor()
+            self.logger.info(f"   Current actor: {current_actor_id}")
+
+            # Check if actor is alive
+            if self._is_combatant_dead(current_actor_id):
+                self.logger.warning(f"   ⚠️ Current actor {current_actor_id} is dead, advancing turn")
+                self._advance_turn()
+                continue
 
             # Execute turn based on actor type
-            if self._is_player(current_actor_id):
+            is_player = self._is_player(current_actor_id)
+            self.logger.info(f"   Actor type: {'Player' if is_player else 'NPC'}")
+
+            if is_player:
+                self.logger.info(f"   ▶️ Executing player turn for {current_actor_id}")
                 self._execute_player_turn(current_actor_id)
             else:
+                self.logger.info(f"   ▶️ Executing NPC turn for {current_actor_id}")
                 self._execute_npc_turn(current_actor_id)
 
             # Check if combatant has more actions
-            if not self._has_actions_remaining(current_actor_id):
+            has_actions = self._has_actions_remaining(current_actor_id)
+            self.logger.info(f"   Actions remaining for {current_actor_id}: {has_actions}")
+
+            if not has_actions:
                 # Advance to next combatant
+                self.logger.info(f"   ⏭️ No actions remaining, advancing turn")
                 self._advance_turn()
+            else:
+                self.logger.info(f"   ⏸️ Actor still has actions, continuing their turn")
+
+            # Safety check to prevent infinite loops
+            if loop_iteration > 1000:
+                self.logger.error("❌ INFINITE LOOP DETECTED - Breaking combat loop")
+                break
 
         # Combat ended
+        self.logger.info(f"🏁 Combat loop ended after {loop_iteration} iterations")
         outcome = self._determine_outcome()
         self.logger.info(f"⚔️ Combat ended: {outcome}")
 
@@ -597,10 +630,11 @@ class CombatSessionManager:
         entity = self.dnd_wrapper.entities[char_id]
 
         # Sync from dnd_engine to combat_state (UI display only)
+        # ModifiableValue objects have .value property for the actual int value
         char_state = self.combat_state["combatant_states"][char_id]
-        char_state["actions_remaining"] = entity.action_economy.actions
-        char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions
-        char_state["reaction_available"] = entity.action_economy.reactions > 0
+        char_state["actions_remaining"] = entity.action_economy.actions.value
+        char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions.value
+        char_state["reaction_available"] = entity.action_economy.reactions.value > 0
 
     def _has_actions_remaining(self, char_id: str) -> bool:
         """
@@ -609,8 +643,9 @@ class CombatSessionManager:
         **SIMPLIFIED (2026-01-03):** Queries dnd_engine directly. No fallback.
         """
         entity = self.dnd_wrapper.entities[char_id]
-        return (entity.action_economy.actions > 0 or
-                entity.action_economy.bonus_actions > 0)
+        # ModifiableValue objects need .value property
+        return (entity.action_economy.actions.value > 0 or
+                entity.action_economy.bonus_actions.value > 0)
 
     def _advance_turn(self):
         """
@@ -665,8 +700,12 @@ class CombatSessionManager:
         """Check if combat should end"""
         ended, reason = self._check_end_conditions()
 
+        # Add detailed logging
+        self.logger.debug(f"🔍 _is_combat_over check: ended={ended}, reason={reason}")
+
         if ended:
             self.combat_state["end_reason"] = reason
+            self.logger.info(f"⚔️ Combat ending: {reason}")
             return True
 
         return False
@@ -682,19 +721,30 @@ class CombatSessionManager:
         Returns:
             (combat_ended: bool, reason: str)
         """
+        # Log combatant states
+        self.logger.debug(f"🔍 Checking end conditions:")
+        self.logger.debug(f"   Total combatants: {len(self.combat_state['combatant_states'])}")
+
         # Check all hostiles defeated
         hostile_ids = [
             cid for cid, state in self.combat_state["combatant_states"].items()
             if state["is_hostile"]
         ]
 
-        # Use dnd_engine's authoritative health system
-        all_hostiles_dead = all(
-            self._is_combatant_dead(hid)
-            for hid in hostile_ids
-        )
+        self.logger.debug(f"   Hostiles: {hostile_ids}")
 
-        if all_hostiles_dead:
+        # Use dnd_engine's authoritative health system
+        hostile_dead_status = {}
+        for hid in hostile_ids:
+            is_dead = self._is_combatant_dead(hid)
+            hostile_dead_status[hid] = is_dead
+            self.logger.debug(f"      {hid}: dead={is_dead}")
+
+        all_hostiles_dead = all(hostile_dead_status.values()) if hostile_ids else False
+
+        self.logger.debug(f"   All hostiles dead: {all_hostiles_dead}")
+
+        if all_hostiles_dead and hostile_ids:  # Added check for empty hostile_ids
             return (True, "all_hostiles_defeated")
 
         # Check all players defeated
@@ -703,12 +753,19 @@ class CombatSessionManager:
             if not state["is_hostile"]
         ]
 
-        all_players_dead = all(
-            self._is_combatant_dead(pid)
-            for pid in player_ids
-        )
+        self.logger.debug(f"   Players: {player_ids}")
 
-        if all_players_dead:
+        player_dead_status = {}
+        for pid in player_ids:
+            is_dead = self._is_combatant_dead(pid)
+            player_dead_status[pid] = is_dead
+            self.logger.debug(f"      {pid}: dead={is_dead}")
+
+        all_players_dead = all(player_dead_status.values()) if player_ids else False
+
+        self.logger.debug(f"   All players dead: {all_players_dead}")
+
+        if all_players_dead and player_ids:  # Added check for empty player_ids
             return (True, "all_players_defeated")
 
         return (False, None)
@@ -750,6 +807,14 @@ class CombatSessionManager:
         constitution_mod = entity.ability_scores.constitution.modifier
         # Get current HP using dnd_engine's get_total_hit_points method
         current_hp = entity.health.get_total_hit_points(constitution_mod)
+
+        # LOG DETAILED HP CHECK
+        self.logger.debug(f"      💊 HP check for {char_id}:")
+        self.logger.debug(f"         Constitution modifier: {constitution_mod}")
+        self.logger.debug(f"         entity.health.damage_taken: {entity.health.damage_taken}")
+        self.logger.debug(f"         Total HP: {current_hp}")
+        self.logger.debug(f"         Is dead/unconscious: {current_hp <= 0}")
+
         # Dead/unconscious if current HP <= 0
         return current_hp <= 0
 
@@ -794,8 +859,9 @@ class CombatSessionManager:
         entity = self.dnd_wrapper.entities[npc_char_id]
 
         # Get HP from dnd_engine
-        npc_hp = entity.health.get_current_hit_points()
-        npc_max_hp = entity.health.get_max_hit_points()
+        con_mod = entity.ability_scores.constitution.modifier
+        npc_hp = entity.health.get_total_hit_points(con_mod)
+        npc_max_hp = entity.health.get_max_hit_dices_points(con_mod)
 
         # Dynamically get available actions from ACTION_REGISTRY
         available_actions = [

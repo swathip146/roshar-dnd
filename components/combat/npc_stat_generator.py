@@ -15,6 +15,95 @@ from config.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Gemini-compatible JSON Schema for NPC stat generation (structured output)
+NPC_STATS_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "NPC name"
+        },
+        "level": {
+            "type": "integer",
+            "description": "Character level between 1-20"
+        },
+        "character_class": {
+            "type": "string",
+            "description": "D&D 5e class name (NOT 'class')"
+        },
+        "race": {
+            "type": "string",
+            "description": "Character race"
+        },
+        "background": {
+            "type": "string",
+            "description": "Character background"
+        },
+        "ability_scores": {
+            "type": "object",
+            "description": "All 6 D&D ability scores",
+            "properties": {
+                "strength": {"type": "integer", "description": "Strength score 1-30"},
+                "dexterity": {"type": "integer", "description": "Dexterity score 1-30"},
+                "constitution": {"type": "integer", "description": "Constitution score 1-30"},
+                "intelligence": {"type": "integer", "description": "Intelligence score 1-30"},
+                "wisdom": {"type": "integer", "description": "Wisdom score 1-30"},
+                "charisma": {"type": "integer", "description": "Charisma score 1-30"}
+            },
+            "required": ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
+        },
+        "hit_points": {
+            "type": "object",
+            "description": "HP tracking dict with current, maximum, temporary",
+            "properties": {
+                "current": {"type": "integer", "description": "Current HP"},
+                "maximum": {"type": "integer", "description": "Maximum HP"},
+                "temporary": {"type": "integer", "description": "Temporary HP"}
+            },
+            "required": ["current", "maximum", "temporary"]
+        },
+        "armor_class": {
+            "type": "integer",
+            "description": "Armor Class value"
+        },
+        "proficiency_bonus": {
+            "type": "integer",
+            "description": "Proficiency bonus"
+        },
+        "skills": {
+            "type": "object",
+            "description": "Dict of skill proficiencies (skill_name: true/false). If no skills, use empty object."
+        },
+        "attacks": {
+            "type": "array",
+            "description": "List of attack options",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Attack name"},
+                    "attack_bonus": {"type": "integer", "description": "To-hit bonus"},
+                    "damage_dice": {"type": "string", "description": "Damage dice (e.g., 1d8)"},
+                    "damage_bonus": {"type": "integer", "description": "Damage bonus"},
+                    "damage_type": {"type": "string", "description": "Damage type"}
+                },
+                "required": ["name", "attack_bonus", "damage_dice", "damage_bonus", "damage_type"]
+            }
+        },
+        "special_abilities": {
+            "type": "array",
+            "description": "List of special abilities",
+            "items": {"type": "string"}
+        },
+        "challenge_rating": {
+            "type": "number",
+            "description": "Challenge Rating"
+        }
+    },
+    "required": ["name", "level", "character_class", "race", "background",
+                 "ability_scores", "hit_points", "armor_class", "proficiency_bonus",
+                 "skills", "attacks", "special_abilities", "challenge_rating"]
+}
+
 
 class NPCStats(BaseModel):
     """
@@ -119,6 +208,14 @@ class NPCStatGenerator:
         self.logger = get_logger(__name__)  # Initialize logger first
         self.templates = self._load_templates()
 
+        # Check if LLM was created with structured output schema
+        if hasattr(self.llm, 'generation_config'):
+            config = self.llm.generation_config
+            if config.get('response_schema'):
+                self.logger.info("✅ NPC generator using LLM with structured output schema")
+            else:
+                self.logger.warning("⚠️ NPC generator LLM has no structured output schema - may produce invalid JSON")
+
     def generate_npc_stats(
         self,
         npc_description: str,
@@ -148,8 +245,7 @@ class NPCStatGenerator:
 
 Generate complete, balanced NPC stats following D&D 5e rules.
 
-Output MUST be valid JSON matching this EXACT schema:
-{NPCStats.schema_json(indent=2)}
+Output MUST be valid JSON matching the exact schema provided.
 
 CRITICAL REQUIREMENTS:
 - Use "character_class" field (NOT "class")
@@ -193,7 +289,7 @@ Generate complete stat block:"""
         try:
             npc = NPCStats(**npc_dict)
             self.logger.info(f"✅ Generated valid NPC: {npc.name} (AC {npc.armor_class}, HP {npc.hit_points['maximum']})")
-            return npc.dict()
+            return npc.model_dump()
 
         except ValidationError as e:
             self.logger.warning(f"⚠️ Validation failed, attempting repair: {e}")
@@ -309,7 +405,7 @@ Generate complete stat block:"""
         try:
             npc = NPCStats(**npc_data)
             self.logger.info(f"✅ Repair successful: {npc.name}")
-            return npc.dict()
+            return npc.model_dump()
         except ValidationError as e:
             self.logger.error(f"❌ Repair failed: {e}")
             # Return fallback stats
@@ -340,7 +436,7 @@ Generate complete stat block:"""
             }],
             special_abilities=[],
             challenge_rating=target_cr
-        ).dict()
+        ).model_dump()
 
     def get_npc_from_template(self, template_name: str) -> Optional[Dict]:
         """

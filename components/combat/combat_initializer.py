@@ -110,16 +110,47 @@ class CombatInitializer:
         generated_npc_ids = self._generate_undefined_npcs(enemies, player_character_ids)
         self.logger.info(f"   🎲 Generated {len(generated_npc_ids)} new NPCs")
 
+        # Build list of all combatants BEFORE trying to use it
+        all_combatant_ids = player_character_ids + predefined_npc_ids + generated_npc_ids
+
         # Step 5: Sync all to DnDEngineWrapper
         if self.dnd_wrapper:
             try:
                 self.dnd_wrapper._sync_characters_to_entities()
                 self.logger.info("   🔄 Synced all combatants to dnd_engine entities")
+
+                # LOG ALL ENTITY STATS AFTER SYNC
+                self.logger.info("   📊 ENTITY STATS AFTER SYNC:")
+                for char_id in all_combatant_ids:
+                    char = self.character_manager.characters.get(char_id)
+                    entity = self.dnd_wrapper.entities.get(char_id)
+
+                    if char:
+                        self.logger.info(f"      {char_id} (CharacterManager):")
+                        self.logger.info(f"         Name: {char.name}")
+                        self.logger.info(f"         Level: {char.level}")
+                        self.logger.info(f"         HP: {char.hit_points}")
+                        self.logger.info(f"         Ability Scores: {char.ability_scores}")
+
+                    if entity:
+                        constitution_mod = entity.ability_scores.constitution.modifier
+                        max_hp = entity.health.get_max_hit_dices_points(constitution_mod)
+                        total_hp = entity.health.get_total_hit_points(constitution_mod)
+                        damage_taken = entity.health.damage_taken
+
+                        self.logger.info(f"      {char_id} (dnd_engine Entity):")
+                        self.logger.info(f"         Constitution Mod: {constitution_mod}")
+                        self.logger.info(f"         Max HP (from hit dice): {max_hp}")
+                        self.logger.info(f"         Damage Taken: {damage_taken}")
+                        self.logger.info(f"         Total HP (max - damage): {total_hp}")
+                        self.logger.info(f"         Is Dead: {total_hp <= 0}")
+                    else:
+                        self.logger.warning(f"      ❌ {char_id} has no entity in dnd_wrapper!")
+
             except Exception as e:
                 self.logger.warning(f"   ⚠️  Failed to sync to dnd_engine: {e}")
 
-        # Step 6: Roll initiative
-        all_combatant_ids = player_character_ids + predefined_npc_ids + generated_npc_ids
+        # Step 6: Roll initiative (all_combatant_ids already defined above)
         initiative_order = self._roll_initiative(all_combatant_ids)
 
         # Log full initiative order for debugging
@@ -430,6 +461,14 @@ Return JSON array of enemies:"""
                         'keywords': enemy.get('keywords', [])
                     }
                 )
+
+                # LOG GENERATED NPC STATS
+                self.logger.info(f"      📊 Generated stats for '{enemy_name}':")
+                self.logger.info(f"         Name: {npc_stats.get('name')}")
+                self.logger.info(f"         Level: {npc_stats.get('level')}")
+                self.logger.info(f"         HP: {npc_stats.get('hit_points')}")
+                self.logger.info(f"         Ability Scores: {npc_stats.get('ability_scores')}")
+
             except Exception as e:
                 self.logger.error(f"      ❌ Failed to generate NPC '{enemy_name}': {e}")
                 continue
@@ -466,12 +505,7 @@ Return JSON array of enemies:"""
             self.logger.warning("   ⚠️  No dnd_engine_wrapper, using fallback initiative")
             return self._roll_initiative_fallback(combatant_ids)
 
-        try:
-            from dnd.core.dice import RollType
-        except ImportError:
-            self.logger.warning("   ⚠️  dnd.core.dice not available, using fallback initiative")
-            return self._roll_initiative_fallback(combatant_ids)
-
+        # No need to import RollType since we're using simple d20 rolls
         for char_id in combatant_ids:
             try:
                 entity = self.dnd_wrapper.entities.get(char_id)
@@ -486,19 +520,19 @@ Return JSON array of enemies:"""
                     else:
                         initiative = self._roll_d20()
                 else:
-                    # Get DEX modifier from entity
-                    dex_mod = entity.ability_modifier("dexterity")
+                    # Get DEX modifier from entity's ability_scores block
+                    dex_mod = entity.ability_scores.get_modifier_from_name("dexterity")
 
-                    # Roll d20 + DEX mod
-                    roll_result = entity.roll_d20(dex_mod, RollType.CHECK)
-                    initiative = roll_result.total
+                    # Roll d20 + DEX mod for initiative
+                    # Simple roll without using entity.roll_d20 (which expects ModifiableValue)
+                    initiative = self._roll_d20() + dex_mod
 
                 initiative_rolls.append({
                     "char_id": char_id,
                     "initiative": initiative
                 })
 
-                self.logger.debug(f"      {char_id} initiative: {initiative}")
+                self.logger.debug(f"      {char_id} initiative: {initiative} (d20 + {dex_mod})")
 
             except Exception as e:
                 self.logger.warning(f"      ⚠️  Failed to roll initiative for {char_id}: {e}")
@@ -587,6 +621,8 @@ Return JSON array of enemies:"""
         """
         states = {}
 
+        self.logger.info("📊 INITIALIZING COMBATANT STATES:")
+
         for char_id in combatant_ids:
             char = self.character_manager.characters.get(char_id)
 
@@ -621,6 +657,14 @@ Return JSON array of enemies:"""
                 "reaction_available": True,
                 "is_hostile": is_npc
             }
+
+            # LOG EACH COMBATANT STATE
+            self.logger.info(f"   {char_id}:")
+            self.logger.info(f"      Name: {char.name}")
+            self.logger.info(f"      HP from CharacterManager: {hp_data}")
+            self.logger.info(f"      Initial hp_current: {hp_current}")
+            self.logger.info(f"      Initial hp_max: {hp_max}")
+            self.logger.info(f"      Is Hostile: {is_npc}")
 
         return states
 

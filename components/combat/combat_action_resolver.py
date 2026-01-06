@@ -265,14 +265,20 @@ class CombatActionResolver:
         Args:
             target_uuid: Target entity UUID
         """
+        # Safety check: combat_state might not have combatant_states key
+        if not self.combat_state or "combatant_states" not in self.combat_state:
+            self.logger.warning("Combat state missing 'combatant_states', skipping HP sync")
+            return
+
         # Find character by UUID
         for char_id, entity in self.dnd_wrapper.entities.items():
             if entity.uuid == target_uuid:
                 char = self.character_manager.characters.get(char_id)
                 if char and char_id in self.combat_state["combatant_states"]:
                     # Sync current HP from entity to combat state
-                    current_hp = entity.health.get_current_hit_points()
-                    max_hp = entity.health.get_max_hit_points()
+                    con_mod = entity.ability_scores.constitution.modifier
+                    current_hp = entity.health.get_total_hit_points(con_mod)
+                    max_hp = entity.health.get_max_hit_dices_points(con_mod)
 
                     self.combat_state["combatant_states"][char_id]["hp_current"] = current_hp
                     self.combat_state["combatant_states"][char_id]["hp_max"] = max_hp
