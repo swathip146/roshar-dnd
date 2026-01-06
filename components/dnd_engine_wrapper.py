@@ -141,10 +141,49 @@ class DnDEngineWrapper:
                 )
             )
 
-            health_config = HealthConfig(
-                max_hp=character.hit_points.get("maximum", 10),
-                current_hp=character.hit_points.get("current", 10)
+            # LOG CHARACTER HP VALUES BEFORE CREATING ENTITY
+            char_hp = character.hit_points
+            max_hp = char_hp.get("maximum", 10)
+            current_hp = char_hp.get("current", 10)
+
+            logger.info(f"   🏥 Creating dnd_engine entity for {character.name} (ID: {char_id})")
+            logger.info(f"      CharacterManager HP data: {char_hp}")
+            logger.info(f"      Extracted max_hp: {max_hp}")
+            logger.info(f"      Extracted current_hp: {current_hp}")
+
+            # CRITICAL FIX: dnd_engine uses hit_dices, not max_hp/current_hp directly
+            # Convert simplified HP model to dnd_engine hit dice model
+            from dnd.blocks.health import HitDiceConfig
+
+            # Calculate damage taken: damage_taken = max_hp - current_hp
+            damage_taken = max(0, max_hp - current_hp)
+
+            # Create a single hit dice that produces the desired max HP
+            # Use d6 hit dice (common for level 1), count = max_hp / 4 (average d6 = 3.5 ≈ 4)
+            # For max_hp = 10: 10/4 = 2.5 hit dice, but we need integer
+            # Better: Use hit_dice_count = character.level, hit_dice_value based on class
+            hit_dice_count = character.level
+            # Determine hit die size based on max HP and level
+            # max_hp ≈ hit_dice_count * (hit_dice_value/2 + 1) + con_mod * hit_dice_count
+            # For now, use d8 (common for martial classes)
+            hit_dice_value = 8
+
+            hit_dice_config = HitDiceConfig(
+                hit_dice_value=hit_dice_value,
+                hit_dice_count=hit_dice_count,
+                mode="average"  # Use average HP calculation
             )
+
+            health_config = HealthConfig(
+                hit_dices=[hit_dice_config],
+                max_hit_points_bonus=0,  # Any bonus beyond hit dice
+                temporary_hit_points=0,
+                damage_reduction=0
+            )
+
+            logger.info(f"      Converted to hit dice model:")
+            logger.info(f"         Hit dice: {hit_dice_count}d{hit_dice_value}")
+            logger.info(f"         Damage taken: {damage_taken}")
 
             # Create equipment configuration
             equipment_config = EquipmentConfig(
@@ -176,6 +215,20 @@ class DnDEngineWrapper:
                 name=character.name,
                 config=entity_config
             )
+
+            # Set damage_taken to match current HP
+            entity.health.damage_taken = damage_taken
+
+            # LOG ENTITY HP VALUES AFTER CREATION
+            con_mod = entity.ability_scores.constitution.modifier
+            entity_max_hp = entity.health.get_max_hit_dices_points(con_mod)
+            entity_total_hp = entity.health.get_total_hit_points(con_mod)
+
+            logger.info(f"      ✅ Entity created:")
+            logger.info(f"         Constitution modifier: {con_mod}")
+            logger.info(f"         entity.health.get_max_hit_dices_points(con_mod): {entity_max_hp}")
+            logger.info(f"         entity.health.damage_taken: {entity.health.damage_taken}")
+            logger.info(f"         entity.health.get_total_hit_points(con_mod): {entity_total_hp}")
 
             self.entities[char_id] = entity
             logger.debug(f"Created entity for {character.name} (ID: {char_id})")

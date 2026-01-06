@@ -204,12 +204,18 @@ class PipelineOrchestrator:
                     npc_registry = NPCStatLoader(npc_directory="data/players/")
                     logger.debug(f"   Loaded {npc_registry.get_npc_count()} NPCs into registry")
 
-                    npc_generator_llm = config_manager.create_generator(agent_name="npc_generator")
+                    # Import NPC stats schema for structured output
+                    from components.combat.npc_stat_generator import NPC_STATS_RESPONSE_SCHEMA
+
+                    npc_generator_llm = config_manager.create_generator(
+                        agent_name="npc_generator",
+                        response_schema=NPC_STATS_RESPONSE_SCHEMA
+                    )
                     npc_stat_generator = NPCStatGenerator(
                         llm=npc_generator_llm,
                         document_store=self.shared_document_store
                     )
-                    logger.debug("   Created NPCStatGenerator")
+                    logger.debug("   Created NPCStatGenerator with structured output schema")
 
                     # Create combat initializer
                     combat_initializer = CombatInitializer(

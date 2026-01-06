@@ -166,7 +166,7 @@ class LLMConfigManager:
                 provider=default_provider,
                 model=default_model,
                 temperature=0.8,  # More creative for scenarios
-                max_tokens=3000
+                max_tokens=8000  # Increased from 3000 to handle full scenario JSON
             ),
             rag_retriever=LLMConfig(
                 provider=default_provider,
@@ -384,7 +384,7 @@ def create_gemini_config(model: str = "gemini-2.5-flash") -> AgentLLMConfig:
     )
     
     return AgentLLMConfig(
-        scenario_generator=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.8, max_tokens=3000),
+        scenario_generator=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.8, max_tokens=8000),
         rag_retriever=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.3, max_tokens=1500),
         npc_controller=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.9, max_tokens=2000),
         main_interface=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.5, max_tokens=1000),
@@ -408,7 +408,7 @@ def create_mixed_config() -> AgentLLMConfig:
             provider=primary_provider,
             model=primary_model,
             temperature=0.8,
-            max_tokens=3000
+            max_tokens=8000  # Increased from 3000 to handle full scenario JSON
         ),
         rag_retriever=LLMConfig(
             provider=primary_provider,
