@@ -885,7 +885,9 @@ class CombatSessionManager:
         # Get HP from dnd_engine
         con_mod = entity.ability_scores.constitution.modifier
         npc_hp = entity.health.get_total_hit_points(con_mod)
-        npc_max_hp = entity.health.get_max_hit_dices_points(con_mod)
+        # get_max_hit_dices_points() omits max_hit_points_bonus, which plan 1.7
+        # uses to reconcile to the authored max_hp -- so it under-reports.
+        npc_max_hp = self.dnd_wrapper.get_entity_max_hp(entity)
 
         # Dynamically get available actions from ACTION_REGISTRY
         available_actions = [

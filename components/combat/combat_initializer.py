@@ -134,7 +134,8 @@ class CombatInitializer:
 
                     if entity:
                         constitution_mod = entity.ability_scores.constitution.modifier
-                        max_hp = entity.health.get_max_hit_dices_points(constitution_mod)
+                        # Must include max_hit_points_bonus (plan 1.7)
+                        max_hp = self.dnd_wrapper.get_entity_max_hp(entity)
                         total_hp = entity.health.get_total_hit_points(constitution_mod)
                         damage_taken = entity.health.damage_taken
 
