@@ -194,3 +194,4 @@ external/
 data/rules/srd/*.json
 data/rules/gaps.json
 data/rules/rulings.json
+game_saves/turns.sqlite*

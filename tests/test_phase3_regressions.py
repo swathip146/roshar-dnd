@@ -387,3 +387,137 @@ class TestTierMarkers:
 
     def test_narrative_says_no_mechanical_effect(self):
         assert describe_tier(TIER_NARRATIVE) == "No mechanical effect"
+
+
+# ------------------------------------------------- 3.5 durable turns (LangGraph)
+
+from components.durable_turns import DurableTurnLoop
+
+
+class TestDurableTurns:
+    """
+    3.5 / D4 — a turn blocks on a human for minutes or days, so turn state must
+    survive process exit and resume in a NEW process.
+
+    Haystack 2.21 had AgentBreakpoint/AgentSnapshot; 3.0 REMOVED them
+    ("pausing and resuming execution inside an Agent is no longer supported"),
+    which is why the plan migrates the agent layer to LangGraph.
+    """
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        return tmp_path / "turns.sqlite"
+
+    @pytest.fixture
+    def counter(self):
+        return {"resolves": 0}
+
+    @pytest.fixture
+    def loop(self, db, counter):
+        def resolve(state):
+            counter["resolves"] += 1
+            return {"narration": f"You did: {state.get('player_input', '')}",
+                    "choices": [{"title": "Continue"}]}
+
+        made = DurableTurnLoop(on_resolve=resolve, checkpoint_db=db)
+        yield made
+        made.close()
+
+    def test_langgraph_is_available(self, loop):
+        assert loop.available, "LangGraph missing — durable turns cannot work"
+
+    def test_a_turn_resolves(self, loop):
+        result = loop.start("camp", player_input="I look around")
+        assert result["status"] == "ok"
+        assert "I look around" in result["narration"]
+
+    def test_a_turn_without_input_pauses(self, loop):
+        loop.start("camp", player_input="first")
+        assert loop.start("camp")["status"] == "awaiting_input"
+
+    def test_pausing_returns_data_not_a_blocking_call(self, loop):
+        """D4: the interrupt returns the pending action AS DATA."""
+        loop.start("camp", player_input="first")
+        paused = loop.start("camp")
+        assert "prompt" in paused and "choices" in paused
+        assert isinstance(paused["choices"], list)
+
+    def test_resume_works_in_a_new_process(self, db, counter):
+        """
+        The actual requirement: nothing in memory survives, only the checkpoint.
+        """
+        def resolve(state):
+            counter["resolves"] += 1
+            return {"narration": f"You did: {state.get('player_input', '')}"}
+
+        first = DurableTurnLoop(on_resolve=resolve, checkpoint_db=db)
+        first.start("camp", player_input="open the door")
+        first.start("camp")          # pause
+        first.close()                # process exits
+
+        second = DurableTurnLoop(on_resolve=resolve, checkpoint_db=db)
+        result = second.resume("camp", "I draw my blade")
+        second.close()
+        assert result["status"] == "ok"
+        assert "I draw my blade" in result["narration"]
+
+    def test_resume_does_not_re_execute_the_turn(self, db, counter):
+        """
+        THE gotcha: LangGraph re-executes a node from the top on resume, so a
+        resumed turn would re-roll dice and re-bill tokens if interrupt() shared
+        a node with resolution. interrupt() gets its own node for this reason.
+        """
+        def resolve(state):
+            counter["resolves"] += 1
+            return {"narration": "resolved"}
+
+        loop = DurableTurnLoop(on_resolve=resolve, checkpoint_db=db)
+        loop.start("camp", active_character="aggi")   # pauses immediately
+        for i in range(3):
+            loop.close()
+            loop = DurableTurnLoop(on_resolve=resolve, checkpoint_db=db)
+            loop.resume("camp", f"action {i}")
+            loop.start("camp")                        # pause for the next turn
+        loop.close()
+        assert counter["resolves"] == 3, (
+            f"resolver ran {counter['resolves']}x for 3 turns — re-execution"
+        )
+
+    def test_turn_number_advances(self, loop):
+        loop.start("camp", player_input="one")
+        assert loop.get_state("camp").get("turn_number", 0) >= 2
+
+    def test_history_accumulates_and_is_bounded(self, db):
+        loop = DurableTurnLoop(on_resolve=lambda s: {"narration": "x" * 50},
+                               checkpoint_db=db)
+        for i in range(30):
+            loop.start("camp", player_input=f"turn {i}")
+        history = loop.get_state("camp").get("history", [])
+        loop.close()
+        assert 0 < len(history) <= 20, "history must be bounded"
+
+    def test_threads_are_isolated(self, loop):
+        loop.start("camp-a", player_input="alpha")
+        loop.start("camp-b", player_input="beta")
+        assert "alpha" in loop.get_state("camp-a")["history"][0]
+        assert "beta" in loop.get_state("camp-b")["history"][0]
+
+    def test_threads_can_be_listed(self, loop):
+        loop.start("camp-a", player_input="x")
+        loop.start("camp-b", player_input="y")
+        assert {"camp-a", "camp-b"} <= set(loop.list_threads())
+
+    def test_a_failing_resolver_does_not_lose_the_thread(self, db):
+        def boom(state):
+            raise RuntimeError("resolution exploded")
+
+        loop = DurableTurnLoop(on_resolve=boom, checkpoint_db=db)
+        result = loop.start("camp", player_input="x")
+        loop.close()
+        assert result["status"] == "error"
+        assert "could not be resolved" in result["narration"]
+
+    def test_state_is_json_serialisable(self, loop):
+        """Live components must stay OUT of checkpointed state."""
+        loop.start("camp", player_input="x")
+        json.dumps(loop.get_state("camp"))  # must not raise
