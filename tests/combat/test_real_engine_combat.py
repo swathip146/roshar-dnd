@@ -459,3 +459,217 @@ class TestConditions:
     def test_conditions_are_per_entity(self, wrapper):
         wrapper.apply_condition("hero", "prone")
         assert "Prone" not in wrapper.get_conditions("goblin")
+
+
+# --------------------------------------------------------------------------
+# Plan 1.4 — real weapons. EquipmentConfig only ever set unarmored_ac and no
+# weapon was equipped, so every attack resolved unarmed (1d6 bludgeoning):
+# a Shardbearer and a peasant hit equally hard.
+# --------------------------------------------------------------------------
+
+class TestWeaponEquipping:
+    """Weapon choice must have a mechanical effect."""
+
+    @pytest.fixture
+    def armed(self):
+        mgr = CharacterManager()
+        mgr.add_character(_character(
+            "hero", "Hero", level=5,
+            ability_scores={"strength": 18, "dexterity": 14, "constitution": 14,
+                            "intelligence": 10, "wisdom": 10, "charisma": 10},
+            hit_points={"current": 40, "maximum": 40, "temporary": 0},
+            equipment=["Greatsword", "rope"],
+        ))
+        # A high-HP, low-AC dummy so damage totals are measurable
+        mgr.add_character(_character(
+            "dummy", "Dummy", armor_class=5,
+            hit_points={"current": 400, "maximum": 400, "temporary": 0},
+        ))
+        return DnDEngineWrapper(game_engine=_StubGameEngine(), character_manager=mgr)
+
+    def _swing(self, w, n=20):
+        hero, dummy = w.entities["hero"], w.entities["dummy"]
+        before = w.get_entity_current_hp(dummy)
+        for _ in range(n):
+            hero.action_economy.reset_all_costs()
+            Attack(source_entity_uuid=hero.uuid, target_entity_uuid=dummy.uuid,
+                   weapon_slot=WeaponSlot.MAIN_HAND).apply(parent_event=None)
+        return before - w.get_entity_current_hp(dummy)
+
+    def test_weapon_from_equipment_list_is_equipped(self, armed):
+        main = armed.entities["hero"].equipment.weapon_main_hand
+        assert main is not None, "no weapon equipped — attacks will resolve unarmed"
+        assert main.name == "Greatsword"
+
+    def test_weapon_dice_match_the_weapon(self, armed):
+        main = armed.entities["hero"].equipment.weapon_main_hand
+        assert (main.dice_numbers, main.damage_dice) == (2, 6), "greatsword is 2d6"
+
+    def test_equipping_a_named_weapon_works(self, armed):
+        assert armed.equip_weapon("hero", "Longsword") is True
+        main = armed.entities["hero"].equipment.weapon_main_hand
+        assert (main.dice_numbers, main.damage_dice) == (1, 8)
+
+    def test_unknown_weapon_is_declined_not_faked(self, armed):
+        assert armed.equip_weapon("hero", "Frying Pan of Doom") is False
+
+    def test_substring_match_handles_flavoured_names(self, armed):
+        assert armed.equip_weapon("hero", "Kaladin's trusty spear") is True
+        main = armed.entities["hero"].equipment.weapon_main_hand
+        assert (main.dice_numbers, main.damage_dice) == (1, 6), "spear is 1d6"
+
+    def test_longest_match_wins(self, armed):
+        """'greatsword' must not be matched as 'sword'."""
+        assert armed.equip_weapon("hero", "greatsword") is True
+        main = armed.entities["hero"].equipment.weapon_main_hand
+        assert (main.dice_numbers, main.damage_dice) == (2, 6)
+
+    def test_shardblade_is_a_real_weapon(self, armed):
+        assert armed.equip_weapon("hero", "Shardblade") is True
+        main = armed.entities["hero"].equipment.weapon_main_hand
+        assert main.dice_numbers == 4, "a Shardblade should hit far harder than a sword"
+
+    def test_equip_unknown_character_is_graceful(self, armed):
+        assert armed.equip_weapon("nobody", "Longsword") is False
+
+    def test_greatsword_outdamages_a_dagger(self, armed):
+        """The point of 1.4: weapon choice changes the numbers."""
+        armed.equip_weapon("hero", "Greatsword")
+        big = self._swing(armed, 40)
+        armed.equip_weapon("hero", "Dagger")
+        small = self._swing(armed, 40)
+        assert big > small, (
+            f"greatsword ({big}) should outdamage a dagger ({small}) over 40 swings"
+        )
+
+    def test_npc_statblock_attacks_are_equipped(self):
+        """npc_stat_generator emits attacks[]; those must reach the engine."""
+        mgr = CharacterManager()
+        cid = mgr.add_npc({
+            "name": "Goblin Warrior", "level": 1,
+            "ability_scores": {"strength": 8, "dexterity": 14, "constitution": 10,
+                               "intelligence": 10, "wisdom": 8, "charisma": 8},
+            "hit_points": {"current": 7, "maximum": 7, "temporary": 0},
+            "armor_class": 15, "character_class": "Goblin",
+            "race": "Goblin", "background": "Raider",
+            "attacks": [{"name": "Scimitar", "attack_bonus": 4,
+                         "damage_dice": "1d6", "damage_bonus": 2,
+                         "damage_type": "slashing"}],
+        })
+        w = DnDEngineWrapper(game_engine=_StubGameEngine(), character_manager=mgr)
+        main = w.entities[cid].equipment.weapon_main_hand
+        assert main is not None and main.name == "Scimitar"
+        assert (main.dice_numbers, main.damage_dice) == (1, 6)
+
+
+# --------------------------------------------------------------------------
+# Plan 1.6 — Roshar state on the engine entity.
+#
+# roshar_actions.py gates every surge on hasattr(entity, 'stormlight_current')
+# etc., but those live on CharacterData, never on the dnd_engine Entity. Every
+# guard was False: costs unchecked, Stormlight never deducted (free and
+# untracked), ShardbladeAttack always "No Shardblade bonded".
+#
+# Also found here: all three surge classes hand-wrote __init__ without calling
+# super().__init__(), so pydantic never initialised the model and constructing
+# ANY surge raised AttributeError. No Roshar surge was ever usable.
+# --------------------------------------------------------------------------
+
+class TestRosharState:
+
+    @pytest.fixture
+    def radiant(self):
+        mgr = CharacterManager()
+        mgr.add_character(_character(
+            "kal", "Kaladin", level=5, character_class="Windrunner",
+            hit_points={"current": 40, "maximum": 40, "temporary": 0},
+            armor_class=16, radiant_order="Windrunner",
+            stormlight_current=8, stormlight_capacity=10, ideal_level=3,
+            has_shardblade=True, shardblade_summoned=True, shardblade_name="Syl",
+        ))
+        mgr.add_character(_character(
+            "shal", "Shallan", level=5, character_class="Lightweaver",
+            radiant_order="Lightweaver",
+            stormlight_current=8, stormlight_capacity=10, ideal_level=3,
+        ))
+        mgr.add_character(_character("fused", "Fused", armor_class=13))
+        return DnDEngineWrapper(game_engine=_StubGameEngine(), character_manager=mgr)
+
+    def test_surge_classes_can_be_constructed(self):
+        """All three raised AttributeError before the __init__ fix."""
+        from uuid import uuid4
+        from components.combat.roshar_actions import (
+            Lashing, ShardbladeAttack, ProgressionHealing,
+        )
+        for cls in (Lashing, ShardbladeAttack, ProgressionHealing):
+            obj = cls(source_entity_uuid=uuid4(), target_entity_uuid=uuid4())
+            assert obj.name, f"{cls.__name__} did not construct"
+
+    def test_roshar_attrs_reach_the_entity(self, radiant):
+        entity = radiant.entities["kal"]
+        assert getattr(entity, "radiant_order", None) == "Windrunner"
+        assert getattr(entity, "stormlight_current", None) == 8
+        assert getattr(entity, "has_shardblade", None) is True
+
+    def test_surgebinding_level_derives_from_ideal_level(self, radiant):
+        assert radiant.character_manager.characters["kal"].surgebinding_level == 3
+
+    def test_surge_applies_for_the_right_order(self, radiant):
+        from components.combat.roshar_actions import Lashing
+        event = Lashing(
+            source_entity_uuid=radiant.entities["kal"].uuid,
+            target_entity_uuid=radiant.entities["fused"].uuid,
+        ).apply()
+        assert event is not None and not getattr(event, "canceled", True), (
+            f"Windrunner Lashing was rejected: {getattr(event, 'status_message', '?')}"
+        )
+
+    def test_surge_consumes_exactly_its_cost(self, radiant):
+        from components.combat.roshar_actions import Lashing
+        entity = radiant.entities["kal"]
+        before = entity.stormlight_current
+        Lashing(source_entity_uuid=entity.uuid,
+                target_entity_uuid=radiant.entities["fused"].uuid).apply()
+        assert entity.stormlight_current == before - 1, (
+            "Stormlight was not deducted — the cost guard is inert again"
+        )
+
+    def test_consumption_persists_to_character_data(self, radiant):
+        from components.combat.roshar_actions import Lashing
+        Lashing(source_entity_uuid=radiant.entities["kal"].uuid,
+                target_entity_uuid=radiant.entities["fused"].uuid).apply()
+        radiant.sync_roshar_attrs_from_entity("kal")
+        assert radiant.character_manager.characters["kal"].stormlight_current == 7, (
+            "consumption lost on resync — Stormlight would be effectively infinite"
+        )
+
+    def test_wrong_order_is_refused(self, radiant):
+        """A Lightweaver cannot Lash."""
+        from components.combat.roshar_actions import Lashing
+        event = Lashing(
+            source_entity_uuid=radiant.entities["shal"].uuid,
+            target_entity_uuid=radiant.entities["fused"].uuid,
+        ).apply()
+        assert event is None or getattr(event, "canceled", False)
+
+    def test_empty_stormlight_is_refused(self, radiant):
+        from components.combat.roshar_actions import Lashing
+        radiant.set_roshar_attr("kal", "stormlight_current", 0)
+        event = Lashing(
+            source_entity_uuid=radiant.entities["kal"].uuid,
+            target_entity_uuid=radiant.entities["fused"].uuid,
+        ).apply()
+        assert event is None or getattr(event, "canceled", False), \
+            "surge succeeded with zero Stormlight"
+
+    def test_spend_stormlight_helper(self, radiant):
+        assert radiant.can_afford_stormlight("kal", 5) is True
+        assert radiant.spend_stormlight("kal", 5) is True
+        assert radiant.character_manager.characters["kal"].stormlight_current == 3
+        assert radiant.can_afford_stormlight("kal", 5) is False
+        assert radiant.spend_stormlight("kal", 5) is False, "overspend must be refused"
+        assert radiant.character_manager.characters["kal"].stormlight_current == 3
+
+    def test_normal_engine_behaviour_is_unaffected(self, radiant):
+        """The Roshar mirror must not break ordinary HP handling."""
+        assert radiant.get_entity_current_hp(radiant.entities["kal"]) == 40
