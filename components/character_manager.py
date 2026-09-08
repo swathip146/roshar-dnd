@@ -4,7 +4,7 @@ Character data management and skill calculations - From Original Plan
 """
 
 from typing import Dict, Any, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, fields
 from enum import Enum
 
 from config.logging_config import get_logger
@@ -100,6 +100,62 @@ class CharacterData:
     
     # Action tracking for game session
     action_history: List[Dict[str, Any]] = None  # Track all actions taken during the session
+
+    # ------------------------------------------------------------------
+    # Serialization (Plan 0.3)
+    #
+    # Saves previously went through get_character_summary(), which is an
+    # ANALYTICS view: it drops hit_points, equipment, armor_class, spell_slots
+    # and every Roshar field, and collapses skills to a count. Loading such a
+    # save resurrected the character at 0 HP with class "Unknown".
+    # These two methods are the real round-trip contract.
+    # ------------------------------------------------------------------
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Full lossless serialization of this character."""
+        data = asdict(self)
+        # JSON object keys must be strings; spell_slots is keyed by int level.
+        if data.get("spell_slots"):
+            data["spell_slots"] = {str(k): v for k, v in data["spell_slots"].items()}
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CharacterData":
+        """Rebuild a character from to_dict() output, tolerating schema drift."""
+        known = {f.name for f in fields(cls)}
+        payload = {k: v for k, v in data.items() if k in known}
+
+        # Restore int keys on spell_slots (JSON stringifies them).
+        slots = payload.get("spell_slots")
+        if isinstance(slots, dict):
+            payload["spell_slots"] = {
+                int(k): v for k, v in slots.items() if str(k).lstrip("-").isdigit()
+            }
+
+        # Required (non-default) fields must be present; supply safe empties so a
+        # partial/legacy save degrades instead of raising.
+        defaults = {
+            "character_id": data.get("name", "unknown"),
+            "name": "Unknown",
+            "level": 1,
+            "proficiency_bonus": 2,
+            "ability_scores": {},
+            "ability_modifiers": {},
+            "skills": {},
+            "expertise_skills": [],
+            "conditions": [],
+            "features": [],
+            "hit_points": {"current": 0, "maximum": 0, "temporary": 0},
+            "armor_class": 10,
+            "saving_throw_proficiencies": [],
+            "character_class": "Unknown",
+            "race": "Unknown",
+            "background": "Unknown",
+        }
+        for key, fallback in defaults.items():
+            payload.setdefault(key, fallback)
+
+        return cls(**payload)
 
 class CharacterManager:
     """

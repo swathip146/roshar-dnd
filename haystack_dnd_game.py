@@ -500,11 +500,15 @@ class HaystackDnDGame:
             game_engine_state = self.game_engine.export_game_state()
             character_manager_state = {}
             
-            # Get character data from CharacterManager (authority)
+            # Get character data from CharacterManager (authority).
+            # Plan 0.3: was get_character_summary(), an analytics view that dropped
+            # HP, equipment, AC, spell slots and all Roshar state. Use the lossless
+            # to_dict() round-trip contract instead. Serializes the WHOLE roster
+            # (D3: party support), not just the active character.
             if self.character_manager:
                 character_manager_state = {
-                    char_id: self.character_manager.get_character_summary(char_id)
-                    for char_id in self.character_manager.characters.keys()
+                    char_id: character.to_dict()
+                    for char_id, character in self.character_manager.characters.items()
                 }
             
             # Use SessionManager for persistence coordination (not state management)

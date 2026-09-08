@@ -122,8 +122,11 @@ def _determine_final_route(intent_data: Dict[str, Any]) -> str:
     rag = intent_data.get("rag", {})
     rag_needed = bool (rag.get("needed", False))
 
-    # Combat route (highest priority - check for combat keywords or combat_trigger)
-    if primary == "combat" or "combat" in str(intent_data).lower():
+    # Combat route (highest priority).
+    # 0.6: previously also matched `"combat" in str(intent_data).lower()`, a
+    # substring search over the ENTIRE stringified dict — including the model's
+    # free-text rationale. "the player avoids combat" routed into combat.
+    if primary == "combat":
         return "combat_pipeline"
 
     # Rules lookup route

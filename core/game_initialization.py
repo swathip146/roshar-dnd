@@ -135,28 +135,60 @@ class GameInitializationSystem:
                         config.player_name = session_data.get("session_metadata", {}).get("player_name", "Adventurer")
                         logger.info(f"   👤 Player name loaded: {config.player_name}")
                         
-                        # Restore GameEngine state if available
-                        if ("orchestrator_state" in session_data and
-                            "game_engine_state" in session_data["orchestrator_state"]):
+                        # Restore GameEngine state if available.
+                        # Plan 0.5: this guarded on session_data["orchestrator_state"]
+                        # ["game_engine_state"] -- a key save_session() NEVER writes
+                        # (it writes "game_state", session_manager.py:139). The branch
+                        # was dead, so location/quests/narrative/turn count were
+                        # silently lost on every load. Accept the real key, keeping
+                        # the legacy path for older saves.
+                        game_engine_state = session_data.get("game_state")
+                        if not game_engine_state:
+                            game_engine_state = (
+                                session_data.get("orchestrator_state", {})
+                                .get("game_engine_state")
+                            )
+                        if game_engine_state:
                             try:
-                                game_engine_state = session_data["orchestrator_state"]["game_engine_state"]
                                 config.game_engine.import_game_state(game_engine_state)
-                                print(f"   🎮 GameEngine: State restored from save")
+                                logger.info("   🎮 GameEngine: State restored from save")
                             except Exception as e:
                                 logger.warning(f"   ⚠️ GameEngine restore failed: {e}")
-                        
-                        # Restore character data if available
+                        else:
+                            logger.warning("   ⚠️ Save contains no GameEngine state")
+
+                        # Restore character data if available.
+                        # Plan 0.4: the dict branch passed the WHOLE {char_id: sheet}
+                        # map to add_character(), which looked for "character_id"/"name"
+                        # at the top level, found neither, and created one character
+                        # literally named "unknown" -- dropping the real roster.
+                        # Iterate the map instead (D3: restore the whole party).
                         if "character_data" in session_data:
                             try:
                                 character_data = session_data["character_data"]
+                                restored = []
+
                                 if isinstance(character_data, dict):
-                                    char_id = config.character_manager.add_character(character_data)
-                                    config.game_engine.add_character(char_id)
+                                    for char_id, char_sheet in character_data.items():
+                                        if not isinstance(char_sheet, dict):
+                                            logger.warning(
+                                                f"   ⚠️ Skipping malformed character entry: {char_id}"
+                                            )
+                                            continue
+                                        char_sheet.setdefault("character_id", char_id)
+                                        new_id = config.character_manager.add_character(char_sheet)
+                                        config.game_engine.add_character(new_id)
+                                        restored.append(new_id)
                                 elif isinstance(character_data, list):
-                                    for char_data in character_data:
-                                        char_id = config.character_manager.add_character(char_data)
-                                        config.game_engine.add_character(char_id)
-                                logger.info(f"   👥 CharacterManager: Characters restored from save")
+                                    for char_sheet in character_data:
+                                        new_id = config.character_manager.add_character(char_sheet)
+                                        config.game_engine.add_character(new_id)
+                                        restored.append(new_id)
+
+                                logger.info(
+                                    f"   👥 CharacterManager: restored {len(restored)} "
+                                    f"character(s): {', '.join(restored) if restored else 'none'}"
+                                )
                             except Exception as e:
                                 logger.warning(f"   ⚠️ Character restore failed: {e}")
                         
@@ -271,7 +303,7 @@ class GameInitializationSystem:
 
         # COMBAT PHASE: Load NPC registry for combat initialization
         try:
-            config.npc_registry = NPCStatLoader(npc_directory="data/players/")
+            config.npc_registry = NPCStatLoader(npc_directory="data/current_campaign/npcs/")
             npc_count = config.npc_registry.get_npc_count()
             if npc_count > 0:
                 npc_names = ", ".join(config.npc_registry.list_available_npcs())
