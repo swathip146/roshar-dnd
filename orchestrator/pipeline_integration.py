@@ -984,10 +984,17 @@ Retrieve relevant documents for this query and provide a concise answer based on
                     player_chars = [cid for cid in game_engine.character_manager.characters.keys()
                                    if cid not in game_engine.character_manager.get_npcs()]
                     if player_chars:
-                        dto["player_character_id"] = player_chars[0]
-                        debug_print("COMBAT", f"📋 Added player_character_id to DTO: {player_chars[0]}")
+                        # Plan D3/1.9: pass the WHOLE party. CombatInitializer
+                        # already takes player_character_ids: List[str] and does
+                        # party-level CR balancing; taking [0] here was one of
+                        # only two lines narrowing the game to a single PC.
+                        dto["player_character_ids"] = player_chars
+                        dto["player_character_id"] = player_chars[0]  # legacy field
+                        debug_print("COMBAT",
+                                    f"📋 Party for combat: {player_chars}")
                     else:
                         logger.warning("No player character found in CharacterManager")
+                        dto["player_character_ids"] = []
                         dto["player_character_id"] = "unknown_player"
                 else:
                     logger.warning("GameEngine or CharacterManager not available")

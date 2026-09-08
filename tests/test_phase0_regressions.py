@@ -489,12 +489,38 @@ class TestSplitterWiredUp:
     """
 
     def test_store_in_qdrant_splits(self):
+        """
+        Updated for the 0.12 revision: Haystack's DocumentSplitter was replaced
+        with _split_markdown_structurally() because split_by="word" was
+        structure-blind (78% of Handbook chunks started mid-word, 0% at a
+        heading). Assert that SOME splitting happens, not which library does it.
+        """
         import inspect
         from generators import batch_qdrant_indexer
 
         src = inspect.getsource(batch_qdrant_indexer.store_in_qdrant)
-        assert "DocumentSplitter(" in src, "splitter must be instantiated, not just imported"
-        assert "splitter.run(" in src, "splitter must actually run"
+        assert "_split_markdown_structurally(" in src, "no splitting applied"
+
+    def test_splitter_respects_structure(self):
+        """The 0.12 revision: never cut mid-word, prefer heading boundaries."""
+        from generators.batch_qdrant_indexer import _split_markdown_structurally
+
+        text = "## First Section\n\n" + ("word " * 300) + "\n\n## Second Section\n\nMore text."
+        chunks = _split_markdown_structurally(text, 200)
+        assert len(chunks) > 1
+        assert any(c.startswith("## Second Section") for c in chunks), \
+            "heading boundaries must be respected"
+
+    def test_splitter_keeps_tables_whole(self):
+        """A header severed from its rows embeds to noise."""
+        from generators.batch_qdrant_indexer import _split_markdown_structurally
+
+        table = "| Level | Dice |\n|---|---|\n" + "".join(
+            f"| {i} | {i}d6 |\n" for i in range(1, 40)
+        )
+        chunks = _split_markdown_structurally(f"## Table\n\n{table}", 50)
+        with_header = [c for c in chunks if "|---|" in c]
+        assert len(with_header) == 1, "table header was split from its rows"
 
     def test_split_length_is_configurable(self):
         """D1: the two collections need different chunk sizes."""
