@@ -324,3 +324,49 @@ class TestSaveKeyAlignment:
             'Loader must read "game_state" — the key save_session() actually writes '
             "(session_manager.py:139), not the dead orchestrator_state path."
         )
+
+
+# ------------------------------------------------------ 0.9/0.10 autosave+load
+
+class TestAutosaveAndLoad:
+    """
+    0.9 — state was only written on quit/save/Ctrl-C, and the turn loop's
+          blanket `except` continued without saving, so a crash lost the session.
+    0.10 — there was no load command at all; help said to exit and restart.
+    """
+
+    def test_autosave_helper_exists(self):
+        from haystack_dnd_game import HaystackDnDGame
+        assert hasattr(HaystackDnDGame, "_autosave")
+
+    def test_load_helper_exists(self):
+        from haystack_dnd_game import HaystackDnDGame
+        assert hasattr(HaystackDnDGame, "_handle_load_command")
+
+    def test_turn_loop_autosaves(self):
+        import inspect
+        from haystack_dnd_game import HaystackDnDGame
+
+        src = inspect.getsource(HaystackDnDGame.run_interactive)
+        assert "_autosave()" in src, "Turn loop must autosave after each turn"
+        assert "_handle_load_command" in src, "Turn loop must expose a load command"
+
+    def test_autosave_never_raises(self):
+        """An autosave failure must not end the session."""
+        from haystack_dnd_game import HaystackDnDGame
+
+        class Boom:
+            def save_game(self, filename="x"):
+                raise RuntimeError("disk on fire")
+
+        boom = Boom()
+        boom._autosave = HaystackDnDGame._autosave.__get__(boom)
+        assert boom._autosave() is False  # swallowed, not raised
+
+    def test_autosave_uses_separate_slot(self):
+        """Autosave must not clobber a deliberate manual save."""
+        import inspect
+        from haystack_dnd_game import HaystackDnDGame
+
+        src = inspect.getsource(HaystackDnDGame._autosave)
+        assert "autosave.json" in src

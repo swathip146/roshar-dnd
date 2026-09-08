@@ -103,6 +103,44 @@ def create_kali_character():
         "tool_proficiencies": ["Herbalism kit"]
     }
 
+# ---------------------------------------------------------------------------
+# pytest fixtures
+#
+# This file was written as a script: helpers named test_*() took a `manager`
+# argument and were threaded together by main(). pytest collected them as tests
+# and errored with "fixture 'manager' not found". (The errors only surfaced once
+# the stale `from character_manager import ...` was fixed in 0.8 and the module
+# became collectable at all.) Provide real fixtures; main() still works.
+# ---------------------------------------------------------------------------
+
+import pytest
+
+
+@pytest.fixture
+def manager():
+    """A fresh CharacterManager per test."""
+    return create_character_manager()
+
+
+@pytest.fixture
+def party(manager):
+    """Manager preloaded with Aggi and Kali; yields (aggi_id, kali_id)."""
+    return (
+        manager.add_character(create_aggi_character()),
+        manager.add_character(create_kali_character()),
+    )
+
+
+@pytest.fixture
+def aggi_id(party):
+    return party[0]
+
+
+@pytest.fixture
+def kali_id(party):
+    return party[1]
+
+
 def test_character_creation(manager):
     """Test basic character creation and data mapping"""
     print("=" * 60)
@@ -132,8 +170,10 @@ def test_character_creation(manager):
     print(f"   Level: {kali_summary['level']}")
     print(f"   Proficiency Bonus: {kali_summary['proficiency_bonus']}")
     print(f"   Passive Perception: {kali_summary['passive_scores']['perception']}")
-    
-    return aggi_id, kali_id
+
+    assert aggi_id and kali_id
+    assert aggi_summary["level"] == 1
+    assert kali_summary["level"] == 1
 
 def test_roshar_methods(manager, aggi_id, kali_id):
     """Test Roshar-specific methods"""
@@ -304,7 +344,9 @@ def main():
     
     try:
         # Run all tests
-        aggi_id, kali_id = test_character_creation(manager)
+        test_character_creation(manager)
+        aggi_id = manager.add_character(create_aggi_character())
+        kali_id = manager.add_character(create_kali_character())
         test_roshar_methods(manager, aggi_id, kali_id)
         test_equipment_methods(manager, aggi_id, kali_id)
         test_party_analysis(manager, aggi_id, kali_id)

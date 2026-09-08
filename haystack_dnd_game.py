@@ -492,6 +492,92 @@ class HaystackDnDGame:
             choice_text += f"\n{i}. {title}"
         return choice_text
 
+    def _autosave(self) -> bool:
+        """
+        Plan 0.9: persist after every turn.
+
+        Failures are logged but never interrupt play — an autosave problem
+        should not end the session. Writes to a separate slot so it cannot
+        clobber a deliberate manual save.
+        """
+        try:
+            ok = self.save_game(filename="autosave.json")
+            if ok:
+                logger.debug("💾 Autosaved")
+            else:
+                logger.warning("⚠️ Autosave returned failure")
+            return ok
+        except Exception as e:
+            logger.warning(f"⚠️ Autosave failed (continuing): {e}")
+            return False
+
+    def _handle_load_command(self) -> bool:
+        """
+        Plan 0.10: load a save mid-session.
+
+        Previously no load command existed — help told the player to exit and
+        restart the process.
+        """
+        try:
+            save_dir = Path(getattr(self.session_manager, "save_directory", "game_saves"))
+            saves = sorted(save_dir.glob("*.json")) if save_dir.exists() else []
+
+            if not saves:
+                print(f"📂 No saves found in {save_dir}/")
+                return False
+
+            print("\n📂 Available saves:")
+            for i, path in enumerate(saves, 1):
+                size_kb = path.stat().st_size / 1024
+                print(f"  {i}. {path.name} ({size_kb:.1f} KB)")
+
+            raw = input("\nLoad which save? (number, or Enter to cancel): ").strip()
+            if not raw:
+                print("Cancelled.")
+                return False
+            if not raw.isdigit() or not (1 <= int(raw) <= len(saves)):
+                print("❌ Invalid selection.")
+                return False
+
+            chosen = saves[int(raw) - 1]
+            result = self.session_manager.load_session(str(chosen))
+            if not result.get("success"):
+                print(f"❌ Load failed: {result.get('message', 'unknown error')}")
+                return False
+
+            session_data = result["result"]
+
+            # Restore GameEngine state (0.5: the real key is "game_state")
+            engine_state = session_data.get("game_state") or (
+                session_data.get("orchestrator_state", {}).get("game_engine_state")
+            )
+            if engine_state:
+                self.game_engine.import_game_state(engine_state)
+
+            # Restore the whole roster (0.4 + D3), replacing the current party
+            char_data = session_data.get("character_data", {})
+            if isinstance(char_data, dict) and char_data:
+                self.character_manager.characters.clear()
+                for char_id, sheet in char_data.items():
+                    if not isinstance(sheet, dict):
+                        continue
+                    sheet.setdefault("character_id", char_id)
+                    new_id = self.character_manager.add_character(sheet)
+                    self.game_engine.add_character(new_id)
+
+            self.current_choices = []
+            roster = ", ".join(
+                c.name for c in self.character_manager.characters.values()
+            )
+            print(f"✅ Loaded {chosen.name} — party: {roster or 'none'}")
+            logger.info(f"📂 Loaded save {chosen.name} ({len(char_data)} characters)")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Load command failed: {e}")
+            print(f"❌ Load failed: {e}")
+            return False
+
     def save_game(self, filename: str = "haystack_save.json") -> bool:
         """Comprehensive save using authoritative sources - BREAKING CHANGE: Updated for clean architecture"""
         
@@ -647,16 +733,25 @@ class HaystackDnDGame:
                 elif player_input.lower() == "save":
                     self.save_game()  # Uses existing state hierarchy
                     continue
+                elif player_input.lower() in ["load", "restore"]:
+                    # Plan 0.10: there was no load command at all — help told the
+                    # player to exit and restart.
+                    self._handle_load_command()
+                    continue
                 elif player_input.lower() == "stats":
                     self._show_stats()
                     continue
-                
+
                 # Process game turn
                 print("\n🎲 Processing...")
                 dm_response = self.play_turn(player_input)
                 print(f"\n🎭 DM:")
                 print(dm_response)
-                # Empty line for console output
+
+                # Plan 0.9: autosave every turn. Previously state was only written
+                # on quit/save/Ctrl-C, and the loop's blanket except continued
+                # without saving — so a crash lost the whole session.
+                self._autosave()
                 
             except KeyboardInterrupt:
                 print("\n\n💾 Saving game before exit...")
@@ -697,10 +792,11 @@ class HaystackDnDGame:
         print("📋 Commands:")
         print("  help     - Show this help")
         print("  save     - Save the game (enhanced format)")
+        print("  load     - Load a saved game")
         print("  stats    - Show detailed statistics")
         print("  quit     - Exit the game")
         # Empty line for console output
-        print("💡 Note: To load a different game, exit and restart the application.")
+        print("💡 Note: the game autosaves after every turn to autosave.json.")
         # Empty line for console output
         print("🎮 Enhanced Gameplay:")
         print("  • Try complex actions like 'search the ancient library for dragon lore'")
