@@ -215,6 +215,26 @@ class GameEngine:
         
         dc = rules_result.dc
         dc_source = rules_result.dc_source
+
+        # Plan 2.1: honour an explicitly requested DC.
+        #
+        # This used to be `dc = rules_result.dc` unconditionally, so the DC the
+        # caller passed in was silently discarded and EVERY check resolved
+        # against the Rules Enforcer's derived DC. Measured before the fix:
+        # DC 5 and DC 25 both became 14 and both succeeded ~58% of the time —
+        # i.e. difficulty had no effect on outcomes.
+        #
+        # The LLM's suggested_dc is the whole point of 2.1, so an explicit DC
+        # wins; the derived value stays the default when none is given.
+        requested_dc = check_request.get("dc")
+        if requested_dc is not None:
+            try:
+                requested_dc = int(requested_dc)
+                if requested_dc > 0:
+                    dc = requested_dc
+                    dc_source = "requested"
+            except (TypeError, ValueError):
+                logger.warning(f"⚠️ Ignoring non-numeric requested DC: {requested_dc!r}")
         
         # Step 2: Character Manager → skill/ability mod, conditions
         char_data = self.character_manager.get_skill_data(
@@ -1130,6 +1150,48 @@ class GameEngine:
         """Get current quest context"""
         return self.game_state.quest_context
     
+    # Plan 2.2: how many narrative beats to keep. Enough for the DM to
+    # reference recent history without unbounded prompt growth.
+    MAX_NARRATIVE_BEATS = 12
+    BEAT_SUMMARY_CHARS = 400
+
+    def _append_narrative_beat(self, scene_text: str, turn_number: int) -> None:
+        """
+        Record one narrative beat in a bounded rolling history (plan 2.2).
+
+        Replaces a one-turn memory: `last_scenario` is a single slot that each
+        turn overwrites, so turn N-2 was gone. `narrative_beats` existed in the
+        schema but nothing ever wrote to it.
+        """
+        if not scene_text:
+            return
+        try:
+            beats = self.game_state.narrative_context.setdefault("narrative_beats", [])
+            summary = scene_text.strip()
+            if len(summary) > self.BEAT_SUMMARY_CHARS:
+                summary = summary[:self.BEAT_SUMMARY_CHARS].rstrip() + "…"
+            beats.append(f"[Turn {turn_number}] {summary}")
+            # Bound it: keep the most recent beats only.
+            if len(beats) > self.MAX_NARRATIVE_BEATS:
+                del beats[:-self.MAX_NARRATIVE_BEATS]
+            logger.debug(f"📖 Narrative beats: {len(beats)} recorded")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not record narrative beat: {e}")
+
+    def get_narrative_beats(self, limit: int = 6) -> List[str]:
+        """The most recent narrative beats, oldest first (plan 2.2)."""
+        beats = self.game_state.narrative_context.get("narrative_beats", []) or []
+        return list(beats[-limit:])
+
+    def get_story_so_far(self, limit: int = 6) -> str:
+        """
+        Recent beats as a single block for the DM prompt (plan 2.2).
+
+        This is what gives the DM continuity beyond the previous turn.
+        """
+        beats = self.get_narrative_beats(limit)
+        return "\n".join(beats) if beats else ""
+
     def process_scenario_state_updates(self, scenario_data: Dict[str, Any], turn_number: int):
         """Process scenario data and update authoritative game state"""
 
@@ -1150,6 +1212,14 @@ class GameEngine:
             "turn_number": turn_number
         }
         self.update_narrative_context(narrative_updates)
+
+        # Plan 2.2: keep a rolling history of narrative beats.
+        #
+        # `last_scenario` is a SINGLE overwritten slot, so turn N-2 was
+        # unrecoverable: the DM had a one-turn memory and no way to reference
+        # anything earlier. `narrative_beats` was declared in the state schema
+        # and never written or read by anything.
+        self._append_narrative_beat(scene_text, turn_number)
 
         # Process state changes using existing authoritative methods
         state_changes = scenario_data.get("state_changes", {})

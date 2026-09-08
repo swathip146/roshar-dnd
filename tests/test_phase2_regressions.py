@@ -90,6 +90,37 @@ class TestSkillCheckPipelineIsReachable:
 
         assert rate(5) > rate(20), "a DC 5 check must succeed more often than DC 20"
 
+    def test_requested_dc_is_honoured(self, engine):
+        """
+        `dc = rules_result.dc` used to overwrite the caller's DC
+        unconditionally, so the LLM's suggested_dc was silently discarded and
+        EVERY check resolved against the Rules Enforcer's derived value.
+        Measured before the fix: DC 5 and DC 25 both became 14 and both
+        succeeded ~58% of the time -- difficulty had no effect at all.
+        """
+        for requested in (5, 15, 25):
+            effective = engine.process_skill_check(
+                {"actor": "aggi", "skill": "stealth", "dc": requested, "context": {}}
+            )["dc"]
+            # The policy profile may shift the DC slightly; it must not be ignored.
+            assert abs(effective - requested) <= 2, (
+                f"requested DC {requested} resolved as {effective} — "
+                "the caller's DC is being discarded"
+            )
+
+    def test_difficulty_spans_a_real_range(self, engine):
+        def rate(dc):
+            return sum(
+                engine.process_skill_check(
+                    {"actor": "aggi", "skill": "stealth", "dc": dc, "context": {}}
+                )["success"]
+                for _ in range(150)
+            ) / 150
+
+        easy, hard = rate(5), rate(25)
+        assert easy > 0.85, f"a DC 5 check should almost always pass, got {easy:.0%}"
+        assert hard < 0.40, f"a DC 25 check should usually fail, got {hard:.0%}"
+
 
 class TestChoiceSelectionRollsDice:
     """The wiring: picking a choice with a DC must roll a real check."""
@@ -167,3 +198,85 @@ class TestChoiceSelectionRollsDice:
         seen = {game._process_input("1")["skill_check_result"]["success"]
                 for _ in range(40)}
         assert seen == {True, False}, f"only ever saw {seen} — dice look fixed"
+
+
+# ------------------------------------------------------------- 2.2 narrative memory
+
+class TestNarrativeMemory:
+    """
+    2.2 — `last_scenario` is a SINGLE overwritten slot, so turn N-2 was
+    unrecoverable: the DM had a one-turn memory. `narrative_beats` was declared
+    in the state schema and never written or read by anything.
+    """
+
+    def _play(self, engine, turns):
+        for t in range(1, turns + 1):
+            engine.process_scenario_state_updates(
+                {"scene": f"Scene {t}: the highstorm draws closer.",
+                 "choices": [], "gm_notes": ""},
+                t,
+            )
+
+    def test_beats_are_recorded(self, engine):
+        self._play(engine, 3)
+        assert len(engine.get_narrative_beats(10)) == 3, \
+            "narrative_beats is still never written"
+
+    def test_more_than_one_turn_is_remembered(self, engine):
+        """The whole point: turn N-2 must survive."""
+        self._play(engine, 3)
+        joined = "\n".join(engine.get_narrative_beats(10))
+        assert "Scene 1" in joined and "Scene 3" in joined
+
+    def test_history_is_bounded(self, engine):
+        self._play(engine, 40)
+        stored = engine.game_state.narrative_context["narrative_beats"]
+        assert len(stored) <= engine.MAX_NARRATIVE_BEATS, \
+            "unbounded history would grow the prompt without limit"
+
+    def test_bounded_history_keeps_the_newest(self, engine):
+        self._play(engine, 40)
+        joined = "\n".join(engine.get_narrative_beats(50))
+        assert "Scene 40" in joined
+        assert "Scene 1]" not in joined, "oldest beats should have been dropped"
+
+    def test_beats_are_turn_stamped(self, engine):
+        self._play(engine, 2)
+        assert engine.get_narrative_beats(10)[0].startswith("[Turn 1]")
+
+    def test_long_scenes_are_summarised(self, engine):
+        engine.process_scenario_state_updates(
+            {"scene": "x" * 5000, "choices": [], "gm_notes": ""}, 1
+        )
+        beat = engine.get_narrative_beats(1)[0]
+        assert len(beat) < engine.BEAT_SUMMARY_CHARS + 100
+
+    def test_empty_scene_records_nothing(self, engine):
+        engine.process_scenario_state_updates({"scene": "", "choices": []}, 1)
+        assert engine.get_narrative_beats(10) == []
+
+    def test_story_so_far_is_a_readable_block(self, engine):
+        self._play(engine, 4)
+        story = engine.get_story_so_far(3)
+        assert story.count("\n") == 2, "expected 3 beats joined by newlines"
+        assert "Scene 4" in story
+
+    def test_story_reaches_the_dm_prompt(self, engine):
+        """Memory is useless if the prompt never sees it."""
+        from agents.scenario_generator_agent import create_scenario_from_dto
+
+        self._play(engine, 12)
+        prompt = create_scenario_from_dto(
+            {"player_input": "look around", "_game_engine_ref": engine, "rag": {}}
+        )
+        assert "STORY SO FAR" in prompt
+        assert "Scene 12" in prompt
+        assert "Scene 9" in prompt, "only the latest turn reached the prompt"
+
+    def test_opening_scene_says_so(self, engine):
+        from agents.scenario_generator_agent import create_scenario_from_dto
+
+        prompt = create_scenario_from_dto(
+            {"player_input": "look", "_game_engine_ref": engine, "rag": {}}
+        )
+        assert "This is the opening scene." in prompt
