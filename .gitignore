@@ -192,3 +192,4 @@ external/
 # Vendored SRD data is large; keep the vendoring script, not the payload
 # (regenerate with: python scripts/vendor_srd_data.py)
 data/rules/srd/*.json
+data/rules/gaps.json
