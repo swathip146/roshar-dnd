@@ -261,7 +261,13 @@ class ShardbladeAttack(BaseAction):
 
         # Apply damage directly to health (ignores AC)
         if hasattr(target, 'health'):
-            target.health.take_damage(soul_damage, DamageType.NECROTIC)
+            # Plan 1.2: take_damage requires source_entity_uuid as a third
+            # positional argument; omitting it raised TypeError.
+            target.health.take_damage(
+                soul_damage,
+                DamageType.NECROTIC,
+                self.source_entity_uuid,
+            )
             logger.info(f"   💀 {target.name} takes {soul_damage} soul damage (ignores armor)")
 
         # Track soul damage for potential instant kill

@@ -423,14 +423,33 @@ class CombatSessionManager:
         entity = self.dnd_wrapper.entities[char_id]
         action_class = action_metadata.get("action_class")
 
-        if action_class and hasattr(action_class, "cost_type") and hasattr(action_class, "cost"):
-            cost_type = action_class.cost_type
-            cost = action_class.cost
+        # Plan 1.2: this used to guard on `hasattr(action_class, "cost_type")`
+        # and `"cost"`. dnd_engine actions have NEITHER — they carry a `costs`
+        # LIST of Cost objects, each with .cost_type and .cost. The guard never
+        # matched, so this method unconditionally returned True and the action
+        # economy was never enforced (despite the "no fallback" comment).
+        if action_class is None:
+            return True
 
-            # Use dnd_engine's native can_afford() method
-            return entity.action_economy.can_afford(cost_type, cost)
+        costs = getattr(action_class, "costs", None)
+        # `costs` may be a pydantic FieldInfo on the class rather than a real
+        # list; only a concrete iterable is meaningful here.
+        if not isinstance(costs, (list, tuple)) or not costs:
+            # Genuinely free action (e.g. most Roshar surges gate on Stormlight
+            # instead of the action economy).
+            return True
 
-        # Action has no cost defined, assume it's free
+        for cost in costs:
+            cost_type = getattr(cost, "cost_type", None)
+            amount = getattr(cost, "cost", None)
+            if cost_type is None or amount is None:
+                continue
+            if not entity.action_economy.can_afford(cost_type, amount):
+                logger.debug(
+                    f"   ⛔ {char_id} cannot afford {cost_type} x{amount}"
+                )
+                return False
+
         return True
 
     def _character_meets_requirements(self, character, action_metadata: Dict) -> bool:
@@ -629,12 +648,14 @@ class CombatSessionManager:
         """
         entity = self.dnd_wrapper.entities[char_id]
 
-        # Sync from dnd_engine to combat_state (UI display only)
-        # ModifiableValue objects have .value property for the actual int value
+        # Sync from dnd_engine to combat_state (UI display only).
+        # Plan 1.2: ModifiableValue has NO `.value` attribute — the comment here
+        # asserted otherwise and every read raised AttributeError. The real
+        # accessor is `.normalized_score` (`.score` is the un-normalized form).
         char_state = self.combat_state["combatant_states"][char_id]
-        char_state["actions_remaining"] = entity.action_economy.actions.value
-        char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions.value
-        char_state["reaction_available"] = entity.action_economy.reactions.value > 0
+        char_state["actions_remaining"] = entity.action_economy.actions.normalized_score
+        char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions.normalized_score
+        char_state["reaction_available"] = entity.action_economy.reactions.normalized_score > 0
 
     def _has_actions_remaining(self, char_id: str) -> bool:
         """
@@ -643,9 +664,9 @@ class CombatSessionManager:
         **SIMPLIFIED (2026-01-03):** Queries dnd_engine directly. No fallback.
         """
         entity = self.dnd_wrapper.entities[char_id]
-        # ModifiableValue objects need .value property
-        return (entity.action_economy.actions.value > 0 or
-                entity.action_economy.bonus_actions.value > 0)
+        # Plan 1.2: `.value` does not exist on ModifiableValue (see above).
+        return (entity.action_economy.actions.normalized_score > 0 or
+                entity.action_economy.bonus_actions.normalized_score > 0)
 
     def _advance_turn(self):
         """
@@ -671,7 +692,10 @@ class CombatSessionManager:
             for char_id in self.combat_state["active_combatants"]:
                 entity = self.dnd_wrapper.entities.get(char_id)
                 if entity and hasattr(entity, 'action_economy'):
-                    entity.action_economy.reset()
+                    # Plan 1.2: ActionEconomy has no reset(); it is
+                    # reset_all_costs(). This raised AttributeError on EVERY
+                    # round transition.
+                    entity.action_economy.reset_all_costs()
 
                     # TODO: Trigger TURN_START events for conditions
                     # This is where dnd_engine's event system would fire TURN_START events
