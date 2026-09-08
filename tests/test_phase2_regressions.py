@@ -862,3 +862,114 @@ class TestCosmereRulesAreGrounded:
         assert rules.order("Notanorder") is None
         assert rules.surges_for_order("Notanorder") == []
         assert rules.describe_for_prompt("Notanorder") == ""
+
+
+# ---------------------------------------------------- 2.9 Tier-1 SRD (vendored)
+
+from components.srd_rules import SRDRules
+
+
+class TestSRDRulesTier1:
+    """
+    2.9 Tier 1 — SRD 5e as structured JSON, vendored from 5e-bits/5e-database
+    (MIT; data under OGL 1.0a). RAG-over-PDFs is the wrong tool for RULES: a
+    retrieved chunk saying "goblins are weak but cunning" is prose the LLM must
+    interpret, reintroducing the hallucination we are engineering out. These
+    records carry fields code can compute with.
+    """
+
+    @pytest.fixture
+    def srd(self):
+        return SRDRules()
+
+    def test_data_is_vendored(self, srd):
+        available = srd.available()
+        assert available.get("monsters", 0) > 300, (
+            "SRD data missing — run scripts/vendor_srd_data.py"
+        )
+        assert available.get("spells", 0) > 300
+
+    def test_monster_lookup_is_exact(self, srd):
+        assert srd.monster("Goblin")["name"] == "Goblin"
+
+    def test_monster_stats_are_adjudicable(self, srd):
+        """The point: numbers, not prose."""
+        goblin = srd.monster_stats("Goblin")
+        assert goblin["armor_class"] == 15
+        assert goblin["hit_points"]["maximum"] == 7
+        assert goblin["challenge_rating"] == 0.25
+        assert goblin["hit_dice"] == "2d6"
+
+    def test_monster_attacks_carry_real_numbers(self, srd):
+        attack = srd.monster_stats("Goblin")["attacks"][0]
+        assert attack["name"] == "Scimitar"
+        assert attack["attack_bonus"] == 4
+        assert attack["damage_dice"] == "1d6+2"
+        assert attack["damage_type"] == "slashing"
+
+    def test_monster_ability_scores_are_real(self, srd):
+        """Not all 10s — the AbilityConfig bug made every entity flat."""
+        scores = srd.monster_stats("Goblin")["ability_scores"]
+        assert scores["dexterity"] == 14
+        assert scores["strength"] == 8
+        assert len(set(scores.values())) > 1
+
+    def test_stats_shape_matches_npc_generator_output(self, srd):
+        """So an SRD monster can substitute for an LLM-generated statblock."""
+        goblin = srd.monster_stats("Goblin")
+        for key in ("name", "armor_class", "hit_points", "ability_scores",
+                    "attacks", "character_class", "race"):
+            assert key in goblin, f"missing {key} — cannot feed CharacterManager"
+
+    def test_partial_names_match_whole_words(self, srd):
+        assert srd.monster_stats("goblin warrior")["name"] == "Goblin"
+
+    def test_naive_substring_does_not_match(self, srd):
+        """Guard the 2.6 bug class: single letters must not match."""
+        assert srd.monster("a") is None
+
+    def test_encounter_building_by_cr(self, srd):
+        low = srd.monsters_by_cr(0, 1)
+        assert len(low) > 50
+        assert "Goblin" in low
+        assert "Adult Red Dragon" not in low
+
+    def test_weapon_damage_from_the_srd(self, srd):
+        """Supersedes the _WEAPON_STATS table I authored from memory (1.4)."""
+        assert srd.weapon_damage("Longsword")["damage_dice"] == "1d8"
+        assert srd.weapon_damage("Greatsword")["damage_dice"] == "2d6"
+        assert srd.weapon_damage("Dagger")["damage_dice"] == "1d4"
+
+    def test_hand_written_weapon_table_agrees_with_the_srd(self, srd):
+        """
+        My 1.4 table was authored from general knowledge. Confirm it against the
+        real data — and prefer the SRD when they disagree.
+        """
+        from components.dnd_engine_wrapper import DnDEngineWrapper
+
+        for name in ("Longsword", "Greatsword", "Dagger", "Rapier", "Warhammer"):
+            srd_dice = srd.weapon_damage(name)["damage_dice"]
+            hand = DnDEngineWrapper._WEAPON_STATS[name.lower()]
+            assert srd_dice.startswith(f"{hand[0]}d{hand[1]}"), (
+                f"{name}: hand-written {hand[0]}d{hand[1]} != SRD {srd_dice}"
+            )
+
+    def test_conditions_carry_rules_text(self, srd):
+        prone = srd.condition("Prone")
+        assert prone["name"] == "Prone"
+        assert prone.get("desc"), "condition has no rules text"
+
+    def test_spell_lookup(self, srd):
+        fireball = srd.spell("Fireball")
+        assert fireball["level"] == 3
+        assert "8d6" in str(fireball.get("damage", {}))
+
+    def test_unknown_lookups_return_none(self, srd):
+        assert srd.monster("Sligtinvented Beast") is None
+        assert srd.spell("Nonexistent Cantrip") is None
+        assert srd.weapon_damage("Frying Pan") is None
+
+    def test_missing_data_directory_degrades(self, tmp_path):
+        empty = SRDRules(srd_dir=tmp_path / "nope")
+        assert empty.available() == {}
+        assert empty.monster("Goblin") is None
