@@ -143,6 +143,28 @@ class PipelineOrchestrator:
                 self.world_state_adapter = MockWorldStateAdapter()
                 debug_print("ORCHESTRATOR", "⚠️ Created MockRoutingContextAdapter (no components)")
             
+            # Plan 3.1: wire the DM tools to live components BEFORE creating the
+            # scenario agent, so its tools adjudicate against real state rather
+            # than failing at call time.
+            try:
+                from agents.dm_tools import set_dm_tool_context
+                from components.srd_rules import get_srd_rules
+                from components.cosmere_rules import get_cosmere_rules
+                from components.rules_gap_tracker import get_gap_tracker
+
+                set_dm_tool_context(
+                    game_engine=self.game_engine,
+                    character_manager=self.character_manager,
+                    dnd_engine_wrapper=getattr(self.game_engine,
+                                               "dnd_engine_wrapper", None),
+                    srd_rules=get_srd_rules(),
+                    cosmere_rules=get_cosmere_rules(),
+                    gap_tracker=get_gap_tracker(),
+                )
+                logger.info("🔧 DM tools wired to live game components")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not wire DM tools: {e}")
+
             # Initialize agents - use fixed interface agent for improved performance
             logger.debug("🔧 Step 4: Creating scenario generator agent...")
             scenario_agent = create_scenario_generator_agent()
