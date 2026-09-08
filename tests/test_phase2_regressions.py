@@ -399,3 +399,70 @@ class TestNPCMemory:
         orch._npc_memory = None  # force the lazy-init path
         orch._remember_npc_interaction("Kalak", "hi", {"dialogue": "x"})
         assert orch._build_npc_context("Kalak") is not None
+
+
+# ------------------------------------------------------------------ 2.3 quests
+
+class TestQuestProgression:
+    """
+    2.3 — quests were read-only prompt decoration. Two bugs:
+      1. the handler only read state_changes["quest_objectives"], but the prompt
+         template told the model to emit "quests" — so every quest update the
+         LLM produced was silently discarded;
+      2. complete_quest_objective() had ZERO callers, so nothing ever moved an
+         objective from pending to completed.
+    """
+
+    def _update(self, engine, quests, turn=1):
+        engine.process_scenario_state_updates(
+            {"scene": "s", "choices": [], "state_changes": {"quests": quests}}, turn
+        )
+
+    def test_objectives_added_via_the_prompts_key(self, engine):
+        self._update(engine, {"add": ["Find the artifact", "Speak to Kalak"]})
+        assert engine.get_quest_progress()["pending_count"] == 2, \
+            'the "quests" key is still being discarded'
+
+    def test_objective_can_be_completed(self, engine):
+        self._update(engine, {"add": ["Find the artifact"]})
+        self._update(engine, {"complete": ["Find the artifact"]}, turn=2)
+        progress = engine.get_quest_progress()
+        assert progress["completed"] == ["Find the artifact"]
+        assert progress["pending"] == []
+
+    def test_progress_percentage(self, engine):
+        self._update(engine, {"add": ["A", "B", "C", "D"]})
+        self._update(engine, {"complete": ["A"]}, turn=2)
+        assert engine.get_quest_progress()["percent_complete"] == 25
+
+    def test_legacy_key_still_works(self, engine):
+        engine.process_scenario_state_updates(
+            {"scene": "s", "state_changes": {"quest_objectives": ["Legacy"]}}, 1
+        )
+        assert "Legacy" in engine.get_quest_progress()["pending"]
+
+    def test_bare_string_is_accepted(self, engine):
+        self._update(engine, "Just one objective")
+        assert engine.get_quest_progress()["pending_count"] == 1
+
+    def test_plain_list_is_accepted(self, engine):
+        self._update(engine, ["First", "Second"])
+        assert engine.get_quest_progress()["pending_count"] == 2
+
+    def test_per_item_status_is_honoured(self, engine):
+        self._update(engine, {"add": ["Slay the Fused"]})
+        self._update(engine, [{"text": "Slay the Fused", "status": "completed"}], turn=2)
+        assert engine.get_quest_progress()["completed"] == ["Slay the Fused"]
+
+    def test_malformed_updates_do_not_raise(self, engine):
+        for junk in (None, 12345, {"nonsense": True}, [None]):
+            self._update(engine, junk)  # must not raise
+        assert isinstance(engine.get_quest_progress()["pending_count"], int)
+
+    def test_completing_an_unknown_objective_is_harmless(self, engine):
+        self._update(engine, {"complete": ["Never existed"]})
+        assert engine.get_quest_progress()["completed_count"] == 0
+
+    def test_empty_progress_is_zero_not_a_crash(self, engine):
+        progress = engine.get_quest_progress()
+        assert progress["total"] == 0 and progress["percent_complete"] == 0

@@ -1235,9 +1235,90 @@ class GameEngine:
                 for hook in state_changes["story_hooks"]:
                     self.add_story_hook(hook, "normal")
 
-            if "quest_objectives" in state_changes:
-                for objective in state_changes["quest_objectives"]:
-                    self.add_quest_objective(objective)
+            # Plan 2.3: quest progression.
+            #
+            # Two bugs made quests read-only prompt decoration:
+            #  1. this only read "quest_objectives", but the prompt template
+            #     told the model to emit "quests" -- so every quest update the
+            #     LLM produced was silently discarded;
+            #  2. complete_quest_objective() had ZERO callers, so nothing ever
+            #     moved an objective from pending to completed.
+            # Accept both keys, and handle completions as well as additions.
+            for key in ("quest_objectives", "quests"):
+                if key not in state_changes:
+                    continue
+                self._apply_quest_updates(state_changes[key])
+    def _apply_quest_updates(self, updates: Any) -> None:
+        """
+        Apply the model's quest updates (plan 2.3).
+
+        Tolerant of shape, because the LLM emits any of these:
+          "Find the artifact"                                  -> add
+          ["Find the artifact", "Speak to Kalak"]              -> add each
+          {"add": [...], "complete": [...]}                    -> explicit
+          [{"text": "...", "status": "completed"}]             -> per-item status
+        """
+        if not updates:
+            return
+
+        def _add(text: str) -> None:
+            text = str(text).strip()
+            if text:
+                self.add_quest_objective(text)
+
+        def _complete(text: str) -> None:
+            text = str(text).strip()
+            if text:
+                self.complete_quest_objective(text)
+
+        try:
+            if isinstance(updates, str):
+                _add(updates)
+                return
+
+            if isinstance(updates, dict):
+                for text in (updates.get("add") or updates.get("new") or []):
+                    _add(text)
+                for text in (updates.get("complete")
+                             or updates.get("completed") or []):
+                    _complete(text)
+                # A bare {"text": ..., "status": ...} object
+                if "text" in updates:
+                    if str(updates.get("status", "")).lower().startswith("complet"):
+                        _complete(updates["text"])
+                    else:
+                        _add(updates["text"])
+                return
+
+            if isinstance(updates, list):
+                for item in updates:
+                    if isinstance(item, dict):
+                        text = item.get("text") or item.get("objective") or ""
+                        if str(item.get("status", "")).lower().startswith("complet"):
+                            _complete(text)
+                        else:
+                            _add(text)
+                    else:
+                        _add(item)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not apply quest updates {updates!r}: {e}")
+
+    def get_quest_progress(self) -> Dict[str, Any]:
+        """Quest completion summary (plan 2.3)."""
+        quest = self.game_state.quest_context
+        pending = quest.get("pending_objectives", []) or []
+        completed = quest.get("completed_objectives", []) or []
+        total = len(pending) + len(completed)
+        return {
+            "pending": [o.get("text", "") if isinstance(o, dict) else str(o)
+                        for o in pending],
+            "completed": [o.get("text", "") if isinstance(o, dict) else str(o)
+                          for o in completed],
+            "pending_count": len(pending),
+            "completed_count": len(completed),
+            "total": total,
+            "percent_complete": round(100 * len(completed) / total) if total else 0,
+        }
 
 
 # Factory function for easy integration - BREAKING CHANGE: Accepts CampaignConfig

@@ -669,7 +669,12 @@ JSON STRUCTURE:
   "effects": {"immediate": "...", "long_term": "..."},
   "hooks": ["Future story possibilities based on context"],
   "gm_notes": "Hidden information for DM",
-  "state_changes": {"narrative": "...", "location": "...", "quests": "..."},
+  "state_changes": {
+    "narrative": "...",
+    "location": "...",
+    "quests": {"add": ["new objective the scene created"],
+               "complete": ["objective the player just accomplished"]}
+  },
   "difficulty_used": {"dcs": {}, "encounter_budget": "", "policy_profile": ""}
 }
 
