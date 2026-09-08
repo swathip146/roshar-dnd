@@ -5,6 +5,7 @@ Tier-2 assertions per §12: assert on observable end state, never on
 "the method was called."
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -1116,3 +1117,219 @@ class TestRulesGapTracker:
         path = tmp_path / "gaps.json"
         path.write_text("{not json")
         assert RulesGapTracker(store_path=path).stats()["distinct_gaps"] == 0
+
+
+# ------------------------------------- 2.12/2.13 campaign schema + endgame (D2)
+
+from components.campaign_schema import CampaignSchema, EndgameEvaluator
+
+CAMPAIGN = "data/current_campaign/shards_of_honor.json"
+
+
+class TestCampaignSchema:
+    """
+    2.12 — the campaign was all prose (main_plot, hooks, rewards) with no
+    endgame condition, no acts, and quests as bare title strings, so detecting
+    "the campaign is over" was impossible.
+    """
+
+    @pytest.fixture
+    def campaign(self, engine):
+        return CampaignSchema(CAMPAIGN, game_engine=engine)
+
+    def test_campaign_is_structured(self, campaign):
+        assert campaign.has_structure(), "campaign still prose-only"
+
+    def test_quests_are_objects_not_strings(self, campaign):
+        quests = campaign.quests()
+        assert len(quests) >= 6
+        for q in quests:
+            assert {"id", "title", "objectives", "prereqs", "status"} <= set(q)
+
+    def test_acts_match_the_five_session_structure(self, campaign):
+        assert len(campaign.acts()) == 3
+        sessions = [s for act in campaign.acts() for s in act["sessions"]]
+        assert sorted(sessions) == [1, 2, 3, 4, 5]
+
+    def test_quest_lookup_by_id_and_title(self, campaign):
+        assert campaign.quest("artifact_1") is not None
+        assert campaign.quest("Recover the first ancient artifact") is not None
+        assert campaign.quest("nonexistent") is None
+
+    def test_prereqs_gate_availability(self, campaign):
+        """Only the opening quest should be available at session 1."""
+        assert [q["id"] for q in campaign.available_quests()] == ["first_oath"]
+
+    def test_legacy_string_quests_still_load(self, tmp_path, engine):
+        path = tmp_path / "legacy.json"
+        path.write_text(json.dumps({"title": "Old", "quests": ["Find the sword"]}))
+        legacy = CampaignSchema(path, game_engine=engine)
+        assert legacy.quests()[0]["title"] == "Find the sword"
+        assert legacy.has_structure() is False, "no endgame -> not structured"
+
+
+class TestEndgameDetection:
+    """
+    2.13 / D2 — closure is AUTHORED and code-detected. The LLM narrates the
+    ending; it does not decide when the story is over.
+    """
+
+    @pytest.fixture
+    def campaign(self, engine):
+        return CampaignSchema(CAMPAIGN, game_engine=engine)
+
+    def _complete(self, engine, title):
+        engine.add_quest_objective(title)
+        engine.complete_quest_objective(title)
+
+    def test_not_complete_at_the_start(self, campaign):
+        assert campaign.is_complete() is False
+
+    def test_three_artifacts_alone_do_not_end_it(self, campaign, engine):
+        for n in ("first", "second", "third"):
+            self._complete(engine, f"Recover the {n} ancient artifact")
+        assert campaign.is_complete() is False, "the ritual must still be stopped"
+
+    def test_full_condition_ends_the_campaign(self, campaign, engine):
+        for n in ("first", "second", "third"):
+            self._complete(engine, f"Recover the {n} ancient artifact")
+        self._complete(engine, "Stop Odium's ritual on the battlefield")
+        assert campaign.is_complete() is True
+
+    def test_progress_climbs(self, campaign, engine):
+        assert campaign.endgame_progress()["percent"] == 0
+        for n in ("first", "second", "third"):
+            self._complete(engine, f"Recover the {n} ancient artifact")
+        assert campaign.endgame_progress()["percent"] == 50
+        self._complete(engine, "Stop Odium's ritual on the battlefield")
+        assert campaign.endgame_progress()["percent"] == 100
+
+    def test_closing_narration_is_authored(self, campaign):
+        narration = campaign.closing_narration()
+        assert len(narration) > 100
+        assert "ritual" in narration.lower()
+
+    def test_failure_condition_can_fire(self, campaign, engine):
+        engine.set_campaign_flag("barrier_shattered", True)
+        condition = campaign.data["endgame"]["failure_condition"]
+        assert EndgameEvaluator(engine).evaluate(condition) is True
+
+
+class TestEndgamePredicates:
+    """The condition language must be reliable — it decides when play stops."""
+
+    @pytest.fixture
+    def ev(self, engine):
+        return EndgameEvaluator(engine, quest_index={"artifact_1": "Get the sword"})
+
+    def test_flag_predicate(self, ev, engine):
+        assert ev.check_predicate("flag:ritual_stopped") is False
+        engine.set_campaign_flag("ritual_stopped", True)
+        assert ev.check_predicate("flag:ritual_stopped") is True
+
+    def test_falsy_flag_is_not_satisfied(self, ev, engine):
+        engine.set_campaign_flag("ritual_stopped", False)
+        assert ev.check_predicate("flag:ritual_stopped") is False
+
+    def test_quest_id_resolves_to_its_title(self, ev, engine):
+        """Conditions use stable IDs; the engine stores titles."""
+        engine.add_quest_objective("Get the sword")
+        engine.complete_quest_objective("Get the sword")
+        assert ev.check_predicate("quest:artifact_1") is True
+
+    def test_ideal_predicate(self, ev, engine):
+        assert ev.check_predicate("ideal:2") is False
+        engine.character_manager.characters["aggi"].ideal_level = 3
+        assert ev.check_predicate("ideal:2") is True
+
+    def test_location_predicate(self, ev, engine):
+        engine.register_location("Urithiru", exits=[])
+        assert ev.check_predicate("location:Urithiru") is False
+        engine.travel_to("Urithiru")
+        assert ev.check_predicate("location:Urithiru") is True
+
+    def test_all_of(self, ev, engine):
+        engine.set_campaign_flag("a", True)
+        assert ev.evaluate({"all_of": ["flag:a", "flag:b"]}) is False
+        engine.set_campaign_flag("b", True)
+        assert ev.evaluate({"all_of": ["flag:a", "flag:b"]}) is True
+
+    def test_any_of(self, ev, engine):
+        assert ev.evaluate({"any_of": ["flag:a", "flag:b"]}) is False
+        engine.set_campaign_flag("b", True)
+        assert ev.evaluate({"any_of": ["flag:a", "flag:b"]}) is True
+
+    def test_none_of(self, ev, engine):
+        assert ev.evaluate({"none_of": ["flag:doom"]}) is True
+        engine.set_campaign_flag("doom", True)
+        assert ev.evaluate({"none_of": ["flag:doom"]}) is False
+
+    def test_wildcards_match(self, ev, engine):
+        engine.set_campaign_flag("artifact_two_found", True)
+        assert ev.check_predicate("flag:artifact_*") is True
+
+    def test_malformed_predicates_return_false(self, ev):
+        for junk in ("", "nocolon", "unknownkind:x", None):
+            assert ev.check_predicate(junk) is False
+
+    def test_unevaluatable_condition_returns_false(self, ev):
+        assert ev.evaluate({"nonsense": True}) is False
+        assert ev.evaluate(None) is False
+
+    def test_missing_engine_degrades(self, tmp_path):
+        path = tmp_path / "c.json"
+        path.write_text(json.dumps({"quests": [], "endgame": {"condition": "flag:x"}}))
+        assert CampaignSchema(path, game_engine=None).is_complete() is False
+
+
+class TestGeneratorEmitsStructure:
+    """
+    2.14 — teach campaign_generator the new schema, or every generated campaign
+    needs hand-migration like shards_of_honor did.
+    """
+
+    def _prompt_source(self):
+        import inspect
+        from generators.campaign_generator import CampaignGenerator
+        return inspect.getsource(CampaignGenerator.generate_campaign)
+
+    def test_prompt_requires_structured_quests(self):
+        src = self._prompt_source()
+        assert '"quests"' in src
+        assert "prereqs" in src
+        assert "snake_case" in src, "quest ids must be stable for endgame refs"
+
+    def test_prompt_requires_an_endgame_condition(self):
+        src = self._prompt_source()
+        assert '"endgame"' in src
+        assert "condition" in src
+        assert "closing_narration" in src
+
+    def test_prompt_documents_the_predicate_language(self):
+        src = self._prompt_source()
+        for token in ("quest:", "flag:", "all_of", "any_of", "count"):
+            assert token in src, f"predicate form {token!r} not documented"
+
+    def test_prompt_requires_acts(self):
+        assert '"acts"' in self._prompt_source()
+
+    def test_prompt_states_the_dm_does_not_decide_the_ending(self):
+        """D2: closure is authored and code-detected."""
+        src = self._prompt_source()
+        assert "never decides" in src or "DETECTS" in src
+
+    def test_generator_is_importable(self):
+        """
+        campaign_generator imported agents/haystack_pipeline_agent.py, which does
+        NOT exist — so the module was unimportable and D1's `dnd_reference`
+        collection had no working consumer at all.
+        """
+        from generators.campaign_generator import CampaignGenerator
+        assert CampaignGenerator is not None
+
+    def test_generator_reads_the_reference_collection(self):
+        """D1: structural few-shots come from dnd_reference, not dnd_documents."""
+        import inspect
+        from generators.campaign_generator import CampaignGenerator
+        src = inspect.getsource(CampaignGenerator._init_direct_retriever)
+        assert "dnd_reference" in src or "collection_name" in src

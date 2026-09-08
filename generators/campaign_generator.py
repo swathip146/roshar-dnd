@@ -7,8 +7,16 @@ import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-# Import Haystack pipeline agent functionality
-from agents.haystack_pipeline_agent import HaystackPipelineAgent
+# agents/haystack_pipeline_agent.py DOES NOT EXIST — this module has been
+# unimportable, which is why the D1 `dnd_reference` collection had no working
+# consumer. The agent was only ever used to fetch RAG context, so make it
+# optional and fall back to querying the reference collection directly.
+try:
+    from agents.haystack_pipeline_agent import HaystackPipelineAgent  # type: ignore
+    HAYSTACK_AGENT_AVAILABLE = True
+except ImportError:
+    HaystackPipelineAgent = None  # type: ignore
+    HAYSTACK_AGENT_AVAILABLE = False
 
 # Gemini-specific imports
 try:
@@ -59,6 +67,11 @@ class CampaignGenerator:
     def _initialize_haystack_agent(self, collection_name: str) -> bool:
         """Initialize the Haystack agent for context retrieval"""
         try:
+            if not HAYSTACK_AGENT_AVAILABLE:
+                # No pipeline agent: retrieve straight from the collection.
+                self.haystack_agent = None
+                self._init_direct_retriever(collection_name)
+                return self._retriever is not None
             self.haystack_agent = HaystackPipelineAgent(collection_name=collection_name, verbose=self.verbose)
             if self.verbose:
                 print("✓ Haystack Agent initialized successfully")
@@ -68,8 +81,46 @@ class CampaignGenerator:
                 print(f"❌ Failed to initialize Haystack agent: {e}")
             return False
     
+    def _init_direct_retriever(self, collection_name: str) -> None:
+        """
+        Retrieve from Qdrant directly (plan D1).
+
+        The campaign generator reads `dnd_reference` — adventure modules and
+        character sheets — for STRUCTURAL few-shots: how a hook opens, how acts
+        escalate, how a campaign closes. That collection exists precisely so this
+        content never pollutes the DM's `dnd_documents`.
+        """
+        self._retriever = None
+        self._embedder = None
+        try:
+            from haystack.components.embedders import SentenceTransformersTextEmbedder
+            from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
+            from haystack_integrations.components.retrievers.qdrant import (
+                QdrantEmbeddingRetriever,
+            )
+
+            store = QdrantDocumentStore(path="qdrant_storage",
+                                        index=collection_name,
+                                        embedding_dim=1024)
+            self._embedder = SentenceTransformersTextEmbedder(
+                model="BAAI/bge-large-en-v1.5", progress_bar=False
+            )
+            self._embedder.warm_up()
+            self._retriever = QdrantEmbeddingRetriever(document_store=store)
+            print(f"✅ Campaign generator retrieving directly from '{collection_name}'")
+        except Exception as e:
+            print(f"⚠️ Direct retrieval unavailable ({e}); generating without context")
+
     def get_campaign_context(self, query: str) -> str:
         """Get context from existing campaigns and D&D resources"""
+        if self.haystack_agent is None and getattr(self, "_retriever", None) is not None:
+            try:
+                embedding = self._embedder.run(text=query)["embedding"]
+                docs = self._retriever.run(query_embedding=embedding, top_k=5)["documents"]
+                return "\n\n".join(d.content for d in docs)
+            except Exception as e:
+                return f"Error retrieving context for: {query} ({e})"
+
         if not self.haystack_agent:
             return f"Haystack agent not available. Basic context for: {query}"
         
@@ -97,7 +148,7 @@ class CampaignGenerator:
         Returns:
             Generated campaign dictionary
         """
-        if not self.haystack_agent or not GEMINI_AVAILABLE:
+        if not GEMINI_AVAILABLE:
             return {"error": "Haystack agent or Gemini not available for campaign generation"}
         
         # Get context from existing documents - use broader queries to find relevant content
@@ -148,7 +199,23 @@ Create a comprehensive D&D campaign following this exact JSON structure:
     "Reward/treasure type 1",
     "Reward/treasure type 2"
   ],
-  "dm_notes": "Important tips and considerations for running this campaign"
+  "dm_notes": "Important tips and considerations for running this campaign",
+
+  "schema_version": "2.0",
+  "acts": [
+    {{"id": "act1", "title": "Act title", "sessions": [1], "summary": "What happens in this act"}}
+  ],
+  "quests": [
+    {{"id": "stable_snake_case_id", "title": "Quest title the player sees", "act": "act1",
+      "objectives": ["Concrete thing to do", "Another concrete thing"],
+      "prereqs": [], "status": "pending"}}
+  ],
+  "endgame": {{
+    "condition": {{"all_of": ["quest:final_quest_id"]}},
+    "closing_narration": "The authored final beat. Written for the DM to narrate when the condition is met.",
+    "failure_condition": {{"any_of": ["flag:party_wiped"]}},
+    "failure_narration": "The authored ending if the party fails."
+  }}
 }}
 
 Requirements:
@@ -158,6 +225,25 @@ Requirements:
 - Include specific, actionable content for a DM to run
 - Ensure all JSON fields are properly filled with meaningful content
 - If the user request is vague, add creative elements to make it interesting
+
+STRUCTURED PROGRESSION (required — plan 2.14 / decision D2):
+- "quests" must be OBJECTS, not bare strings. Each needs a stable snake_case
+  "id" (referenced by endgame conditions), a player-facing "title", concrete
+  "objectives", and "prereqs" listing the quest ids that must finish first.
+  Chain them so the campaign has a real spine: later quests depend on earlier ones.
+- "acts" must cover every session in "duration".
+- "endgame.condition" is REQUIRED and must be machine-checkable. The game DETECTS
+  the ending from live state; the DM never decides the story is over. Use:
+      "quest:<id>"          that quest is complete
+      "flag:<name>"         a campaign flag is set
+      "location:<name>"     the party has been there
+      "ideal:<n>"           a character reached Ideal n or higher
+  combined with {{"all_of": [...]}}, {{"any_of": [...]}}, {{"none_of": [...]}},
+  or {{"count": {{"predicate": "artifact_*", "at_least": 3}}}} to require N of a
+  wildcard group.
+- Reference only quest ids you actually defined, or the ending can never fire.
+- "closing_narration" is the authored ending. Write it as an instruction to the
+  DM, not as final prose to print verbatim.
 
 CRITICAL: Return ONLY a valid JSON object with no additional text, explanations, or formatting. Start with {{ and end with }}.
 Example format: {{"title": "Campaign Name", "theme": "Horror", "setting": "Location"}}"""
@@ -239,7 +325,7 @@ Example format: {{"title": "Campaign Name", "theme": "Horror", "setting": "Locat
         if not self.current_campaign:
             return {"error": "No current campaign to refine. Generate a campaign first."}
 
-        if not self.haystack_agent or not GEMINI_AVAILABLE:
+        if not GEMINI_AVAILABLE:
             return {"error": "Haystack agent or Gemini not available for campaign refinement"}
         
         # Get additional context if needed
@@ -303,6 +389,14 @@ Return ONLY the JSON object, no additional text."""
     
     def get_campaign_suggestions(self, theme: str = "") -> List[str]:
         """Get campaign suggestions based on available knowledge"""
+        if self.haystack_agent is None and getattr(self, "_retriever", None) is not None:
+            try:
+                embedding = self._embedder.run(text=query)["embedding"]
+                docs = self._retriever.run(query_embedding=embedding, top_k=5)["documents"]
+                return "\n\n".join(d.content for d in docs)
+            except Exception as e:
+                return f"Error retrieving context for: {query} ({e})"
+
         if not self.haystack_agent:
             return ["Haystack agent not available for suggestions"]
         

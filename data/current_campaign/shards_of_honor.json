@@ -98,5 +98,135 @@
   "user_prompts": [
     "a dnd campgain set in the world of roshar where the players play as knight radiants that need to prevent a take over of a nation by evil forces",
     "to include concepts of spren, oaths. Include 2 heralds as NPCs. Reduce the duration to 5 sessions. Reduce the locations to 3. Include evil voidbringers. Add an exiting treasure at each location that will be useful in subsequent story. Make the final battle to have a large battlefield with many npcs fighting several evil forces along side the players."
-  ]
+  ],
+  "schema_version": "2.0",
+  "acts": [
+    {
+      "id": "act1",
+      "title": "The First Oath",
+      "sessions": [
+        1
+      ],
+      "summary": "First spren bond during a Voidbringer attack on a border town; speak the First Ideal to gain Radiant powers."
+    },
+    {
+      "id": "act2",
+      "title": "The Three Artifacts",
+      "sessions": [
+        2,
+        3,
+        4
+      ],
+      "summary": "Travel to three key locations to retrieve the ancient artifacts, speaking higher Oaths and growing in power."
+    },
+    {
+      "id": "act3",
+      "title": "The Ritual",
+      "sessions": [
+        5
+      ],
+      "summary": "A massive battlefield: allied humans, honorspren and reformed singers against Voidbringers, corrupted singers and Odium's forces."
+    }
+  ],
+  "quests": [
+    {
+      "id": "first_oath",
+      "title": "Speak your First Ideal",
+      "act": "act1",
+      "objectives": [
+        "Survive the Voidbringer attack on the border town",
+        "Bond your spren",
+        "Speak the First Ideal"
+      ],
+      "prereqs": [],
+      "status": "pending"
+    },
+    {
+      "id": "meet_kalak",
+      "title": "Learn the threat from Herald Kalak",
+      "act": "act1",
+      "objectives": [
+        "Find Kalak",
+        "Learn of Odium's ritual"
+      ],
+      "prereqs": [
+        "quest:first_oath*"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "artifact_1",
+      "title": "Recover the first ancient artifact",
+      "act": "act2",
+      "objectives": [
+        "Travel to the first location",
+        "Retrieve the artifact"
+      ],
+      "prereqs": [
+        "quest:meet_kalak*"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "artifact_2",
+      "title": "Recover the second ancient artifact",
+      "act": "act2",
+      "objectives": [
+        "Travel to the second location",
+        "Retrieve the artifact"
+      ],
+      "prereqs": [
+        "quest:artifact_1*"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "artifact_3",
+      "title": "Recover the third ancient artifact",
+      "act": "act2",
+      "objectives": [
+        "Travel to the third location",
+        "Retrieve the artifact"
+      ],
+      "prereqs": [
+        "quest:artifact_2*"
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "stop_ritual",
+      "title": "Stop Odium's ritual on the battlefield",
+      "act": "act3",
+      "objectives": [
+        "Join the allied forces",
+        "Break the ritual",
+        "Prevent the barrier from shattering"
+      ],
+      "prereqs": [
+        "quest:artifact_3*"
+      ],
+      "status": "pending"
+    }
+  ],
+  "endgame": {
+    "condition": {
+      "all_of": [
+        {
+          "count": {
+            "predicate": "artifact_*",
+            "at_least": 3
+          }
+        },
+        "quest:stop_ritual*"
+      ]
+    },
+    "closing_narration": "The ritual collapses. Where the barrier between Roshar and Odium's realm strained thin, it holds — scarred, but whole. Across the battlefield the allied host stands amid the dead: humans, honorspren, and singers who chose differently. The Stormfather's voice moves through the survivors like distant thunder. You are Radiant now, not by title but by what you refused to let happen here. Narrate the aftermath for each surviving character, name what they lost, and let the storm pass.",
+    "failure_condition": {
+      "any_of": [
+        "flag:barrier_shattered",
+        "flag:party_wiped"
+      ]
+    },
+    "failure_narration": "The ritual completes. The barrier tears, and what comes through does not need to hurry. Narrate the end soberly — no reprieve, no last-moment rescue."
+  }
 }
