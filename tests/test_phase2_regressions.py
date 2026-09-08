@@ -649,3 +649,120 @@ class TestDeathSaves:
         assert dying.characters["aggi"].is_dead is False
         dying.roll_death_save("aggi", roll=15)
         assert dying.characters["aggi"].is_dead is False
+
+
+# ------------------------------------------------- 2.6 travel, world, game clock
+
+class TestWorldGraphAndTravel:
+    """
+    2.6 — `exits`, `hazards` and `npcs_present` were declared in
+    LocationContext and NEVER written, and no travel verb existed, so the party
+    could not go anywhere. Shards of Honor's three-artifact structure (D6) was
+    unreachable.
+    """
+
+    @pytest.fixture
+    def world(self):
+        ge = GameEngine()
+        ge.register_location("Kholinar", "A shattered city", ["walls"],
+                             exits=["Urithiru"], hazards=["patrols"])
+        ge.register_location("Urithiru", "The tower city", ["oathgate"],
+                             exits=["Kholinar"])
+        ge.set_location("Kholinar", description="A shattered city",
+                        features=["walls"])
+        return ge
+
+    def test_locations_are_registered(self, world):
+        graph = world.game_state.location_context["known_locations"]
+        assert {"Kholinar", "Urithiru"} <= set(graph)
+
+    def test_exits_are_reported(self, world):
+        assert world.get_available_exits() == ["Urithiru"]
+
+    def test_travel_moves_the_party(self, world):
+        result = world.travel_to("Urithiru")
+        assert result["success"] is True
+        assert world.game_state.location_context["current_location"] == "Urithiru"
+
+    def test_travel_is_case_insensitive(self, world):
+        assert world.travel_to("URITHIRU")["success"] is True
+
+    def test_partial_names_match_on_whole_words(self, world):
+        """A naive substring test matched 'A' inside 'Shattered Plains'."""
+        assert world.travel_to("the tower of Urithiru")["success"] is True
+
+    def test_unknown_destination_is_discovered(self, world):
+        result = world.travel_to("Shattered Plains")
+        assert result["success"] is True, "the DM must be able to invent places"
+        assert "Shattered Plains" in world.game_state.location_context["known_locations"]
+
+    def test_unreachable_location_is_refused(self):
+        ge = GameEngine()
+        ge.register_location("A", exits=["B"])
+        ge.register_location("B", exits=["A"])
+        ge.register_location("Isolated Fortress", exits=[])
+        ge.set_location("A")
+        assert ge.travel_to("Isolated Fortress")["success"] is False
+
+    def test_hazards_follow_the_location(self, world):
+        world.travel_to("Urithiru")
+        world.travel_to("Kholinar")
+        assert world.game_state.location_context["hazards"] == ["patrols"]
+
+    def test_set_location_no_longer_wipes_description(self, world):
+        """
+        description/features defaulted to ""/[] , so set_location(name) — what
+        state_changes.location does — erased the current location's details.
+        """
+        before = world.game_state.location_context["description"]
+        world.set_location("Kholinar")
+        assert world.game_state.location_context["description"] == before
+
+    def test_travel_advances_the_clock(self, world):
+        before = world.get_game_time()["elapsed_hours"]
+        world.travel_to("Urithiru")
+        assert world.get_game_time()["elapsed_hours"] > before
+
+
+class TestGameClockAndHighstorms:
+    """
+    2.6 — there was no clock and no day counter. update_environment() had ZERO
+    callers so weather never changed, and the campaign's own
+    'WEATHER: Highstorm-approaching' was parsed and dropped.
+    """
+
+    def test_time_starts_on_day_one(self, engine):
+        assert engine.get_game_time()["day"] == 1
+
+    def test_hours_accumulate_into_days(self, engine):
+        engine.advance_time(hours=30)
+        assert engine.get_game_time()["day"] == 2
+
+    def test_part_of_day_tracks_the_hour(self, engine):
+        engine.advance_time(hours=14)  # 14:00
+        assert engine.get_game_time()["part_of_day"] == "afternoon"
+
+    def test_lighting_follows_the_clock(self, engine):
+        engine.advance_time(hours=2)  # 02:00
+        assert engine.game_state.environment["lighting"] == "dark"
+
+    def test_highstorm_arrives_on_schedule(self, engine):
+        """The counter used to jump 1 -> 5, so 'highstorm' never occurred."""
+        seen = set()
+        for _ in range(6):
+            seen.add(engine.advance_time(days=1)["weather"])
+        assert "highstorm" in seen, f"never stormed: {seen}"
+
+    def test_weather_escalates_toward_the_storm(self, engine):
+        weather = [engine.advance_time(days=1)["weather"] for _ in range(6)]
+        assert "highstorm-approaching" in weather
+        assert "highstorm-imminent" in weather
+
+    def test_cycle_repeats(self, engine):
+        storms = sum(engine.advance_time(days=1)["weather"] == "highstorm"
+                     for _ in range(12))
+        assert storms >= 2, "highstorms should recur"
+
+    def test_days_until_storm_is_never_negative(self, engine):
+        for _ in range(20):
+            assert engine.advance_time(days=1)["days_until_highstorm"] >= 0
