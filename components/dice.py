@@ -4,6 +4,7 @@ Comprehensive dice system with logging and advantage handling - From Original Pl
 """
 
 import random
+import re
 import time
 import uuid
 from typing import Dict, List, Any, Optional, Tuple
@@ -180,42 +181,106 @@ class DiceRoller:
     def damage_roll(self, damage_dice: str, modifier: int = 0,
                    correlation_id: str = "") -> Dict[str, Any]:
         """
-        Damage roll parsing and execution
-        damage_dice format: "2d6", "1d8+2", etc.
+        Parse and roll a damage expression.
+
+        Supports: "2d6", "1d8+3", "1d8-1", "1d6 + 2" (spaces), "4d6kh3"
+        (keep highest), "4d6kl1" (keep lowest), bare constants ("5"), and
+        damage-type annotations ("2d6[fire]"). Multiple terms may be chained:
+        "1d8+1d6+3".
+
+        Plan 0.11 — the previous implementation was substantively broken:
+          * "4d6kh3" raised ValueError: invalid literal for int(): '6kh3'
+          * "1d6 + 2" (with spaces) raised ValueError: invalid literal: '+'
+          * the reported audit trail lied: "1d8-1" on a roll of 3 returned the
+            correct 2 but reported modifier=0 and printed "1d8-1 + 0 = 2"
+        Silent wrong numbers are the worst failure mode for an adjudicator, so
+        this now reports exactly what it rolled.
+
+        (The plan recommended swapping in avrae/d20, which handles all of this
+        plus exploding/reroll. That install is currently blocked by the sandbox
+        proxy — files.pythonhosted.org is not allowlisted — so the parser is
+        fixed in place. The returned contract is unchanged, so switching to d20
+        later remains a drop-in.)
         """
-        # Simple damage dice parser
-        total_damage = 0
-        rolls = []
-        
-        # Basic parsing (supports formats like "2d6", "1d8+3")
-        if "d" in damage_dice:
-            parts = damage_dice.replace("+", " +").replace("-", " -").split()
-            
-            for part in parts:
-                if "d" in part:
-                    # Parse dice (e.g., "2d6")
-                    count_str, die_str = part.split("d")
-                    count = int(count_str) if count_str else 1
-                    die_type = int(die_str)
-                    
-                    dice_rolls = self.roll_multiple(die_type, count, correlation_id)
-                    rolls.extend(dice_rolls)
-                    total_damage += sum(r.result for r in dice_rolls)
-                    
-                elif part.startswith(("+", "-")) or part.isdigit():
-                    # Static modifier
-                    total_damage += int(part)
-        
-        # Add explicit modifier
-        total_damage += modifier
-        
+        expr = (damage_dice or "").strip()
+        # Strip damage-type annotations, e.g. "2d6[fire]" -> "2d6"
+        expr_clean = re.sub(r"\[[^\]]*\]", "", expr)
+        # Drop all whitespace so "1d6 + 2" parses like "1d6+2"
+        expr_clean = re.sub(r"\s+", "", expr_clean)
+
+        dice_total = 0
+        static_total = 0
+        rolls: List[int] = []
+        kept_detail: List[str] = []
+
+        # Split into signed terms: 1d8, +1d6, -1, +3 ...
+        terms = re.findall(r"[+-]?[^+-]+", expr_clean) if expr_clean else []
+
+        for term in terms:
+            if not term:
+                continue
+            sign = -1 if term.startswith("-") else 1
+            body = term.lstrip("+-")
+            if not body:
+                continue
+
+            # NdM with optional keep-highest/keep-lowest: 4d6kh3, 2d20kl1
+            m = re.fullmatch(r"(\d*)d(\d+)(?:(kh|kl)(\d+))?", body, re.IGNORECASE)
+            if m:
+                count = int(m.group(1)) if m.group(1) else 1
+                die_type = int(m.group(2))
+                keep_mode = (m.group(3) or "").lower()
+                keep_n = int(m.group(4)) if m.group(4) else None
+
+                if count <= 0 or die_type <= 0:
+                    logger.warning(f"🎲 Ignoring invalid dice term '{term}' in '{expr}'")
+                    continue
+
+                dice_rolls = self.roll_multiple(die_type, count, correlation_id)
+                values = [r.result for r in dice_rolls]
+                rolls.extend(values)
+
+                if keep_mode and keep_n:
+                    ordered = sorted(values, reverse=(keep_mode == "kh"))
+                    kept = ordered[:keep_n]
+                    kept_detail.append(f"{body}={kept} of {values}")
+                else:
+                    kept = values
+
+                dice_total += sign * sum(kept)
+                continue
+
+            # Bare constant
+            if body.isdigit():
+                static_total += sign * int(body)
+                continue
+
+            logger.warning(f"🎲 Ignoring unparseable term '{term}' in '{expr}'")
+
+        # `modifier` is an ADDITIONAL caller-supplied bonus, distinct from any
+        # constant embedded in the expression.
+        total_damage = dice_total + static_total + modifier
+        total_damage = max(0, total_damage)  # damage never heals
+
+        parts = [f"{expr}"]
+        if kept_detail:
+            parts.append(f"({'; '.join(kept_detail)})")
+        parts.append(f"rolls={rolls}")
+        if static_total:
+            parts.append(f"static={static_total:+d}")
+        if modifier:
+            parts.append(f"modifier={modifier:+d}")
+        breakdown = " ".join(parts) + f" = {total_damage}"
+
         return {
             "total_damage": total_damage,
-            "damage_rolls": [r.result for r in rolls],
+            "damage_rolls": rolls,
             "base_damage": damage_dice,
+            "dice_subtotal": dice_total,
+            "static_modifier": static_total,
             "modifier": modifier,
-            "breakdown": f"{damage_dice} + {modifier} = {total_damage}",
-            "correlation_id": correlation_id
+            "breakdown": breakdown,
+            "correlation_id": correlation_id,
         }
     
     def percentile_roll(self, correlation_id: str = "") -> Dict[str, Any]:

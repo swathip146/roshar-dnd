@@ -5,6 +5,7 @@ Combines PDF and text processing with Qdrant Vector Storage
 
 # Set tokenizers parallelism to avoid fork warnings - MUST be set before any imports
 import os
+import re
 import sys
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -35,17 +36,32 @@ from generators.docling_converter import (
 
 
 def clear_qdrant_collection(collection_name: str, storage_path: str = "./qdrant_storage"):
-    """Clear all documents from a local Qdrant collection"""
+    """
+    Delete a local Qdrant collection's data.
+
+    Plan 0.18: this used to check `<storage_path>/<collection_name>`, but local
+    Qdrant actually stores collections under `<storage_path>/collection/<name>`.
+    The path never existed, so the function logged "does not exist" and silently
+    no-opped — a "clear existing: y" re-index appended to the old data instead of
+    replacing it (observed: 3,062 stale + 4,221 new = 7,283 chunks).
+    """
     import shutil
-    
-    # For local storage, we can remove the collection directory
-    collection_path = Path(storage_path) / collection_name
-    
-    if collection_path.exists():
-        shutil.rmtree(collection_path)
-        logger.info(f"Cleared local Qdrant collection: {collection_name}")
-    else:
-        logger.info(f"Collection {collection_name} does not exist at {storage_path}")
+
+    candidates = [
+        Path(storage_path) / "collection" / collection_name,  # real layout
+        Path(storage_path) / collection_name,                 # legacy guess
+    ]
+
+    removed = False
+    for path in candidates:
+        if path.exists():
+            shutil.rmtree(path)
+            logger.info(f"Cleared local Qdrant collection at {path}")
+            removed = True
+
+    if not removed:
+        logger.info(f"Collection {collection_name} not present under {storage_path}")
+    return removed
 
 
 def setup_qdrant_store(collection_name: str = "dnd_documents",
@@ -91,24 +107,95 @@ def save_text_output(documents: List[Document], output_path: str):
             f.write("\n" + "="*50 + "\n\n")
 
 
-def store_in_qdrant(documents: List[Document], document_store: QdrantDocumentStore):
-    """Store documents in Qdrant vector database with embeddings"""
+def clean_wiki_markup(text: str) -> str:
+    """
+    Plan 0.13: strip MediaWiki markup from Coppermind-sourced lore.
+
+    resources/lore/*.txt are Coppermind wiki chapter summaries full of
+    [[links]], {{templates}}, == headings == and [[File:...]] embeds. Embedding
+    that markup pollutes the vectors and wastes retrieval tokens on syntax.
+    """
+    if not text:
+        return text
+
+    # [[File:...]] / [[Image:...]] embeds — drop entirely
+    text = re.sub(r"\[\[(?:File|Image):[^\]]*\]\]", " ", text, flags=re.IGNORECASE)
+    # [[target|label]] -> label ; [[target]] -> target
+    text = re.sub(r"\[\[([^\]|]*)\|([^\]]*)\]\]", r"\2", text)
+    text = re.sub(r"\[\[([^\]]*)\]\]", r"\1", text)
+    # {{templates}} (incl. {{anchor|...}}, {{update|sa5}}) — drop
+    text = re.sub(r"\{\{[^}]*\}\}", " ", text)
+    # == Heading == -> Heading (keep the words; they carry meaning)
+    text = re.sub(r"^\s*=+\s*(.*?)\s*=+\s*$", r"\1", text, flags=re.MULTILINE)
+    # Bold/italic quote markup
+    text = re.sub(r"'{2,}", "", text)
+    # Leftover HTML-ish wrappers
+    text = re.sub(r"</?div[^>]*>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"__TOC__", " ", text)
+    # Collapse whitespace introduced by the removals
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def store_in_qdrant(documents: List[Document], document_store: QdrantDocumentStore,
+                    split_length: int = 200, split_overlap: int = 30):
+    """
+    Split, embed and write documents to Qdrant.
+
+    Plan 0.12: DocumentSplitter was imported at module scope and NEVER USED —
+    Docling output went straight to the embedder. That produced chunks ranging
+    from tiny to 34,586 characters (median 1,404, p90 5,017). A 34k-char chunk
+    embeds to a meaningless average and can never retrieve precisely.
+
+    ~200 words ≈ 1,000-1,300 chars, comfortably inside bge-large's 512-token
+    window. split_length is a parameter because the two collections want
+    different sizes (plan D1): small precise chunks for the DM's
+    `dnd_documents`, large arc-sized chunks for `dnd_reference`.
+    """
+    # Plan 0.13: clean wiki markup before splitting so chunk boundaries and
+    # embeddings are computed on prose, not syntax.
+    cleaned = []
+    for doc in documents:
+        content = clean_wiki_markup(doc.content or "")
+        if not content.strip():
+            continue
+        cleaned.append(Document(content=content, meta=doc.meta))
+
+    if not cleaned:
+        logger.warning("No non-empty documents to store after cleaning")
+        return
+
+    splitter = DocumentSplitter(
+        split_by="word",
+        split_length=split_length,
+        split_overlap=split_overlap,
+    )
+    splitter.warm_up()
+    split_docs = splitter.run(documents=cleaned)["documents"]
+
+    lengths = [len(d.content) for d in split_docs]
+    logger.info(
+        f"✂️  Split {len(cleaned)} document(s) -> {len(split_docs)} chunks "
+        f"(max {max(lengths)} chars, median {sorted(lengths)[len(lengths)//2]})"
+    )
+
     # Initialize embedder with BGE large model (1024-dim embeddings)
     embedder = SentenceTransformersDocumentEmbedder(
         model="BAAI/bge-large-en-v1.5",
         progress_bar=False
     )
-    
+
     # Warm up the embedder (load the model)
     embedder.warm_up()
-    
+
     # Generate embeddings
-    embedded_result = embedder.run(documents=documents)
+    embedded_result = embedder.run(documents=split_docs)
     embedded_documents = embedded_result["documents"]
-    
+
     # Initialize document writer
     writer = DocumentWriter(document_store=document_store)
-    
+
     # Write documents to store
     writer.run(documents=embedded_documents)
 
