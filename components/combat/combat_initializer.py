@@ -159,6 +159,13 @@ class CombatInitializer:
         for i, entry in enumerate(initiative_order, 1):
             self.logger.info(f"      {i}. {entry['char_id']} (initiative: {entry['initiative']})")
 
+        # Step 6.5: Place combatants on the grid and refresh senses (plan 1.1).
+        # Without this, NPCs generated mid-combat keep the default position and
+        # stale sense maps, so validate_line_of_sight/reach rejects their
+        # attacks -- observed as goblins that attack every round and ALWAYS miss.
+        self._position_combatants(player_character_ids,
+                                  predefined_npc_ids + generated_npc_ids)
+
         # Step 7: Create combat state
         combat_state = {
             "in_combat": True,
@@ -178,6 +185,44 @@ class CombatInitializer:
         self.logger.info(f"✅ Combat initialized: {len(all_combatant_ids)} combatants, Round 1")
 
         return combat_state
+
+    def _position_combatants(self, player_ids: List[str], hostile_ids: List[str]) -> None:
+        """
+        Place combatants on the grid and refresh senses (plan 1.1).
+
+        Players form a line at y=0, hostiles face them at y=1 — adjacent, so
+        melee reach (5 ft = 1 tile) is satisfied from the first round. Senses
+        are recomputed once at the end, because
+        Entity.update_all_entities_senses() is global and each entity's sense
+        map must include everyone created before AND after it.
+
+        Skipping this left mid-combat NPCs at the default position with empty
+        sense maps, so every one of their attacks was rejected for line of
+        sight / reach — visible in play as enemies that always miss.
+        """
+        wrapper = self.dnd_wrapper
+        if wrapper is None:
+            self.logger.warning("   ⚠️ No dnd_engine wrapper; skipping positioning")
+            return
+
+        placed = 0
+        for row, group in ((0, player_ids), (1, hostile_ids)):
+            for column, char_id in enumerate(group):
+                entity = wrapper.entities.get(char_id)
+                if entity is None:
+                    self.logger.warning(f"   ⚠️ No entity for {char_id}; cannot position")
+                    continue
+                entity.position = (column, row)
+                placed += 1
+
+        # One global refresh AFTER all placements
+        if hasattr(wrapper, "refresh_senses"):
+            wrapper.refresh_senses()
+
+        self.logger.info(
+            f"   📍 Positioned {placed} combatant(s) and refreshed senses "
+            f"(players at y=0, hostiles at y=1)"
+        )
 
     def _should_trigger_combat(self, scenario: Dict[str, Any]) -> bool:
         """

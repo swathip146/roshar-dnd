@@ -2,7 +2,8 @@
 Combat Session Manager - Internal Combat Turn Loop
 
 Manages complete combat session from start to finish without returning to orchestrator.
-This class handles ALL combat turns internally, getting player input directly via input() calls.
+This class handles ALL combat turns internally. Player choices come from an
+injected input_provider (defaults to input() for CLI play) -- see plan 1.8/D4.
 
 **ARCHITECTURE (2026-01-03): Generic Data-Driven Design**
 
@@ -31,7 +32,7 @@ class CombatSessionManager:
 
     Responsibilities:
     - Run combat turn loop
-    - Get player input directly (input() calls)
+    - Get player choices via the injected input_provider
     - Execute NPC AI actions
     - Advance turns
     - Check end conditions
@@ -46,7 +47,8 @@ class CombatSessionManager:
         dnd_engine_wrapper,
         combat_action_resolver,
         combat_narrative_generator,
-        npc_ai_agent
+        npc_ai_agent,
+        input_provider=None,
     ):
         """
         Initialize Combat Session Manager.
@@ -59,6 +61,16 @@ class CombatSessionManager:
             combat_action_resolver: CombatActionResolver instance
             combat_narrative_generator: CombatNarrativeGenerator instance
             npc_ai_agent: NPCAIAgent instance
+            input_provider: Callable[[str], str] used to ask the player to
+                choose. Defaults to builtins.input for CLI play.
+
+                Plan 1.8 / D4: nothing below the interface layer should call
+                input() directly. Doing so made combat unsavable, untestable
+                (it hung CI to zero output), and undriveable from any non-CLI
+                UI. Injecting the provider lets tests and future UIs supply
+                choices without touching stdin. The next step is for this to
+                return `awaiting_player_input` as data rather than calling out
+                at all.
         """
         self.combat_state = combat_state
         self.game_engine = game_engine
@@ -67,7 +79,57 @@ class CombatSessionManager:
         self.action_resolver = combat_action_resolver
         self.narrative_gen = combat_narrative_generator
         self.npc_ai = npc_ai_agent
+        # Store the override (may be None). Resolve late in _prompt_choice so
+        # that patching builtins.input still works for CLI play and tests --
+        # binding `input` here would capture the unpatched builtin.
+        self._input_provider_override = input_provider
         self.logger = get_logger(__name__)
+
+    @property
+    def input_provider(self):
+        """The injected provider, or the current builtins.input."""
+        return self._input_provider_override or input
+
+    @input_provider.setter
+    def input_provider(self, provider):
+        self._input_provider_override = provider
+
+    # Bound the prompt loop so a provider that never returns a valid choice
+    # (a test stub, a disconnected UI) cannot spin forever.
+    MAX_INPUT_ATTEMPTS = 10
+
+    def _prompt_choice(self, prompt: str, num_options: int, default_index: int = 0):
+        """
+        Ask the player to pick 1..num_options, returning a 0-based index.
+
+        Falls back to `default_index` after MAX_INPUT_ATTEMPTS invalid or
+        unavailable responses, so combat degrades instead of hanging.
+        """
+        for attempt in range(self.MAX_INPUT_ATTEMPTS):
+            try:
+                raw = self.input_provider(prompt)
+                choice = str(raw).strip()
+            except (EOFError, KeyboardInterrupt):
+                self.logger.warning("   ⚠️ Input stream closed; using default choice")
+                return default_index
+            except Exception as e:
+                self.logger.warning(f"   ⚠️ Input provider failed ({e}); using default")
+                return default_index
+
+            if not choice.isdigit():
+                print("❌ Please enter a number")
+                continue
+
+            idx = int(choice) - 1
+            if 0 <= idx < num_options:
+                return idx
+            print(f"❌ Please choose 1-{num_options}")
+
+        self.logger.warning(
+            f"   ⚠️ No valid choice after {self.MAX_INPUT_ATTEMPTS} attempts; "
+            f"defaulting to option {default_index + 1}"
+        )
+        return default_index
 
     def run_combat_loop(self) -> Dict[str, Any]:
         """
@@ -96,6 +158,11 @@ class CombatSessionManager:
 
         # Main combat loop
         loop_iteration = 0
+        # A turn is action + bonus action + a little slack; beyond that the
+        # economy plainly is not being consumed, so advance rather than spin.
+        MAX_ACTIONS_PER_TURN = 4
+        consecutive_same_actor = 0
+        last_actor_id = None
         while not self._is_combat_over():
             loop_iteration += 1
             self.logger.info(f"🔄 COMBAT LOOP ITERATION {loop_iteration}")
@@ -106,10 +173,16 @@ class CombatSessionManager:
             current_actor_id = self._get_current_actor()
             self.logger.info(f"   Current actor: {current_actor_id}")
 
+            # Reset the stall counter whenever the actor changes
+            if current_actor_id != last_actor_id:
+                consecutive_same_actor = 0
+                last_actor_id = current_actor_id
+
             # Check if actor is alive
             if self._is_combatant_dead(current_actor_id):
                 self.logger.warning(f"   ⚠️ Current actor {current_actor_id} is dead, advancing turn")
                 self._advance_turn()
+                consecutive_same_actor = 0
                 continue
 
             # Execute turn based on actor type
@@ -131,8 +204,25 @@ class CombatSessionManager:
                 # Advance to next combatant
                 self.logger.info(f"   ⏭️ No actions remaining, advancing turn")
                 self._advance_turn()
+                consecutive_same_actor = 0
             else:
-                self.logger.info(f"   ⏸️ Actor still has actions, continuing their turn")
+                # An actor keeping actions is legitimate (action + bonus action),
+                # but if its economy never decreases we would spin forever. That
+                # is exactly what happened when an action failed to consume:
+                # 1001 iterations, then the safety break, and combat reported
+                # outcome "unknown" because it never reached an end condition.
+                # Force the turn along after a bounded number of retries.
+                consecutive_same_actor += 1
+                if consecutive_same_actor >= MAX_ACTIONS_PER_TURN:
+                    self.logger.warning(
+                        f"   ⚠️ {current_actor_id} still has actions after "
+                        f"{consecutive_same_actor} attempts and its economy is not "
+                        f"decreasing — forcing turn advance to avoid a stall"
+                    )
+                    self._advance_turn()
+                    consecutive_same_actor = 0
+                else:
+                    self.logger.info(f"   ⏸️ Actor still has actions, continuing their turn")
 
             # Safety check to prevent infinite loops
             if loop_iteration > 1000:
@@ -191,26 +281,11 @@ class CombatSessionManager:
             action_count = len(category["actions"])
             print(f"  {i}. {category['name']} - {category['description']} ({action_count} options)")
 
-        selected_category_key = None
-        while True:
-            try:
-                choice = input(f"\n{player_char_id}> Choose action type (1-{len(category_keys)}): ").strip()
-
-                if not choice.isdigit():
-                    print("❌ Please enter a number")
-                    continue
-
-                choice_idx = int(choice) - 1
-
-                if choice_idx < 0 or choice_idx >= len(category_keys):
-                    print(f"❌ Please choose 1-{len(category_keys)}")
-                    continue
-
-                selected_category_key = category_keys[choice_idx]
-                break
-
-            except (ValueError, KeyError) as e:
-                print(f"❌ Invalid choice: {e}")
+        choice_idx = self._prompt_choice(
+            f"\n{player_char_id}> Choose action type (1-{len(category_keys)}): ",
+            len(category_keys),
+        )
+        selected_category_key = category_keys[choice_idx]
 
         # LEVEL 2: Choose specific action within category
         selected_category = action_categories[selected_category_key]
@@ -220,26 +295,11 @@ class CombatSessionManager:
         for i, action_item in enumerate(specific_actions, 1):
             print(f"  {i}. {action_item['display']}")
 
-        selected_action_item = None
-        while True:
-            try:
-                choice = input(f"\n{player_char_id}> Choose action (1-{len(specific_actions)}): ").strip()
-
-                if not choice.isdigit():
-                    print("❌ Please enter a number")
-                    continue
-
-                choice_idx = int(choice) - 1
-
-                if choice_idx < 0 or choice_idx >= len(specific_actions):
-                    print(f"❌ Please choose 1-{len(specific_actions)}")
-                    continue
-
-                selected_action_item = specific_actions[choice_idx]
-                break
-
-            except (ValueError, KeyError) as e:
-                print(f"❌ Invalid choice: {e}")
+        action_idx = self._prompt_choice(
+            f"\n{player_char_id}> Choose action (1-{len(specific_actions)}): ",
+            len(specific_actions),
+        )
+        selected_action_item = specific_actions[action_idx]
 
         # Parse action from selection
         action = self._parse_hierarchical_action(

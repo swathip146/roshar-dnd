@@ -145,13 +145,16 @@ def test_combat_routing():
     logger.info("📋 Testing combat intent classification...")
 
     # Create a combat-trigger input
+    # new_dto's signature is (player_input, ctx); request_type/_game_engine_ref
+    # were removed from it. Set those fields on the returned DTO instead.
     from components.shared_contract import new_dto
     dto = new_dto(
         player_input="I attack the goblin with my sword!",
-        request_type="gameplay_turn",
-        _game_engine_ref=game_engine,
-        _policy_engine_ref=None
+        ctx={},
     )
+    dto["type"] = "gameplay_turn"
+    dto["_game_engine_ref"] = game_engine
+    dto["_policy_engine_ref"] = None
 
     logger.info(f"   Input: {dto['player_input']}")
     logger.info("   Expecting route: combat_pipeline")

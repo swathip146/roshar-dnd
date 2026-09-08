@@ -25,7 +25,7 @@ def llm_mock():
 
     # Mock the run method to return proper structure
     mock_reply = Mock()
-    mock_reply.content = """```json
+    mock_reply.text = """```json
 {
     "name": "Goblin Warrior",
     "level": 1,

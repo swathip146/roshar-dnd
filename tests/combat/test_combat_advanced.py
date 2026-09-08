@@ -44,7 +44,7 @@ def mock_llm():
 
     # Mock response for NPC stat generation
     npc_response = Mock()
-    npc_response.content = '''```json
+    npc_response.text = '''```json
 {
     "name": "Goblin Warrior",
     "level": 1,
@@ -77,15 +77,15 @@ def mock_llm():
 
     # Mock response for combat AI
     ai_response = Mock()
-    ai_response.content = '{"action_type": "attack", "target": "aggi", "weapon": "scimitar", "reasoning": "Attack the player"}'
+    ai_response.text = '{"action_type": "attack", "target": "aggi", "weapon": "scimitar", "reasoning": "Attack the player"}'
 
     # Mock response for dodge action
     dodge_response = Mock()
-    dodge_response.content = '{"action_type": "dodge", "target": null, "weapon": null, "reasoning": "Low HP, taking defensive action"}'
+    dodge_response.text = '{"action_type": "dodge", "target": null, "weapon": null, "reasoning": "Low HP, taking defensive action"}'
 
     # Mock response for enemy parsing (multiple enemies)
     enemy_response = Mock()
-    enemy_response.content = '''[{
+    enemy_response.text = '''[{
         "name": "Goblin Warrior",
         "description": "small goblin with rusty scimitar",
         "count": 3,
@@ -97,7 +97,7 @@ def mock_llm():
 
     # Mock response for single enemy
     single_enemy_response = Mock()
-    single_enemy_response.content = '''[{
+    single_enemy_response.text = '''[{
         "name": "Goblin Warrior",
         "description": "small goblin with rusty scimitar",
         "count": 1,
@@ -109,7 +109,7 @@ def mock_llm():
 
     # Mock response for narrative generation
     narrative_response = Mock()
-    narrative_response.content = "The goblin swings wildly with its scimitar!"
+    narrative_response.text = "The goblin swings wildly with its scimitar!"
 
     def run_side_effect(*args, **kwargs):
         # Return appropriate response based on context

@@ -197,6 +197,14 @@ class CombatAgent:
             self.logger.info("PHASE 2: Combat Loop (Internal Turn Management)")
             self.logger.info("=" * 60)
 
+            # The resolver is constructed at orchestrator startup with
+            # combat_state={} ("will be set by session manager") -- but nothing
+            # ever set it, so every _sync_hp_to_combat_state() call logged
+            # "Combat state missing 'combatant_states', skipping HP sync" and
+            # damage never reached the UI mirror. Point it at THIS encounter's
+            # state before the loop starts.
+            self.action_resolver.combat_state = combat_state
+
             session_manager = CombatSessionManager(
                 combat_state=combat_state,
                 game_engine=self.game_engine,
