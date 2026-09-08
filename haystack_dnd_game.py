@@ -237,11 +237,80 @@ class HaystackDnDGame:
 
         return request_dto
      
+    def _roll_choice_skill_check(self, selected_choice: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Roll a real skill check for a chosen option (plan 2.1).
+
+        The scenario agent emits `suggested_dc` and `skill_hints` on every
+        choice, and NOTHING read either one: the DC was rendered into the choice
+        title as decorative markdown, the player picked, and the next LLM call
+        narrated whatever it liked. GameEngine.process_skill_check() -- a
+        complete, tested 7-step pipeline -- had zero production callers, so no
+        dice were rolled outside combat at all.
+
+        Returns the check result, or None when the choice needs no check.
+        """
+        try:
+            dc = selected_choice.get("suggested_dc")
+            if not dc or int(dc) <= 0:
+                return None
+
+            hints = selected_choice.get("skill_hints") or []
+            skill = ""
+            if isinstance(hints, list) and hints:
+                skill = str(hints[0])
+            elif isinstance(hints, str):
+                skill = hints
+
+            actor = self._active_character_id()
+            if not actor:
+                logger.debug("   No active character; skipping skill check")
+                return None
+
+            result = self.game_engine.process_skill_check({
+                "actor": actor,
+                "skill": skill,
+                "dc": int(dc),
+                "context": {
+                    "source": "choice_selection",
+                    "choice_title": selected_choice.get("title", ""),
+                },
+                "_dnd_engine_wrapper_ref": self.dnd_engine_wrapper,
+            })
+
+            outcome = "SUCCESS" if result.get("success") else "FAILURE"
+            # process_skill_check returns selected_roll / roll_total,
+            # NOT roll / total.
+            logger.info(
+                f"🎲 Skill check [{skill or 'ability'}] DC {result.get('dc', dc)} "
+                f"-> {outcome} (d20 {result.get('selected_roll', '?')} "
+                f"+{result.get('character_modifier', 0)} = {result.get('roll_total', '?')})"
+            )
+            return result
+        except Exception as e:
+            # A check failure must never end the turn.
+            logger.warning(f"⚠️ Skill check failed, continuing without it: {e}")
+            return None
+
+    def _active_character_id(self) -> Optional[str]:
+        """
+        The character whose action this is.
+
+        D3: party support means this will become "whose turn is it"; for now the
+        first non-NPC character, matching how combat selects the player.
+        """
+        if not self.character_manager:
+            return None
+        for char_id, character in self.character_manager.characters.items():
+            if not getattr(character, "is_npc", False):
+                return char_id
+        return next(iter(self.character_manager.characters), None)
+
     def _process_input(self, player_input: str) -> Dict[str, Any]:
         """Process player input - UI logic only, no state management"""
-        
+
         input_stripped = player_input.strip()
-        
+
         # Check if input is a number corresponding to a choice
         if input_stripped.isdigit() and self.current_choices:
             choice_num = int(input_stripped)
@@ -249,13 +318,26 @@ class HaystackDnDGame:
                 selected_choice = self.current_choices[choice_num - 1]
                 # Convert choice to action text for pipeline
                 action_text = selected_choice.get("title", "") + " " + selected_choice.get("description", "")
+
+                # Plan 2.1: roll the check the LLM asked for, and tell the DM
+                # what happened so the next scene reflects a real outcome.
+                check_result = self._roll_choice_skill_check(selected_choice)
+                if check_result is not None:
+                    verdict = "succeeded" if check_result.get("success") else "failed"
+                    action_text += (
+                        f" [Skill check: {verdict} "
+                        f"(rolled {check_result.get('roll_total', '?')} "
+                        f"vs DC {check_result.get('dc', selected_choice.get('suggested_dc'))})]"
+                    )
+
                 return {
                     "type": "gameplay_turn",
                     "original_input": player_input,
                     "processed_input": action_text,
-                    "selected_choice": selected_choice
+                    "selected_choice": selected_choice,
+                    "skill_check_result": check_result,
                 }
-        
+
         # Regular text input
         return {
             "type": "gameplay_turn",
