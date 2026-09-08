@@ -112,3 +112,12 @@ pytest>=7.4.0                      # Testing framework
 # pip install -r requirements.txt
 #
 # ============================================================================
+
+# ----------------------------------------------------------------------------
+# Phase 3/4 additions (plan REBUILD_PLAN_V5.md)
+# ----------------------------------------------------------------------------
+d20>=1.1.2                          # Avrae dice parser (plan 0.11)
+langgraph>=1.0                      # Durable turn loop (plan 3.5 / D4)
+langgraph-checkpoint-sqlite>=2.0    # Cross-process turn checkpoints
+langchain-google-genai>=4.0         # Gemini driver for LangGraph
+pytest-timeout>=2.0                 # Bounds hanging tests (combat used to hang CI)

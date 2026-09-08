@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roshar-dnd"
+version = "0.5.0"
+description = "AI Dungeon Master for D&D 5e in Brandon Sanderson's Cosmere (Roshar)"
+requires-python = ">=3.10"
+
+# Runtime dependencies live in requirements.txt, which install_dependencies.sh
+# and run_game.sh already use. This file exists for tooling config (plan 4:
+# pytest marks were unregistered, so `-m unit` silently matched nothing).
+
+[tool.pytest.ini_options]
+# Plan 4: `pytest tests/` used to abort with INTERNALERROR because three files
+# ran pytest.main()/sys.exit() at import scope (fixed in 0.8), and the marks
+# below were never registered, so filtering by them silently selected nothing.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "--strict-markers",   # an unregistered mark is now an error, not a silent no-op
+    "-ra",
+]
+markers = [
+    "unit: fast, no I/O, no network",
+    "integration: exercises several components together",
+    "llm: makes a REAL LLM call — costs money and needs GEMINI_API_KEY",
+    "slow: takes more than a few seconds",
+    "combat: combat subsystem (tests/combat/)",
+]
+# Every test gets a hard ceiling. Combat used to hang CI to zero output on a
+# blocking input() (fixed in 1.8); this makes a regression fail instead of hang.
+timeout = 120
+filterwarnings = [
+    "ignore::DeprecationWarning:httplib2.*",
+    "ignore::pydantic.PydanticDeprecatedSince20",
+]
+
+[tool.setuptools]
+# Not a distributable package; the game runs from the source tree.
+packages = []

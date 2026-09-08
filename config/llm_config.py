@@ -24,11 +24,20 @@ except (ImportError, TypeError, AttributeError) as e:
     # Store the error for debugging if needed
     _OPENAI_IMPORT_ERROR = str(e)
     
+# Plan 4: use the CURRENT Gemini SDK (see config/llm_utils.py for the port).
+GEMINI_AVAILABLE = False
+GEMINI_SDK = None
+genai = None
+genai_types = None
+
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     GEMINI_AVAILABLE = True
+    GEMINI_SDK = "google-genai"
 except ImportError:
-    GEMINI_AVAILABLE = False
+    pass
+
 
 # Import utility components for better compatibility
 try:
@@ -51,7 +60,8 @@ try:
             def __init__(self, model_name: str, generation_config: dict = None):
                 if not GEMINI_AVAILABLE:
                     logger.info(f"GEMINI_AVAILABLE: {GEMINI_AVAILABLE}")
-                    raise ImportError("google-generativeai package not available")
+                    raise ImportError(
+                        "google-genai package not available (pip install google-genai)")
                 
                 self.model_name = model_name
                 self.generation_config = generation_config or {}
@@ -59,12 +69,16 @@ try:
                 # Configure genai if not already configured
                 api_key = os.getenv("GEMINI_API_KEY")
                 if api_key:
-                    genai.configure(api_key=api_key)
+                    # New SDK: no global configure(); the key goes to the Client.
+                    pass
                 
-                self.model = genai.GenerativeModel(
-                    model_name=model_name,
-                    generation_config=generation_config
-                )
+                # New SDK is client-based; the model name is passed per call.
+                import os as _os
+                _key = (_os.getenv("GEMINI_API_KEY")
+                        or _os.getenv("GOOGLE_API_KEY"))
+                self.client = genai.Client(api_key=_key) if _key else genai.Client()
+                self.model_name = model_name
+                self.generation_config = generation_config or {}
                 
                 # Add Haystack component metadata for compatibility
                 self.__haystack_input__ = {
@@ -86,7 +100,12 @@ try:
                     prompt = str(messages[0])
                 
                 # Generate response
-                response = self.model.generate_content(prompt)
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        **self.generation_config),
+                )
                 
                 # Return in expected format
                 class SimpleMessage:
@@ -151,7 +170,7 @@ class LLMConfigManager:
             default_provider = LLMProvider.OPENAI
             default_model = "gpt-4o-mini"
         else:
-            raise ImportError("No supported LLM providers available. Install google-generativeai or openai package.")
+            raise ImportError("No supported LLM providers available. Install google-genai or openai.")
         
         # Create default config for each agent
         default_llm_config = LLMConfig(
@@ -203,7 +222,7 @@ class LLMConfigManager:
             if config.provider == LLMProvider.OPENAI and not OPENAI_AVAILABLE:
                 raise ImportError(f"OpenAI requested but openai package not available")
             elif config.provider == LLMProvider.GEMINI and not GEMINI_AVAILABLE:
-                raise ImportError(f"Gemini requested but google-generativeai package not available")
+                raise ImportError("Gemini requested but google-genai package not available")
     
     def create_generator(self, agent_name: str, response_schema: Optional[Dict[str, Any]] = None) -> Any:
         """
@@ -280,14 +299,14 @@ class LLMConfigManager:
             Gemini chat generator with optional structured output
         """
         if not GEMINI_AVAILABLE:
-            raise ImportError("Gemini requested but google-generativeai package not available")
+            raise ImportError("Gemini requested but google-genai package not available")
 
         # Configure the Gemini API with the API key
         api_key = config.api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set or api_key not provided")
 
-        genai.configure(api_key=api_key)
+        # New SDK: no global configure(); the key goes to the Client.
 
         # Create generation config
         generation_config = {}
@@ -376,7 +395,7 @@ def load_config_from_environment() -> AgentLLMConfig:
 def create_gemini_config(model: str = "gemini-2.5-flash") -> AgentLLMConfig:
     """Create configuration using Gemini for all agents"""
     if not GEMINI_AVAILABLE:
-        raise ImportError("Gemini not available. Install google-generativeai.")
+        raise ImportError("Gemini not available. Install google-genai.")
     
     base_config = LLMConfig(
         provider=LLMProvider.GEMINI,
