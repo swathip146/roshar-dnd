@@ -73,6 +73,12 @@ class DnDEngineWrapper:
         """Initialize entities from existing characters."""
         logger.info("Initializing DnDEngineWrapper")
         self._sync_characters_to_entities()
+        # Plan 1.4: give everyone their weapon, or every attack resolves unarmed.
+        # Plan 1.6: mirror Roshar state onto the Entity, or every surge guard is
+        # False (Stormlight free and untracked, Shardblade never bonded).
+        for char_id in list(self.entities):
+            self.equip_from_character_data(char_id)
+            self.sync_roshar_attrs_to_entity(char_id)
         # Plan 1.1: senses must be computed AFTER all entities exist, or each
         # entity's sense map is missing everyone created after it.
         self.refresh_senses()
@@ -137,9 +143,259 @@ class DnDEngineWrapper:
             entity.ability_scores.constitution.modifier
         )
 
+    # Plan 1.4: weapon stats by name. Attacks previously always resolved
+    # unarmed (1d6 bludgeoning, no proficiency) because EquipmentConfig only
+    # ever set unarmored_ac and no weapon was ever equipped — so a Shardbearer
+    # and a peasant hit equally hard.
+    # (dice_numbers, damage_dice, damage_type, reach_ft)
+    _WEAPON_STATS = {
+        # Simple melee
+        "club": (1, 4, "Bludgeoning", 5),
+        "dagger": (1, 4, "Piercing", 5),
+        "greatclub": (1, 8, "Bludgeoning", 5),
+        "handaxe": (1, 6, "Slashing", 5),
+        "javelin": (1, 6, "Piercing", 5),
+        "mace": (1, 6, "Bludgeoning", 5),
+        "quarterstaff": (1, 6, "Bludgeoning", 5),
+        "spear": (1, 6, "Piercing", 5),
+        "sickle": (1, 4, "Slashing", 5),
+        # Martial melee
+        "battleaxe": (1, 8, "Slashing", 5),
+        "flail": (1, 8, "Bludgeoning", 5),
+        "glaive": (1, 10, "Slashing", 10),
+        "greataxe": (1, 12, "Slashing", 5),
+        "greatsword": (2, 6, "Slashing", 5),
+        "halberd": (1, 10, "Slashing", 10),
+        "longsword": (1, 8, "Slashing", 5),
+        "maul": (2, 6, "Bludgeoning", 5),
+        "morningstar": (1, 8, "Piercing", 5),
+        "rapier": (1, 8, "Piercing", 5),
+        "scimitar": (1, 6, "Slashing", 5),
+        "shortsword": (1, 6, "Piercing", 5),
+        "trident": (1, 6, "Piercing", 5),
+        "warhammer": (1, 8, "Bludgeoning", 5),
+        "whip": (1, 4, "Slashing", 10),
+        # Roshar / Cosmere
+        "shardblade": (4, 6, "Slashing", 10),
+        "sidesword": (1, 8, "Slashing", 5),
+        "grandbow": (2, 8, "Piercing", 5),
+        "hammer": (1, 8, "Bludgeoning", 5),
+        "knife": (1, 4, "Piercing", 5),
+        "sword": (1, 8, "Slashing", 5),
+        "axe": (1, 8, "Slashing", 5),
+        "staff": (1, 6, "Bludgeoning", 5),
+        "bow": (1, 8, "Piercing", 5),
+    }
+
+    def _weapon_stats_for(self, weapon_name: str):
+        """Look up weapon stats, matching on substring so 'Kali's spear' works."""
+        name = (weapon_name or "").strip().lower()
+        if not name:
+            return None
+        if name in self._WEAPON_STATS:
+            return self._WEAPON_STATS[name]
+        # Longest match first, so "greatsword" beats "sword"
+        for key in sorted(self._WEAPON_STATS, key=len, reverse=True):
+            if key in name:
+                return self._WEAPON_STATS[key]
+        return None
+
+    def equip_weapon(self, char_id: str, weapon_name: str,
+                     slot: str = "MAIN_HAND") -> bool:
+        """
+        Build a real dnd_engine Weapon and equip it (plan 1.4).
+
+        Without this every attack used unarmed defaults (1d6 bludgeoning), so
+        weapon choice had no mechanical effect. Equipping feeds the engine's
+        native Attack action, which then computes attack bonus, damage dice,
+        damage type and reach correctly.
+
+        Returns True if a weapon was equipped.
+        """
+        entity = self.entities.get(char_id)
+        if entity is None:
+            logger.warning(f"⚠️ Cannot equip weapon: no entity for {char_id}")
+            return False
+
+        stats = self._weapon_stats_for(weapon_name)
+        if stats is None:
+            logger.debug(f"   No weapon stats for '{weapon_name}'; leaving unarmed")
+            return False
+
+        dice_numbers, damage_dice, damage_type_name, reach_ft = stats
+
+        try:
+            from dnd.blocks.equipment import Weapon, WeaponSlot
+            from dnd.core.events import Range, RangeType
+
+            weapon = Weapon(
+                name=weapon_name,
+                source_entity_uuid=entity.uuid,
+                dice_numbers=dice_numbers,
+                damage_dice=damage_dice,
+                damage_type=getattr(DamageType, damage_type_name.upper()),
+                properties=[],
+                # `range` is required and rejects None.
+                range=Range(type=RangeType.REACH, normal=reach_ft),
+            )
+            weapon_slot = (WeaponSlot.OFF_HAND
+                           if str(slot).upper() == "OFF_HAND"
+                           else WeaponSlot.MAIN_HAND)
+            entity.equipment.equip(weapon, weapon_slot)
+            logger.info(
+                f"⚔️  Equipped {weapon_name} on {char_id} "
+                f"({dice_numbers}d{damage_dice} {damage_type_name}, {reach_ft} ft)"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to equip '{weapon_name}' on {char_id}: {e}")
+            return False
+
+    def equip_from_character_data(self, char_id: str) -> bool:
+        """
+        Equip the best weapon implied by a character's own data (plan 1.4).
+
+        Looks at, in order:
+          1. NPC statblock `attacks[0].name`  (npc_stat_generator output)
+          2. `equipment` list entries that name a known weapon
+          3. `shardblade_name` / has_shardblade for Radiants
+        """
+        character = self.character_manager.characters.get(char_id)
+        if character is None:
+            return False
+
+        # 1. NPC statblocks carry an explicit attacks list
+        for attack in (getattr(character, "attacks", None) or []):
+            name = attack.get("name") if isinstance(attack, dict) else None
+            if name and self.equip_weapon(char_id, name):
+                return True
+
+        # 2. A named weapon in the inventory
+        for item in (getattr(character, "equipment", None) or []):
+            if isinstance(item, str) and self._weapon_stats_for(item):
+                if self.equip_weapon(char_id, item):
+                    return True
+
+        # 3. Radiants with a bonded blade
+        if getattr(character, "has_shardblade", False):
+            blade = getattr(character, "shardblade_name", None) or "Shardblade"
+            if self.equip_weapon(char_id, blade):
+                return True
+
+        logger.debug(f"   {char_id}: no equippable weapon found, staying unarmed")
+        return False
+
+    # Roshar attributes that must exist on the engine Entity for
+    # components/combat/roshar_actions.py to work (plan 1.6).
+    _ROSHAR_ATTRS = (
+        "radiant_order", "ideal_level", "surgebinding_level",
+        "stormlight_current", "stormlight_capacity",
+        "has_shardblade", "shardblade_summoned", "shardblade_type",
+        "shardblade_name", "has_shardplate",
+        "shardplate_hp_current", "shardplate_hp_maximum",
+        "surges_known",
+    )
+
+    def sync_roshar_attrs_to_entity(self, char_id: str) -> bool:
+        """
+        Copy Roshar state from CharacterData onto the engine Entity (plan 1.6).
+
+        roshar_actions.py gates every surge on `hasattr(entity, 'stormlight_current')`
+        etc. — but those attributes live on CharacterData, never on the dnd_engine
+        Entity, so every guard was False: cost checks were skipped, Stormlight was
+        never deducted (it was free and untracked), and ShardbladeAttack always
+        cancelled with "No Shardblade bonded".
+
+        CharacterData stays the authority; this mirrors onto the Entity so the
+        action layer can see it. Call sync_roshar_attrs_from_entity() after
+        actions run to write consumption back.
+        """
+        entity = self.entities.get(char_id)
+        character = self.character_manager.characters.get(char_id)
+        if entity is None or character is None:
+            return False
+
+        # Entity is a pydantic BaseModel WITHOUT extra="allow", so plain
+        # assignment raises 'Entity object has no field "stormlight_current"'.
+        # Writing straight to __dict__ makes reads work (pydantic's __getattr__
+        # falls back to __getattribute__), which is what the roshar_actions
+        # guards need. Swapping __class__ to permit assignment was tried and
+        # corrupts pydantic internals (breaks unrelated model construction with
+        # "'Lashing' object has no attribute '__pydantic_fields_set__'"), so
+        # writes go through spend_stormlight()/set_roshar_attr() instead.
+        for attr in self._ROSHAR_ATTRS:
+            if hasattr(character, attr):
+                entity.__dict__[attr] = getattr(character, attr)
+        return True
+
+    def set_roshar_attr(self, char_id: str, attr: str, value) -> bool:
+        """
+        Set a Roshar attribute on BOTH the entity mirror and CharacterData.
+
+        Use this instead of `entity.<attr> = value`: pydantic rejects direct
+        assignment for these extra attributes.
+        """
+        entity = self.entities.get(char_id)
+        character = self.character_manager.characters.get(char_id)
+        if entity is None or character is None:
+            return False
+        entity.__dict__[attr] = value
+        if hasattr(character, attr):
+            setattr(character, attr, value)
+        return True
+
+    def spend_stormlight(self, char_id: str, amount: int) -> bool:
+        """
+        Deduct Stormlight, keeping entity and CharacterData in step (plan 1.6).
+
+        Returns False (spending nothing) if the character cannot afford it, so
+        callers get a real affordability check — previously the guards were all
+        False and Stormlight was free and untracked.
+        """
+        character = self.character_manager.characters.get(char_id)
+        if character is None:
+            return False
+        current = getattr(character, "stormlight_current", 0) or 0
+        if amount > current:
+            logger.warning(
+                f"⚠️ {char_id} cannot spend {amount} Stormlight (has {current})"
+            )
+            return False
+        self.set_roshar_attr(char_id, "stormlight_current", current - amount)
+        logger.info(f"💎 {char_id} spent {amount} Stormlight ({current - amount} left)")
+        return True
+
+    def can_afford_stormlight(self, char_id: str, amount: int) -> bool:
+        """Whether a character has enough Stormlight (plan 1.6)."""
+        character = self.character_manager.characters.get(char_id)
+        if character is None:
+            return False
+        return (getattr(character, "stormlight_current", 0) or 0) >= amount
+
+    def sync_roshar_attrs_from_entity(self, char_id: str) -> bool:
+        """
+        Write Roshar state back from the Entity to CharacterData (plan 1.6).
+
+        Surges mutate `entity.stormlight_current`; without this the deduction is
+        lost when the entity is next resynced, so Stormlight would still be
+        effectively infinite.
+        """
+        entity = self.entities.get(char_id)
+        character = self.character_manager.characters.get(char_id)
+        if entity is None or character is None:
+            return False
+
+        for attr in ("stormlight_current", "shardblade_summoned",
+                     "shardplate_hp_current", "ideal_level",
+                     "surgebinding_level"):
+            if hasattr(entity, attr) and hasattr(character, attr):
+                setattr(character, attr, getattr(entity, attr))
+        return True
+
     def refresh_senses(self, max_distance: int = 30) -> None:
         """
         Recompute every entity's sense map (plan 1.1).
+
 
         `dnd/actions.py:40 validate_line_of_sight` requires
         `target.uuid in source.senses.entities`, and only

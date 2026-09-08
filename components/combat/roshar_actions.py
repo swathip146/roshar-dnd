@@ -43,7 +43,7 @@ class LashingEvent(ActionEvent):
     """Event for Windrunner/Skybreaker Lashing (Surgebinding)"""
     name: str = "Lashing"
     event_type: EventType = EventType.BASE_ACTION  # Roshar-specific action
-    lashing_type: str  # "basic", "full", "reverse"
+    lashing_type: str = "basic"  # "basic", "full", "reverse"
     stormlight_cost: int  # Stormlight spheres consumed
     target_direction: Optional[Tuple[int, int, int]] = None  # Gravity direction vector
 
@@ -71,30 +71,18 @@ class Lashing(BaseAction):
 
     name: str = "Lashing"
     description: str = "Manipulate gravity through Surgebinding"
-    lashing_type: str  # "basic", "full", "reverse"
+    lashing_type: str = "basic"  # "basic", "full", "reverse"
     target_direction: Tuple[int, int, int] = (0, 0, -1)  # Default: down
     stormlight_cost: int = 1
 
-    def __init__(
-        self,
-        source_entity_uuid: UUID,
-        target_entity_uuid: UUID,
-        lashing_type: str = "basic",
-        target_direction: Tuple[int, int, int] = (0, 0, -1)
-    ):
-        """
-        Initialize Lashing action.
-
-        Args:
-            source_entity_uuid: Entity performing the Lashing (must be Windrunner/Skybreaker)
-            target_entity_uuid: Entity to be Lashed
-            lashing_type: Type of Lashing ("basic", "full", "reverse")
-            target_direction: Gravity direction vector (x, y, z)
-        """
-        self.source_entity_uuid = source_entity_uuid
-        self.target_entity_uuid = target_entity_uuid
-        self.lashing_type = lashing_type
-        self.target_direction = target_direction
+    # NOTE: no custom __init__.
+    # The original hand-wrote one that assigned fields directly and never
+    # called super().__init__(), so pydantic never initialised the model:
+    # constructing ANY surge raised
+    #   AttributeError: object has no attribute '__pydantic_fields_set__'
+    # i.e. no Roshar surge was ever usable. The class attributes above are
+    # already pydantic fields with defaults, so BaseAction's generated
+    # __init__ handles construction correctly.
 
     def _validate(self, declaration_event: LashingEvent) -> LashingEvent:
         """Validate Lashing prerequisites"""
@@ -161,8 +149,14 @@ class Lashing(BaseAction):
                 logger.debug(f"   Made {target.name} a gravity source")
 
         # Consume Stormlight
+        # Plan 1.6: `entity.stormlight_current -= cost` raises -- Entity is a
+        # pydantic model without extra="allow". Write through __dict__ so the
+        # mirror stays readable for the next guard; DnDEngineWrapper
+        # .sync_roshar_attrs_from_entity() persists it to CharacterData.
         if hasattr(entity, 'stormlight_current'):
-            entity.stormlight_current -= self.stormlight_cost
+            entity.__dict__['stormlight_current'] = (
+                entity.stormlight_current - self.stormlight_cost
+            )
             logger.debug(f"   Consumed {self.stormlight_cost} Stormlight ({entity.stormlight_current} remaining)")
 
         return execution_event.phase_to(
@@ -205,20 +199,14 @@ class ShardbladeAttack(BaseAction):
     name: str = "Shardblade Attack"
     description: str = "Attack with Shardblade (soul damage)"
 
-    def __init__(
-        self,
-        source_entity_uuid: UUID,
-        target_entity_uuid: UUID
-    ):
-        """
-        Initialize Shardblade attack.
-
-        Args:
-            source_entity_uuid: Entity performing the attack (must have summoned Shardblade)
-            target_entity_uuid: Entity being attacked
-        """
-        self.source_entity_uuid = source_entity_uuid
-        self.target_entity_uuid = target_entity_uuid
+    # NOTE: no custom __init__.
+    # The original hand-wrote one that assigned fields directly and never
+    # called super().__init__(), so pydantic never initialised the model:
+    # constructing ANY surge raised
+    #   AttributeError: object has no attribute '__pydantic_fields_set__'
+    # i.e. no Roshar surge was ever usable. The class attributes above are
+    # already pydantic fields with defaults, so BaseAction's generated
+    # __init__ handles construction correctly.
 
     def _validate(self, declaration_event: ShardbladeAttackEvent) -> ShardbladeAttackEvent:
         """Validate Shardblade attack prerequisites"""
@@ -316,23 +304,14 @@ class ProgressionHealing(BaseAction):
     description: str = "Heal wounds with Progression Surge"
     stormlight_cost: int = 2
 
-    def __init__(
-        self,
-        source_entity_uuid: UUID,
-        target_entity_uuid: UUID,
-        healing_amount: Optional[int] = None
-    ):
-        """
-        Initialize Progression healing.
-
-        Args:
-            source_entity_uuid: Entity performing the healing (Edgedancer/Truthwatcher)
-            target_entity_uuid: Entity to be healed
-            healing_amount: Specific healing amount (if None, rolls 2d8 + WIS)
-        """
-        self.source_entity_uuid = source_entity_uuid
-        self.target_entity_uuid = target_entity_uuid
-        self.healing_amount = healing_amount
+    # NOTE: no custom __init__.
+    # The original hand-wrote one that assigned fields directly and never
+    # called super().__init__(), so pydantic never initialised the model:
+    # constructing ANY surge raised
+    #   AttributeError: object has no attribute '__pydantic_fields_set__'
+    # i.e. no Roshar surge was ever usable. The class attributes above are
+    # already pydantic fields with defaults, so BaseAction's generated
+    # __init__ handles construction correctly.
 
     def _validate(self, declaration_event: ProgressionHealingEvent) -> ProgressionHealingEvent:
         """Validate Progression healing prerequisites"""
@@ -399,8 +378,14 @@ class ProgressionHealing(BaseAction):
             logger.info(f"   💚 {target.name} healed for {healing} HP")
 
         # Consume Stormlight
+        # Plan 1.6: `entity.stormlight_current -= cost` raises -- Entity is a
+        # pydantic model without extra="allow". Write through __dict__ so the
+        # mirror stays readable for the next guard; DnDEngineWrapper
+        # .sync_roshar_attrs_from_entity() persists it to CharacterData.
         if hasattr(entity, 'stormlight_current'):
-            entity.stormlight_current -= self.stormlight_cost
+            entity.__dict__['stormlight_current'] = (
+                entity.stormlight_current - self.stormlight_cost
+            )
             logger.debug(f"   Consumed {self.stormlight_cost} Stormlight ({entity.stormlight_current} remaining)")
 
         execution_event.healing_amount = healing
