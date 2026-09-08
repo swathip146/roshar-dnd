@@ -518,6 +518,54 @@ class HaystackDnDGame:
 
         self.session_manager.record_turn_analytics(processed_input, response_type, confidence, self.turn_counter)
 
+    # ------------------------------------------------------------------
+    # Phase 3 integration: conversation memory, ruling markers, durability
+    # ------------------------------------------------------------------
+
+    @property
+    def thread_id(self) -> str:
+        """Stable id for this campaign's conversation and checkpoints."""
+        try:
+            metadata = self.session_manager.get_session_metadata() or {}
+            return str(metadata.get("session_id") or "default-campaign")
+        except Exception:
+            return "default-campaign"
+
+    def _remember(self, role: str, content: str) -> None:
+        """Append to persistent conversation history (plan 3.4)."""
+        try:
+            from components.retry_with_reasoning import get_conversation_memory
+            get_conversation_memory().append(self.thread_id, role, content)
+        except Exception as e:
+            logger.debug(f"   Could not record conversation turn: {e}")
+
+    def _annotate_rulings(self, text: str) -> str:
+        """
+        Surface any Tier-3/4 adjudication to the player (plan 3.8).
+
+        Improvisation must stay legible: you should always be able to tell
+        whether a result came from the Handbook, from composed primitives, or
+        from the model making something up.
+        """
+        try:
+            from components.rules_gap_tracker import get_gap_tracker
+            from components.rules_judge import describe_tier, TIER_JUDGED
+
+            tracker = get_gap_tracker()
+            recent = tracker.backlog(min_uses=1)
+            if not recent:
+                return text
+            # Only annotate gaps recorded during THIS turn.
+            fresh = [g for g in recent
+                     if g.get("last_seen", 0) >= getattr(self, "_turn_started_at", 0)]
+            if not fresh:
+                return text
+            marker = describe_tier(TIER_JUDGED)
+            names = ", ".join(g["situation"][:48] for g in fresh[:2])
+            return f"{text}\n\n_({marker}: {names})_"
+        except Exception:
+            return text
+
     def play_turn(self, player_input: str) -> str:
         """Enhanced turn processing following state hierarchy"""
         
@@ -525,13 +573,22 @@ class HaystackDnDGame:
             return "The world waits for your action..."
         
         self.turn_counter += 1
-        
+
+        # Plan 3.8: mark the turn boundary so only THIS turn's rulings are
+        # surfaced to the player.
+        import time as _time
+        self._turn_started_at = _time.time()
+
         try:
             # COMPLIANCE: Get session metadata for context (SessionManager is persistence-only)
             session_metadata = self.session_manager.get_session_metadata()
             if not session_metadata.get("session_active"):
                 return "No active session to process."
             
+            # Plan 3.4: record the player's turn in persistent history, so the
+            # DM sees the conversation rather than a fresh context each turn.
+            self._remember("user", player_input)
+
             # Process input (UI logic only)
             processed_input = self._process_input(player_input)
             
@@ -565,7 +622,13 @@ class HaystackDnDGame:
                 # COMPLIANCE: Delegate state updates to authoritative components
                 self._update_state_via_authorities(processed_input, response_dict)
                 
-                return formatted_result.get("formatted_response", "The adventure continues...")
+                narration = formatted_result.get("formatted_response",
+                                                 "The adventure continues...")
+                # Plan 3.4: keep the DM's reply in history for continuity.
+                self._remember("assistant", narration)
+                # Plan 3.8: mark any improvised adjudication so the player can
+                # tell a house ruling from a canonical one.
+                return self._annotate_rulings(narration)
             else:
                 error_msg = response_dict.get("error", "Unknown error")
                 logger.warning(f"Processing failed: {error_msg}")
