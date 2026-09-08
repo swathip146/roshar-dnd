@@ -1100,16 +1100,270 @@ class GameEngine:
         self.game_state.quest_context["pending_objectives"] = pending
     
     def set_location(self, location_name: str, location_type: str = "general",
-                    description: str = "", features: List[str] = None):
-        """Set current location with context"""
-        self.game_state.location_context.update({
+                    description: str = None, features: List[str] = None):
+        """
+        Set current location with context.
+
+        Plan 2.6: `description` and `features` used to default to "" and [], so
+        calling set_location(name) — which is what state_changes.location does —
+        WIPED the current location's description and features. They now default
+        to None and are only overwritten when actually supplied.
+        """
+        updates = {
             "current_location": location_name,
             "location_type": location_type,
+            "entry_time": time.time(),
+        }
+        if description is not None:
+            updates["description"] = description
+        if features is not None:
+            updates["features"] = features
+        self.game_state.location_context.update(updates)
+        logger.info(f"🏔️ Moved to location: {location_name} ({location_type})")
+
+    # ------------------------------------------------------------------
+    # Travel and the world graph (plan 2.6)
+    #
+    # `exits`, `hazards` and `npcs_present` were declared in LocationContext
+    # and NEVER written, and no travel verb existed at all.
+    # ------------------------------------------------------------------
+
+    def register_location(self, name: str, description: str = "",
+                          features: List[str] = None, exits: List[str] = None,
+                          hazards: List[str] = None,
+                          location_type: str = "general") -> None:
+        """Add a location to the world graph (plan 2.6)."""
+        graph = self.game_state.location_context.setdefault("known_locations", {})
+        graph[name] = {
+            "name": name,
             "description": description,
             "features": features or [],
-            "entry_time": time.time()
-        })
-        logger.info(f"🏔️ Moved to location: {location_name} ({location_type})")
+            "exits": exits or [],
+            "hazards": hazards or [],
+            "location_type": location_type,
+            "visited": graph.get(name, {}).get("visited", False),
+        }
+        logger.debug(f"🗺️  Registered location '{name}' "
+                     f"(exits: {exits or []})")
+
+    def load_locations_from_campaign(self) -> int:
+        """
+        Build the world graph from CampaignConfig (plan 2.6).
+
+        Campaign locations were parsed, counted and logged, then never turned
+        into anything the player could travel between.
+        """
+        campaign = self.campaign_config
+        if not campaign:
+            return 0
+
+        entries = getattr(campaign, "locations", None) or []
+        names = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                name = str(entry.get("name", "")).strip()
+                description = entry.get("description", "")
+                features = entry.get("features") or []
+                hazards = entry.get("hazards") or []
+            else:
+                name, description, features, hazards = str(entry).strip(), "", [], []
+            if name:
+                names.append(name)
+                self.register_location(name, description, features,
+                                       exits=[], hazards=hazards)
+
+        # With no authored adjacency, make campaign locations mutually
+        # reachable — better than a graph with no edges at all.
+        graph = self.game_state.location_context.get("known_locations", {})
+        for name in names:
+            graph[name]["exits"] = [n for n in names if n != name]
+
+        logger.info(f"🗺️  Loaded {len(names)} campaign location(s) into the world graph")
+        return len(names)
+
+    def get_available_exits(self) -> List[str]:
+        """Where the party can go from here (plan 2.6)."""
+        graph = self.game_state.location_context.get("known_locations", {})
+        current = self.game_state.location_context.get("current_location", "")
+        node = graph.get(current)
+        if node:
+            return list(node.get("exits", []))
+        # Unknown current location: offer everything known.
+        return [n for n in graph if n != current]
+
+    def travel_to(self, destination: str) -> Dict[str, Any]:
+        """
+        Move the party to a new location (plan 2.6).
+
+        No travel verb existed before, so the party could never actually go
+        anywhere — the three-artifact structure of Shards of Honor (D6) was
+        unreachable.
+        """
+        graph = self.game_state.location_context.setdefault("known_locations", {})
+        current = self.game_state.location_context.get("current_location", "")
+
+        # Tolerate case and partial names from an LLM or a player.
+        match = None
+        target = destination.strip().lower()
+        for name in graph:
+            if name.lower() == target:
+                match = name
+                break
+        if match is None:
+            # Partial match on WHOLE WORDS only. A naive substring test matched
+            # "A" inside "Shattered Plains" (same bug class as the combat
+            # routing substring match), so travelling anywhere new was refused.
+            target_words = set(target.replace(",", " ").split())
+            best = None
+            for name in graph:
+                name_words = set(name.lower().replace(",", " ").split())
+                shared = target_words & name_words
+                if shared and (len(max(shared, key=len)) >= 4):
+                    if best is None or len(shared) > best[0]:
+                        best = (len(shared), name)
+            match = best[1] if best else None
+
+        discovered = False
+        if match is None:
+            # Travel somewhere unregistered: record it rather than refuse, so
+            # the DM can invent places mid-story, and link it to where we are.
+            self.register_location(destination, exits=[current] if current else [])
+            match = destination
+            discovered = True
+            if current and current in graph:
+                current_exits = graph[current].setdefault("exits", [])
+                if match not in current_exits:
+                    current_exits.append(match)
+            logger.info(f"🗺️  Discovered new location '{destination}'")
+
+        exits = self.get_available_exits()
+        # A freshly discovered location is reachable by definition.
+        reachable = discovered or (not exits) or (match in exits)
+
+        if not reachable:
+            logger.warning(f"⚠️ '{match}' is not reachable from '{current}'")
+            return {"success": False, "reason": f"{match} is not reachable from {current}",
+                    "available_exits": exits}
+
+        node = graph[match]
+        node["visited"] = True
+        self.set_location(
+            match,
+            location_type=node.get("location_type", "general"),
+            description=node.get("description") or None,
+            features=node.get("features") or None,
+        )
+        self.game_state.location_context["hazards"] = node.get("hazards", [])
+        self.game_state.location_context["exits"] = node.get("exits", [])
+
+        # Travel takes time.
+        self.advance_time(hours=4, reason=f"travel to {match}")
+
+        logger.info(f"🚶 Travelled from '{current}' to '{match}'")
+        return {
+            "success": True,
+            "from": current,
+            "to": match,
+            "description": node.get("description", ""),
+            "hazards": node.get("hazards", []),
+            "available_exits": node.get("exits", []),
+        }
+
+    # ------------------------------------------------------------------
+    # Game clock and highstorms (plan 2.6)
+    #
+    # There was no clock and no day counter. update_environment() had zero
+    # callers, so weather never changed, and the campaign's own
+    # "WEATHER: Highstorm-approaching" was parsed and dropped.
+    # ------------------------------------------------------------------
+
+    # Rosharan highstorms recur roughly every few days.
+    HIGHSTORM_INTERVAL_DAYS = 5
+
+    def get_game_time(self) -> Dict[str, Any]:
+        """Current in-world time (plan 2.6)."""
+        env = self.game_state.environment
+        total_hours = env.get("elapsed_hours", 0)
+        day = total_hours // 24 + 1
+        hour = total_hours % 24
+        if hour < 6:
+            part = "night"
+        elif hour < 12:
+            part = "morning"
+        elif hour < 18:
+            part = "afternoon"
+        else:
+            part = "evening"
+        return {
+            "day": day,
+            "hour": hour,
+            "part_of_day": part,
+            "elapsed_hours": total_hours,
+            "days_until_highstorm": self.days_until_highstorm(),
+        }
+
+    def days_until_highstorm(self) -> int:
+        """Days until the next highstorm (plan 2.6)."""
+        day = self.game_state.environment.get("elapsed_hours", 0) // 24 + 1
+        into_cycle = (day - 1) % self.HIGHSTORM_INTERVAL_DAYS
+        # 0 means the storm lands TODAY. Without this the counter jumped
+        # 1 -> 5 and the weather never actually became "highstorm".
+        return into_cycle if into_cycle == 0 else (
+            self.HIGHSTORM_INTERVAL_DAYS - into_cycle
+        )
+
+    def advance_time(self, hours: int = 0, days: int = 0,
+                     reason: str = "") -> Dict[str, Any]:
+        """
+        Advance the game clock, updating weather as highstorms approach (2.6).
+        """
+        env = self.game_state.environment
+        added = max(0, int(hours)) + max(0, int(days)) * 24
+        env["elapsed_hours"] = env.get("elapsed_hours", 0) + added
+
+        time_info = self.get_game_time()
+        until = time_info["days_until_highstorm"]
+        if until <= 0:
+            weather = "highstorm"
+        elif until == 1:
+            weather = "highstorm-imminent"
+        elif until == 2:
+            weather = "highstorm-approaching"
+        else:
+            weather = "clear"
+
+        # Daylight follows the clock.
+        lighting = {"night": "dark", "morning": "bright",
+                    "afternoon": "bright", "evening": "dim"}[time_info["part_of_day"]]
+
+        self.update_environment({"weather": weather, "lighting": lighting})
+
+        logger.info(
+            f"🕐 +{added}h ({reason or 'time passes'}) -> day {time_info['day']} "
+            f"{time_info['part_of_day']}, weather {weather}"
+        )
+        return {**time_info, "weather": weather, "lighting": lighting}
+
+    def load_environment_from_campaign(self) -> bool:
+        """
+        Apply the campaign's authored starting weather/lighting (plan 2.6).
+
+        `WEATHER: Highstorm-approaching` and `LIGHTING: stormlit-dusk` were in
+        the campaign file and never loaded.
+        """
+        campaign = self.campaign_config
+        if not campaign:
+            return False
+        updates = {}
+        for key in ("weather", "lighting", "terrain"):
+            value = getattr(campaign, key, None)
+            if value:
+                updates[key] = value
+        if updates:
+            self.update_environment(updates)
+            logger.info(f"🌦️  Loaded campaign environment: {updates}")
+            return True
+        return False
     
     def get_campaign_data(self, key: str, default: Any = None) -> Any:
         """Get campaign data value from CampaignConfig - BREAKING CHANGE: Read-only"""
