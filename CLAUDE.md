@@ -31,14 +31,21 @@ python haystack_dnd_game.py
 # Run all tests
 pytest tests/
 
-# Run integration test (most comprehensive)
-python3 tests/test_integration.py
+# Phase regression suites (the most informative; assert on observable state)
+pytest tests/test_phase0_regressions.py tests/test_phase2_regressions.py tests/test_phase3_regressions.py
+
+# Real-engine combat tests (no mocks)
+pytest tests/combat/test_real_engine_combat.py
 
 # Specific test with verbose output
-pytest -vv tests/test_integration.py::test_name
+pytest -vv tests/test_phase2_regressions.py::TestQuestProgression
 ```
 
-**Latest test status**: 8.5/10 overall rating (13/13 features tested, 85% fully working)
+**Latest test status**: 380 non-combat + 174 combat tests passing.
+
+Note: tests that make REAL LLM calls have no timeout and must be deselected in
+bulk runs — `test_gemini_*`, `test_llm_utils`, `test_tool_calling`,
+`test_game_*rounds`, `test_api_connection`. Combat also takes several minutes.
 
 ### Document Indexing for RAG
 ```bash
@@ -206,7 +213,9 @@ class GameResponseDTO(TypedDict):
 
 **Start here**: `docs/CURRENT_SYSTEM_ARCHITECTURE.md` - Complete system architecture with diagrams, all 15 implemented features, and development guide.
 
-**Test report**: `docs/reports/TEST_REPORT_INTEGRATION.md` - Latest test results (8.5/10 rating)
+**Current plan**: `docs/REBUILD_PLAN_V5.md` — the authoritative status audit and
+rebuild plan, superseding `COMBAT_ENGINE_IMPLEMENTATION_PLAN.md` v4.1. Read §13
+(decisions D1-D6) first; it supersedes earlier text in that document.
 
 **Full documentation index**: `docs/INDEX.md`
 
@@ -281,12 +290,25 @@ Logs written to: `logs/dnd_game_YYYYMMDD_HHMMSS.log`
 
 ## Known Limitations
 
-From test report (`docs/reports/TEST_REPORT_INTEGRATION.md`):
+See `docs/REBUILD_PLAN_V5.md` §2 for verified per-subsystem status. Historically
+reported limitations, and where they now stand:
 
-1. **RAG System**: Functional but requires Qdrant setup for full lore retrieval
-2. **Skill Pipeline**: 7-step resolution exists but not automatically triggered in basic gameplay
-3. **Quest Progression**: System initialized but not actively advancing during play
-4. **Combat System**: Not fully implemented (marked for future enhancement)
+1. ~~**RAG System**~~ — FIXED (plan 0.2/0.17). Retrieved lore was written to
+   `rag["response"]` and read from `rag["rag_context"]`, so every document was
+   discarded; and the Cosmere Radiant's Handbook was never indexed at all.
+2. ~~**Skill Pipeline**~~ — FIXED (plan 2.1). It had zero production callers, so
+   no dice were rolled outside combat. Also: the requested DC was discarded, so
+   difficulty had no effect on outcomes.
+3. ~~**Quest Progression**~~ — FIXED (plan 2.3). The prompt emitted `"quests"`
+   while the code read `"quest_objectives"`, and `complete_quest_objective()`
+   had no callers.
+4. ~~**Combat System**~~ — FIXED (plan 1.1-1.8). Every attack cancelled because
+   entities had no position or senses; `AbilityConfig(score=...)` was silently
+   ignored so all six ability scores were stuck at 10; and no Roshar surge could
+   even be constructed.
+
+Genuinely open: see `docs/REBUILD_PLAN_V5.md` §6 and D6's v2 backlog (economy,
+downtime, multiclassing, tactical depth, full spellcasting, Phase 5 web UI).
 
 ---
 

@@ -2,7 +2,25 @@
 **Version:** 4.1 (Simplified - No Fallbacks, dnd_engine Only)
 **Date:** 2026-01-03
 **Last Updated:** 2026-01-03 (Phase 3 Complete - All core combat components implemented and tested)
-**Status:** Phase 1 Complete ✅ | Phase 1.5 Complete ✅ | Phase 2 Complete ✅ | Phase 3 Complete ✅
+**Status:** ⚠️ **SUPERSEDED — see `docs/REBUILD_PLAN_V5.md`**
+
+> This header claimed "Phase 1 ✅ | Phase 1.5 ✅ | Phase 2 ✅ | Phase 3 ✅" and
+> "121/126 tests passing (96%)". A 2026-09-07 audit found that materially wrong:
+>
+> * **Phase 1.5 was BROKEN**, not complete — commit `8bad122` moved the NPC JSONs
+>   but left the loader path behind, so the registry loaded **0** NPCs.
+> * **Phase 3 was not complete** — every attack cancelled for want of
+>   position/senses, `apply_condition()` was a stub, the action economy was never
+>   enforced, and the Stormlight economy was a no-op.
+> * **Phase 4 HAD shipped** despite being marked ⬜.
+> * The 96% figure was measuring nothing: 8 combat test files mocked the engine
+>   wrapper, and `Mock` auto-creates any attribute, so tests asserting
+>   `is_dead()`, `reset()`, `.value` and `cost_type` — none of which exist —
+>   passed while production raised `AttributeError`. Real result at audit time:
+>   **65 failed, 131 passed, 6 errors**.
+>
+> All of the above is now fixed and verified against the real engine. Kept for
+> historical reference; do not treat its status claims as current.
 
 ---
 

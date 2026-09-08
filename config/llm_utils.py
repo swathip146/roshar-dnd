@@ -51,12 +51,31 @@ except (ImportError, TypeError, AttributeError) as e:
         def from_assistant(cls, content: str):
             return cls(content, "assistant")
 
-# Import Google AI if available
+# Plan 4: use the CURRENT Gemini SDK.
+#
+# This module used `google.generativeai`, which prints "All support for the
+# google.generativeai package has ended" on every run, while requirements.txt
+# already declared `google-genai` as its replacement. Ported to the new SDK:
+#   genai.configure() + GenerativeModel  ->  genai.Client()
+#   model.generate_content(prompt)       ->  client.models.generate_content(...)
+#   generation_config dict               ->  types.GenerateContentConfig
+#
+# The port also fixes a real defect the old SDK forced on us: it had no system
+# role, so system prompts were flattened into user text. The new SDK has a real
+# `system_instruction`, so the DM's system prompt is now actually a system
+# prompt.
+GEMINI_AVAILABLE = False
+GEMINI_SDK = None
+genai = None
+genai_types = None
+
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     GEMINI_AVAILABLE = True
+    GEMINI_SDK = "google-genai"
 except ImportError:
-    GEMINI_AVAILABLE = False
+    pass
 
 
 @component
@@ -180,7 +199,8 @@ class GeminiChatGenerator:
             response_schema: JSON schema for structured output (forces valid JSON)
         """
         if not GEMINI_AVAILABLE:
-            raise ImportError("google-generativeai package not available")
+            raise ImportError(
+                "google-genai package not available (pip install google-genai)")
 
         self.model_name = model_name
         self.generation_config = generation_config or {}
@@ -192,14 +212,15 @@ class GeminiChatGenerator:
             self.generation_config['response_schema'] = response_schema
             logger.info(f"🎯 GeminiChatGenerator initialized with structured output schema")
 
-        # Initialize the model
+        # Initialize the client. The new SDK is client-based: the model name is
+        # passed per call rather than baked into a model object.
         try:
-            self.model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config=self.generation_config
-            )
+            # The client reads GEMINI_API_KEY / GOOGLE_API_KEY from the
+            # environment, which is how run_game.sh already supplies it.
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            self.client = genai.Client(api_key=api_key) if api_key else genai.Client()
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize Gemini model: {e}")
+            raise RuntimeError(f"Failed to initialize Gemini client: {e}")
     
     @component.output_types(replies=List[ChatMessage])
     def run(self, messages: List[ChatMessage], tools: Optional[List[Any]] = None) -> Dict[str, Any]:
@@ -225,33 +246,41 @@ class GeminiChatGenerator:
                 gemini_tools = self._convert_tools_to_gemini(tools)
                 logger.debug(f"🔧 Gemini Tools: {len(gemini_tools)} tools")
 
-            # Generate content with or without tools
-            if gemini_tools and gemini_messages:
-                # Use chat session with function calling
-                # Separate history (all but last) from current message
-                history = gemini_messages[:-1] if len(gemini_messages) > 1 else []
-                current_message = gemini_messages[-1] if gemini_messages else None
+            # New SDK: one call shape, with config carrying schema and tools.
+            #
+            # System messages become a real `system_instruction` instead of
+            # being flattened into user text (the old SDK had no system role).
+            # Haystack removed ChatMessage.content in favour of .text; read
+            # .text first and fall back for older message objects.
+            def _text_of(message):
+                value = getattr(message, "text", None)
+                if value:
+                    return value
+                return getattr(message, "content", "") or ""
 
-                if current_message:
-                    chat = self.model.start_chat(history=history)
-                    # Extract text from the current message parts
-                    message_text = ""
-                    for part in current_message.parts:
-                        if hasattr(part, "text"):
-                            message_text += part.text
+            def _role_of(message):
+                role = getattr(message, "role", "")
+                return getattr(role, "value", role)
 
-                    response = chat.send_message(
-                        message_text,
-                        tools=gemini_tools
-                    )
-                else:
-                    # Fallback to simple generation
-                    prompt = self._convert_messages_to_prompt(messages)
-                    response = self.model.generate_content(prompt)
-            else:
-                # Simple text generation without tools
-                prompt = self._convert_messages_to_prompt(messages)
-                response = self.model.generate_content(prompt)
+            system_text = "\n".join(
+                _text_of(m) for m in messages
+                if str(_role_of(m)).lower() == "system" and _text_of(m)
+            )
+            conversation = [m for m in messages
+                            if str(_role_of(m)).lower() != "system"]
+            prompt = self._convert_messages_to_prompt(conversation or messages)
+
+            config_kwargs = dict(self.generation_config)
+            if system_text:
+                config_kwargs["system_instruction"] = system_text
+            if gemini_tools:
+                config_kwargs["tools"] = gemini_tools
+
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(**config_kwargs),
+            )
 
             logger.debug(f"🔧 Response: {response}")
 
@@ -411,8 +440,9 @@ class GeminiChatGenerator:
             List of Gemini-compatible tool declarations
         """
         try:
-            import google.generativeai as genai
-            from google.generativeai.types import FunctionDeclaration, Tool as GeminiTool
+            # New SDK: FunctionDeclaration and Tool live in google.genai.types.
+            FunctionDeclaration = genai_types.FunctionDeclaration
+            GeminiTool = genai_types.Tool
 
             function_declarations = []
             for tool in tools:
@@ -451,8 +481,6 @@ class GeminiChatGenerator:
             List of Gemini Content objects
         """
         try:
-            import google.generativeai as genai
-
             gemini_messages = []
             for message in messages:
                 # Get message content
@@ -477,10 +505,11 @@ class GeminiChatGenerator:
                     else:
                         role = "user"
 
-                # Create Gemini Content object
-                gemini_messages.append(genai.protos.Content(
+                # New SDK: Content/Part come from google.genai.types, not
+                # genai.protos.
+                gemini_messages.append(genai_types.Content(
                     role=role,
-                    parts=[genai.protos.Part(text=content)]
+                    parts=[genai_types.Part(text=content)]
                 ))
 
             return gemini_messages
@@ -502,7 +531,7 @@ def create_gemini_compatible_generator(model: str, **kwargs) -> GeminiChatGenera
         Configured Gemini generator
     """
     if not GEMINI_AVAILABLE:
-        raise ImportError("google-generativeai not available for Gemini generator")
+        raise ImportError("google-genai not available for Gemini generator")
     
     # Extract generation config from kwargs
     generation_config = kwargs.get('generation_config', {})
