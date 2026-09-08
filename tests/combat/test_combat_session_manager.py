@@ -212,29 +212,33 @@ class TestCombatSessionManager:
         assert session_manager._is_player("player_001") is True
         assert session_manager._is_player("goblin_001") is False
 
+    @staticmethod
+    def _drop_to_zero_hp(entity):
+        """
+        Reduce a real entity to 0 HP (plan 1.3).
+
+        Health has no is_dead()/is_unconscious() -- the old tests stubbed those
+        on a Mock, so they passed while asserting nothing. Production derives
+        death from get_total_hit_points() vs damage_taken, so drive that.
+        """
+        con_mod = entity.ability_scores.constitution.modifier
+        entity.health.damage_taken = entity.health.get_max_hit_dices_points(con_mod) + 10
+
     def test_is_combatant_dead_alive(self, session_manager, mock_dnd_wrapper):
-        """Test checking if combatant is dead/unconscious (alive)"""
-        mock_dnd_wrapper.entities["player_001"].health.is_unconscious.return_value = False
-        mock_dnd_wrapper.entities["player_001"].health.is_dead.return_value = False
+        """A combatant at full HP is not dead."""
+        assert session_manager._is_combatant_dead("player_001") is False
 
-        is_dead = session_manager._is_combatant_dead("player_001")
-        assert is_dead is False
+    def test_is_combatant_dead_at_zero_hp(self, session_manager, mock_dnd_wrapper):
+        """Dropping real HP to 0 must register as dead."""
+        self._drop_to_zero_hp(mock_dnd_wrapper.entities["goblin_001"])
+        assert session_manager._is_combatant_dead("goblin_001") is True
 
-    def test_is_combatant_dead_unconscious(self, session_manager, mock_dnd_wrapper):
-        """Test checking if combatant is unconscious"""
-        mock_dnd_wrapper.entities["goblin_001"].health.is_unconscious.return_value = True
-        mock_dnd_wrapper.entities["goblin_001"].health.is_dead.return_value = False
-
-        is_dead = session_manager._is_combatant_dead("goblin_001")
-        assert is_dead is True
-
-    def test_is_combatant_dead_dead(self, session_manager, mock_dnd_wrapper):
-        """Test checking if combatant is dead"""
-        mock_dnd_wrapper.entities["goblin_002"].health.is_unconscious.return_value = False
-        mock_dnd_wrapper.entities["goblin_002"].health.is_dead.return_value = True
-
-        is_dead = session_manager._is_combatant_dead("goblin_002")
-        assert is_dead is True
+    def test_is_combatant_dead_below_zero_hp(self, session_manager, mock_dnd_wrapper):
+        """Overkill damage also registers as dead."""
+        entity = mock_dnd_wrapper.entities["goblin_002"]
+        con_mod = entity.ability_scores.constitution.modifier
+        entity.health.damage_taken = entity.health.get_max_hit_dices_points(con_mod) + 100
+        assert session_manager._is_combatant_dead("goblin_002") is True
 
     def test_check_end_conditions_combat_ongoing(self, session_manager):
         """Test checking end conditions when combat is ongoing"""
@@ -246,8 +250,8 @@ class TestCombatSessionManager:
     def test_check_end_conditions_all_hostiles_defeated(self, session_manager, mock_dnd_wrapper):
         """Test checking end conditions when all hostiles defeated"""
         # Mark all goblins as dead
-        mock_dnd_wrapper.entities["goblin_001"].health.is_dead.return_value = True
-        mock_dnd_wrapper.entities["goblin_002"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_dnd_wrapper.entities["goblin_001"])
+        self._drop_to_zero_hp(mock_dnd_wrapper.entities["goblin_002"])
 
         ended, reason = session_manager._check_end_conditions()
 
@@ -257,7 +261,7 @@ class TestCombatSessionManager:
     def test_check_end_conditions_all_players_defeated(self, session_manager, mock_dnd_wrapper):
         """Test checking end conditions when all players defeated"""
         # Mark player as dead
-        mock_dnd_wrapper.entities["player_001"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_dnd_wrapper.entities["player_001"])
 
         ended, reason = session_manager._check_end_conditions()
 
@@ -280,24 +284,29 @@ class TestCombatSessionManager:
 
     def test_has_actions_remaining_true(self, session_manager, mock_dnd_wrapper):
         """Test checking if combatant has actions remaining (true)"""
-        mock_dnd_wrapper.entities["player_001"].action_economy.actions = 1
-        mock_dnd_wrapper.entities["player_001"].action_economy.bonus_actions = 0
+        mock_dnd_wrapper.entities["player_001"].action_economy.reset_all_costs()
+        _e = mock_dnd_wrapper.entities["player_001"].action_economy
+        _e.consume("bonus_actions", _e.bonus_actions.normalized_score)
 
         has_actions = session_manager._has_actions_remaining("player_001")
         assert has_actions is True
 
     def test_has_actions_remaining_false(self, session_manager, mock_dnd_wrapper):
         """Test checking if combatant has actions remaining (false)"""
-        mock_dnd_wrapper.entities["player_001"].action_economy.actions = 0
-        mock_dnd_wrapper.entities["player_001"].action_economy.bonus_actions = 0
+        # Spend everything so nothing remains this turn.
+        economy = mock_dnd_wrapper.entities["player_001"].action_economy
+        economy.reset_all_costs()
+        economy.consume("actions", economy.actions.normalized_score)
+        economy.consume("bonus_actions", economy.bonus_actions.normalized_score)
 
         has_actions = session_manager._has_actions_remaining("player_001")
         assert has_actions is False
 
     def test_consume_action_syncs_to_combat_state(self, session_manager, mock_dnd_wrapper):
         """Test consuming action syncs dnd_engine state to combat_state"""
-        mock_dnd_wrapper.entities["player_001"].action_economy.actions = 0
-        mock_dnd_wrapper.entities["player_001"].action_economy.bonus_actions = 1
+        _e = mock_dnd_wrapper.entities["player_001"].action_economy
+        _e.reset_all_costs()
+        _e.consume("actions", _e.actions.normalized_score)  # bonus action remains
         mock_dnd_wrapper.entities["player_001"].action_economy.reactions = 0
 
         session_manager._consume_action("player_001", "attack")
@@ -370,7 +379,7 @@ class TestCombatSessionManager:
     def test_get_valid_targets_excludes_dead(self, session_manager, mock_dnd_wrapper):
         """Test getting valid targets excludes dead combatants"""
         # Mark goblin_002 as dead
-        mock_dnd_wrapper.entities["goblin_002"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_dnd_wrapper.entities["goblin_002"])
 
         targets = session_manager._get_valid_targets("player_001")
 
@@ -406,7 +415,7 @@ class TestCombatSessionManager:
     def test_get_fallback_action_no_targets(self, session_manager, mock_dnd_wrapper):
         """Test getting fallback action when no targets available"""
         # Mark all enemies as dead
-        mock_dnd_wrapper.entities["player_001"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_dnd_wrapper.entities["player_001"])
 
         action = session_manager._get_fallback_action("goblin_001")
 

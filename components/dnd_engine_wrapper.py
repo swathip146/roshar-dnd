@@ -95,6 +95,26 @@ class DnDEngineWrapper:
         # has to be distinct AND within melee reach of a neighbour.
         return (idx, 0)
 
+    # D&D 5e hit die by class. Plan 1.7: this was hardcoded to d8 for every
+    # character regardless of class or CR.
+    _HIT_DIE_BY_CLASS = {
+        "barbarian": 12,
+        "fighter": 10, "paladin": 10, "ranger": 10, "radiant": 10,
+        "bard": 8, "cleric": 8, "druid": 8, "monk": 8, "rogue": 8, "warlock": 8,
+        "sorcerer": 6, "wizard": 6,
+        # Roshar / Cosmere orders
+        "windrunner": 10, "skybreaker": 10, "stoneward": 10, "dustbringer": 10,
+        "edgedancer": 8, "truthwatcher": 8, "lightweaver": 6, "elsecaller": 6,
+        "willshaper": 8, "bondsmith": 10,
+        "herald": 12,
+        # Common monster shorthand
+        "goblin": 6, "beast": 8, "undead": 8, "construct": 10,
+    }
+
+    def _hit_die_for_class(self, character_class: str) -> int:
+        """Hit die size for a class (plan 1.7). Defaults to d8."""
+        return self._HIT_DIE_BY_CLASS.get((character_class or "").strip().lower(), 8)
+
     def refresh_senses(self, max_distance: int = 30) -> None:
         """
         Recompute every entity's sense map (plan 1.1).
@@ -142,13 +162,24 @@ class DnDEngineWrapper:
 
         for char_id, character in self.character_manager.characters.items():
             # Create entity configuration
+            # AbilityConfig's field is `ability_score`, NOT `score`. Passing
+            # score=N is silently ignored by pydantic and the ability defaults
+            # to 10 -- so EVERY character had all six abilities stuck at 10:
+            # no STR on attacks, no DEX on AC, no CON on HP. (Found while
+            # chasing the plan-1.7 HP mismatch; not in the original audit.)
             ability_scores_config = AbilityScoresConfig(
-                strength=AbilityConfig(score=character.ability_scores.get("strength", 10)),
-                dexterity=AbilityConfig(score=character.ability_scores.get("dexterity", 10)),
-                constitution=AbilityConfig(score=character.ability_scores.get("constitution", 10)),
-                intelligence=AbilityConfig(score=character.ability_scores.get("intelligence", 10)),
-                wisdom=AbilityConfig(score=character.ability_scores.get("wisdom", 10)),
-                charisma=AbilityConfig(score=character.ability_scores.get("charisma", 10))
+                strength=AbilityConfig(
+                    ability_score=character.ability_scores.get("strength", 10)),
+                dexterity=AbilityConfig(
+                    ability_score=character.ability_scores.get("dexterity", 10)),
+                constitution=AbilityConfig(
+                    ability_score=character.ability_scores.get("constitution", 10)),
+                intelligence=AbilityConfig(
+                    ability_score=character.ability_scores.get("intelligence", 10)),
+                wisdom=AbilityConfig(
+                    ability_score=character.ability_scores.get("wisdom", 10)),
+                charisma=AbilityConfig(
+                    ability_score=character.ability_scores.get("charisma", 10))
             )
 
             # Create skill configurations
@@ -206,22 +237,36 @@ class DnDEngineWrapper:
             logger.info(f"      Extracted max_hp: {max_hp}")
             logger.info(f"      Extracted current_hp: {current_hp}")
 
-            # CRITICAL FIX: dnd_engine uses hit_dices, not max_hp/current_hp directly
-            # Convert simplified HP model to dnd_engine hit dice model
+            # dnd_engine models HP as hit dice, not a flat max_hp, so we must
+            # translate. Plan 1.7: hit_dice_value was hardcoded to 8, so max HP
+            # became level * 4.5 REGARDLESS of the character's real HP — a
+            # 7 HP level-3 goblin came out with 18. CharacterManager and the
+            # engine then disagreed about how much HP everyone had.
+            #
+            # Fix: pick the hit die from the class, then use
+            # max_hit_points_bonus to reconcile EXACTLY to the authored max_hp.
+            # CharacterManager stays the authority on HP; the engine matches it.
             from dnd.blocks.health import HitDiceConfig
 
-            # Calculate damage taken: damage_taken = max_hp - current_hp
+            # damage_taken carries the current/max delta
             damage_taken = max(0, max_hp - current_hp)
 
-            # Create a single hit dice that produces the desired max HP
-            # Use d6 hit dice (common for level 1), count = max_hp / 4 (average d6 = 3.5 ≈ 4)
-            # For max_hp = 10: 10/4 = 2.5 hit dice, but we need integer
-            # Better: Use hit_dice_count = character.level, hit_dice_value based on class
-            hit_dice_count = character.level
-            # Determine hit die size based on max HP and level
-            # max_hp ≈ hit_dice_count * (hit_dice_value/2 + 1) + con_mod * hit_dice_count
-            # For now, use d8 (common for martial classes)
-            hit_dice_value = 8
+            hit_dice_count = max(1, character.level)
+            hit_dice_value = self._hit_die_for_class(character.character_class)
+            con_mod = (character.ability_scores.get("constitution", 10) - 10) // 2
+
+            # Mirror dnd_engine's own arithmetic exactly (dnd/blocks/health.py):
+            #   HitDice.hit_points  = full die at level 1
+            #                       + (count - 1) * (die // 2 + 1)   [average mode]
+            #   Health.get_max_hit_dices_points = hit_points + con_mod * count
+            # Getting this wrong by even the con term leaves CharacterManager and
+            # the engine disagreeing about everyone's HP.
+            dice_hp = hit_dice_value + (hit_dice_count - 1) * (hit_dice_value // 2 + 1)
+            derived_hp = dice_hp + con_mod * hit_dice_count
+
+            # Close the gap so the engine's total matches the authored max_hp
+            # exactly. May be negative (a low-HP monster at a high level).
+            max_hit_points_bonus = max_hp - derived_hp
 
             hit_dice_config = HitDiceConfig(
                 hit_dice_value=hit_dice_value,
@@ -231,13 +276,15 @@ class DnDEngineWrapper:
 
             health_config = HealthConfig(
                 hit_dices=[hit_dice_config],
-                max_hit_points_bonus=0,  # Any bonus beyond hit dice
-                temporary_hit_points=0,
+                max_hit_points_bonus=max_hit_points_bonus,
+                temporary_hit_points=char_hp.get("temporary", 0),
                 damage_reduction=0
             )
 
             logger.info(f"      Converted to hit dice model:")
-            logger.info(f"         Hit dice: {hit_dice_count}d{hit_dice_value}")
+            logger.info(f"         Hit dice: {hit_dice_count}d{hit_dice_value} "
+                        f"(derived {derived_hp} + bonus {max_hit_points_bonus} "
+                        f"= {max_hp} authored)")
             logger.info(f"         Damage taken: {damage_taken}")
 
             # Create equipment configuration
