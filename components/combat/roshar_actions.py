@@ -394,3 +394,203 @@ class ProgressionHealing(BaseAction):
             new_phase=EventPhase.COMPLETION,
             status_message=f"Healed {target.name} for {healing} HP"
         )
+
+
+# ==========================================================================
+# Lightweaver surges (plan 2.7)
+#
+# Only Windrunner/Skybreaker (Lashing) and Edgedancer/Truthwatcher
+# (Progression) surges existed. BOTH shipped PCs — Aggi and Kali — are
+# Lightweavers, so the party had ZERO usable Surges and the central fantasy
+# of the setting was invisible in play.
+#
+# Lightweavers wield Illumination (light, sound, illusion) and Transformation
+# (Soulcasting). Based on Cosmere 5e Radiant's Handbook v2.0.
+# ==========================================================================
+
+
+class IlluminationEvent(ActionEvent):
+    """Event for a Lightweaver Illumination (illusion)."""
+    name: str = "Illumination"
+    event_type: EventType = EventType.BASE_ACTION
+    stormlight_cost: int = 1
+    illusion_type: str = "visual"
+
+
+class Illumination(BaseAction):
+    """
+    Illumination — Lightweaver light/sound illusion.
+
+    **Mechanics:**
+    - Cost: 1 Action + 1 Stormlight sphere
+    - Effect: creates a convincing illusion; observers contest with
+      Investigation vs the Lightweaver's Deception
+    - At higher Ideals the illusion can include sound and motion
+
+    **Requirements:** Lightweaver Order, Surgebinding level 1+
+    """
+
+    name: str = "Illumination"
+    description: str = "Weave light and sound into an illusion (Lightweaver)"
+    stormlight_cost: int = 1
+    illusion_type: str = "visual"
+
+    def _validate(self, declaration_event: IlluminationEvent) -> IlluminationEvent:
+        entity = Entity.get(self.source_entity_uuid)
+
+        if hasattr(entity, 'radiant_order'):
+            if entity.radiant_order not in ["Lightweaver", "Elsecaller"]:
+                logger.warning(f"Entity {entity.name} cannot use Illumination")
+                return declaration_event.cancel(
+                    status_message="Illumination requires the Lightweaver or Elsecaller Order"
+                )
+
+        if hasattr(entity, 'surgebinding_level'):
+            if entity.surgebinding_level < 1:
+                return declaration_event.cancel(
+                    status_message="Insufficient Lightweaver attunement"
+                )
+
+        if hasattr(entity, 'stormlight_current'):
+            if entity.stormlight_current < self.stormlight_cost:
+                return declaration_event.cancel(
+                    status_message=(
+                        f"Insufficient Stormlight "
+                        f"({entity.stormlight_current}/{self.stormlight_cost} needed)"
+                    )
+                )
+
+        return declaration_event.phase_to(
+            new_phase=EventPhase.EXECUTION,
+            status_message="Illumination prerequisites satisfied",
+        )
+
+    def _apply(self, execution_event: IlluminationEvent) -> IlluminationEvent:
+        entity = Entity.get(self.source_entity_uuid)
+        logger.info(f"✨ {entity.name} weaves an illusion ({self.illusion_type})")
+
+        # An illusion makes the weaver harder to pin down: Invisible models
+        # "observers cannot reliably see the real you" well enough for now.
+        try:
+            from dnd.conditions import Invisible
+            condition = Invisible(
+                source_entity_uuid=self.source_entity_uuid,
+                target_entity_uuid=self.source_entity_uuid,
+            )
+            applied = condition.apply()
+            if applied and not getattr(applied, "canceled", False):
+                entity.active_conditions[condition.name] = condition
+                entity.active_conditions_by_uuid[condition.uuid] = condition
+                entity.active_conditions_by_source[condition.source_entity_uuid].append(
+                    condition.name
+                )
+                logger.info(f"   🌫️  {entity.name} is obscured by the illusion")
+        except Exception as e:
+            logger.debug(f"   Could not apply illusion concealment: {e}")
+
+        # Consume Stormlight. See plan 1.6: Entity is a pydantic model without
+        # extra="allow", so `-=` raises; write through __dict__.
+        if hasattr(entity, 'stormlight_current'):
+            entity.__dict__['stormlight_current'] = (
+                entity.stormlight_current - self.stormlight_cost
+            )
+            logger.debug(f"   Consumed {self.stormlight_cost} Stormlight "
+                         f"({entity.stormlight_current} remaining)")
+
+        return execution_event.phase_to(
+            new_phase=EventPhase.COMPLETION,
+            status_message=f"{entity.name} weaves an illusion",
+        )
+
+
+class SoulcastEvent(ActionEvent):
+    """Event for a Lightweaver/Elsecaller Transformation (Soulcasting)."""
+    name: str = "Soulcast"
+    event_type: EventType = EventType.BASE_ACTION
+    stormlight_cost: int = 3
+    target_essence: str = "stone"
+
+
+class Soulcast(BaseAction):
+    """
+    Soulcast — Transformation Surge, changing one substance into another.
+
+    **Mechanics:**
+    - Cost: 1 Action + 3 Stormlight spheres
+    - Effect: transforms matter (stone to smoke, water to wine, and so on);
+      difficult transformations need a higher Ideal
+    - Combat use: transform the ground to restrain a target
+
+    **Requirements:** Lightweaver or Elsecaller Order, Surgebinding level 2+
+    """
+
+    name: str = "Soulcast"
+    description: str = "Transform matter with the Transformation Surge"
+    stormlight_cost: int = 3
+    target_essence: str = "stone"
+
+    def _validate(self, declaration_event: SoulcastEvent) -> SoulcastEvent:
+        entity = Entity.get(self.source_entity_uuid)
+
+        if hasattr(entity, 'radiant_order'):
+            if entity.radiant_order not in ["Lightweaver", "Elsecaller"]:
+                return declaration_event.cancel(
+                    status_message="Soulcasting requires the Lightweaver or Elsecaller Order"
+                )
+
+        # Soulcasting is harder than Illumination: needs the Second Ideal.
+        if hasattr(entity, 'surgebinding_level'):
+            if entity.surgebinding_level < 2:
+                return declaration_event.cancel(
+                    status_message="Soulcasting requires the Second Ideal or higher"
+                )
+
+        if hasattr(entity, 'stormlight_current'):
+            if entity.stormlight_current < self.stormlight_cost:
+                return declaration_event.cancel(
+                    status_message=(
+                        f"Insufficient Stormlight "
+                        f"({entity.stormlight_current}/{self.stormlight_cost} needed)"
+                    )
+                )
+
+        return declaration_event.phase_to(
+            new_phase=EventPhase.EXECUTION,
+            status_message="Soulcast prerequisites satisfied",
+        )
+
+    def _apply(self, execution_event: SoulcastEvent) -> SoulcastEvent:
+        entity = Entity.get(self.source_entity_uuid)
+        target = Entity.get(execution_event.target_entity_uuid)
+        logger.info(f"✨ {entity.name} Soulcasts toward {self.target_essence}")
+
+        # Transforming the ground underfoot restrains the target.
+        if target is not None:
+            try:
+                from dnd.conditions import Restrained
+                condition = Restrained(
+                    source_entity_uuid=self.source_entity_uuid,
+                    target_entity_uuid=target.uuid,
+                )
+                applied = condition.apply()
+                if applied and not getattr(applied, "canceled", False):
+                    target.active_conditions[condition.name] = condition
+                    target.active_conditions_by_uuid[condition.uuid] = condition
+                    target.active_conditions_by_source[
+                        condition.source_entity_uuid
+                    ].append(condition.name)
+                    logger.info(f"   🪨 {target.name} is restrained by transformed matter")
+            except Exception as e:
+                logger.debug(f"   Could not apply Soulcast restraint: {e}")
+
+        if hasattr(entity, 'stormlight_current'):
+            entity.__dict__['stormlight_current'] = (
+                entity.stormlight_current - self.stormlight_cost
+            )
+            logger.debug(f"   Consumed {self.stormlight_cost} Stormlight "
+                         f"({entity.stormlight_current} remaining)")
+
+        return execution_event.phase_to(
+            new_phase=EventPhase.COMPLETION,
+            status_message=f"{entity.name} Soulcasts {self.target_essence}",
+        )

@@ -1374,6 +1374,21 @@ class CharacterManager:
         print(f"ℹ️ {character.name} already knows: {art_name}")
         return False
     
+    # Plan 2.8: the Radiant orders. A character whose CLASS is their order
+    # (both shipped PCs are "Lightweaver", not "Radiant") was rejected as
+    # "Not a Radiant", so oaths were unreachable for the actual party.
+    RADIANT_ORDERS = frozenset({
+        "windrunner", "skybreaker", "dustbringer", "edgedancer",
+        "truthwatcher", "lightweaver", "elsecaller", "willshaper",
+        "stoneward", "bondsmith", "radiant",
+    })
+
+    def _is_radiant(self, character) -> bool:
+        """Whether a character can hold Ideals (plan 2.8)."""
+        char_class = (getattr(character, "character_class", "") or "").strip().lower()
+        order = (getattr(character, "radiant_order", "") or "").strip().lower()
+        return char_class in self.RADIANT_ORDERS or order in self.RADIANT_ORDERS
+
     def advance_ideal(self, character_id: str, oath_text: str = None) -> bool:
         """Advance character to next ideal level"""
         if character_id not in self.characters:
@@ -1381,8 +1396,9 @@ class CharacterManager:
         
         character = self.characters[character_id]
         
-        # Only Radiants can advance ideals
-        if character.character_class.lower() != "radiant":
+        # Only Radiants can advance ideals (plan 2.8: accept the order in
+        # either character_class or radiant_order).
+        if not self._is_radiant(character):
             logger.error(f"{character.name} is not a Radiant and cannot speak oaths")
             return False
         
@@ -1404,7 +1420,17 @@ class CharacterManager:
         
         oath_spoken = oath_text or standard_oaths.get(character.ideal_level, "A personal oath")
         
+        # Plan 2.8: a new Ideal must actually grant power. surgebinding_level
+        # gates every surge (roshar_actions checks it), and Stormlight capacity
+        # grows with the bond — without this the Oath was narratively momentous
+        # and mechanically inert, so e.g. Soulcasting stayed locked.
+        character.surgebinding_level = max(character.surgebinding_level or 0,
+                                           character.ideal_level)
+        character.stormlight_capacity = max(character.stormlight_capacity or 0,
+                                            character.level * 2)
         logger.info(f"🌟 {character.name} spoke their {self._get_ideal_name(character.ideal_level)} Ideal!")
+        logger.info(f"   ⚡ Surgebinding level {character.surgebinding_level}, "
+                    f"Stormlight capacity {character.stormlight_capacity}")
         print(f"   Oath: \"{oath_spoken}\"")
         logger.debug(f"   Advanced from {self._get_ideal_name(old_level)} to {self._get_ideal_name(character.ideal_level)}")
         
@@ -1480,7 +1506,7 @@ class CharacterManager:
         
         character = self.characters[character_id]
         
-        if character.character_class.lower() != "radiant":
+        if not self._is_radiant(character):
             return {"can_advance": False, "reason": "Not a Radiant"}
         
         if character.ideal_level >= 4:

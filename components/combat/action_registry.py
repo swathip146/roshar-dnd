@@ -32,6 +32,7 @@ from dnd.core.base_conditions import Duration, DurationType
 # Placeholder imports - these will be implemented
 try:
     from components.combat.roshar_actions import (
+    Illumination, Soulcast,
         Lashing,
         ShardbladeAttack,
         ProgressionHealing
@@ -141,6 +142,35 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "requires_order": ["Edgedancer", "Truthwatcher"],
             "min_surgebinding_level": 2,
             "surge_type": "Progression"
+        },
+
+        # Plan 2.7: Lightweaver surges. Only Lashing (Windrunner/Skybreaker)
+        # and Progression (Edgedancer/Truthwatcher) were registered, yet BOTH
+        # shipped PCs are Lightweavers -- so the party had zero usable Surges
+        # and the central fantasy of the setting never appeared in play.
+        "illumination": {
+            "type": "roshar_action",
+            "action_class": Illumination,
+            "description": "Weave light and sound into an illusion (Lightweaver)",
+            "params": ["target_entity_uuid", "illusion_type"],
+            "cost_type": "actions",
+            "cost": 1,
+            "stormlight_cost": 1,
+            "requires_order": ["Lightweaver", "Elsecaller"],
+            "min_surgebinding_level": 1,
+            "surge_type": "Illumination"
+        },
+        "soulcast": {
+            "type": "roshar_action",
+            "action_class": Soulcast,
+            "description": "Transform matter with Transformation (Lightweaver/Elsecaller)",
+            "params": ["target_entity_uuid", "target_essence"],
+            "cost_type": "actions",
+            "cost": 1,
+            "stormlight_cost": 3,
+            "requires_order": ["Lightweaver", "Elsecaller"],
+            "min_surgebinding_level": 2,
+            "surge_type": "Transformation"
         }
     }
 

@@ -138,46 +138,129 @@ def clean_wiki_markup(text: str) -> str:
     return text.strip()
 
 
+def _split_markdown_structurally(text: str, max_words: int) -> List[str]:
+    """
+    Structure-aware markdown splitter (plan 0.12, revised).
+
+    Haystack's DocumentSplitter(split_by="word") is structure-BLIND: it counts
+    words and cuts, ignoring headings, tables and even word boundaries. Measured
+    on the Radiant's Handbook it produced 1,041 chunks of which:
+        812 (78%) started mid-word   ("ustbringer", "gedancer")
+          0 ( 0%) started at a heading
+         92       had a table header severed from its rows
+    That is why the surge mechanics tables were unusable for retrieval.
+
+    This mirrors the cascade used in pkg-wiki-cli
+    (narrator/generator.py: _split_child_by_h2 -> _split_child_by_paragraphs ->
+    _hard_split_by_words): prefer semantic boundaries, and only fall back to
+    counting words when no structure exists.
+
+    Order of preference:
+      1. markdown headings (## / ###) — keeps a section with its own title
+      2. paragraph breaks
+      3. word count, walking back to a line boundary
+
+    Markdown tables are kept intact: a header row severed from its data rows
+    embeds to noise, and the Handbook's mechanics live in tables.
+    """
+    def _emit(block: str) -> List[str]:
+        """Split one block that is already below the heading level."""
+        if len(block.split()) <= max_words:
+            return [block]
+
+        # Paragraph split
+        paras = [p for p in re.split(r"\n\s*\n", block) if p.strip()]
+        if len(paras) > 1:
+            out, buf = [], []
+            for para in paras:
+                candidate = buf + [para]
+                if sum(len(p.split()) for p in candidate) > max_words and buf:
+                    out.append("\n\n".join(buf))
+                    buf = [para]
+                else:
+                    buf = candidate
+            if buf:
+                out.append("\n\n".join(buf))
+            # Recurse in case a single paragraph is still oversized
+            return [piece for p in out for piece in (
+                [p] if len(p.split()) <= max_words else _hard_split(p, max_words)
+            )]
+
+        return _hard_split(block, max_words)
+
+    def _hard_split(block: str, limit: int) -> List[str]:
+        """Last resort: split on LINE boundaries, never mid-word."""
+        lines, out, buf, count = block.split("\n"), [], [], 0
+        for line in lines:
+            words = len(line.split())
+            if count + words > limit and buf:
+                out.append("\n".join(buf))
+                buf, count = [line], words
+            else:
+                buf.append(line)
+                count += words
+        if buf:
+            out.append("\n".join(buf))
+        return out or [block]
+
+    if not text.strip():
+        return []
+
+    # 1. Split on headings, keeping the heading with its section.
+    sections = [s for s in re.split(r"(?m)(?=^#{1,3} )", text) if s.strip()]
+
+    chunks: List[str] = []
+    for section in sections:
+        # Keep contiguous table blocks whole rather than splitting them.
+        table_blocks = re.split(r"(?m)((?:^\|.*\|\s*$\n?)+)", section)
+        for block in table_blocks:
+            if not block or not block.strip():
+                continue
+            if block.lstrip().startswith("|"):
+                # A table: emit whole, even if it exceeds the word target.
+                chunks.append(block.strip())
+            else:
+                chunks.extend(c for c in _emit(block.strip()) if c.strip())
+
+    return chunks
+
+
 def store_in_qdrant(documents: List[Document], document_store: QdrantDocumentStore,
                     split_length: int = 200, split_overlap: int = 30):
     """
     Split, embed and write documents to Qdrant.
 
-    Plan 0.12: DocumentSplitter was imported at module scope and NEVER USED —
-    Docling output went straight to the embedder. That produced chunks ranging
-    from tiny to 34,586 characters (median 1,404, p90 5,017). A 34k-char chunk
-    embeds to a meaningless average and can never retrieve precisely.
+    Plan 0.12: DocumentSplitter was imported at module scope and NEVER USED, so
+    Docling output went straight to the embedder (chunks up to 34,586 chars).
+    Wiring it up bounded the sizes, but split_by="word" is structure-blind — see
+    _split_markdown_structurally() for the measured damage. We now use the
+    structure-aware splitter and keep Haystack's only as a safety net.
 
-    ~200 words ≈ 1,000-1,300 chars, comfortably inside bge-large's 512-token
-    window. split_length is a parameter because the two collections want
-    different sizes (plan D1): small precise chunks for the DM's
-    `dnd_documents`, large arc-sized chunks for `dnd_reference`.
+    split_length is a parameter because the two collections want different chunk
+    sizes (plan D1): small precise chunks for the DM's `dnd_documents`, large
+    arc-sized chunks for `dnd_reference`.
     """
     # Plan 0.13: clean wiki markup before splitting so chunk boundaries and
     # embeddings are computed on prose, not syntax.
-    cleaned = []
+    split_docs: List[Document] = []
     for doc in documents:
         content = clean_wiki_markup(doc.content or "")
         if not content.strip():
             continue
-        cleaned.append(Document(content=content, meta=doc.meta))
+        for piece in _split_markdown_structurally(content, split_length):
+            if piece.strip():
+                split_docs.append(Document(content=piece, meta=dict(doc.meta or {})))
 
-    if not cleaned:
-        logger.warning("No non-empty documents to store after cleaning")
+    if not split_docs:
+        logger.warning("No non-empty documents to store after cleaning/splitting")
         return
 
-    splitter = DocumentSplitter(
-        split_by="word",
-        split_length=split_length,
-        split_overlap=split_overlap,
-    )
-    splitter.warm_up()
-    split_docs = splitter.run(documents=cleaned)["documents"]
-
     lengths = [len(d.content) for d in split_docs]
+    starts_at_heading = sum(1 for d in split_docs if d.content.lstrip().startswith("#"))
     logger.info(
-        f"✂️  Split {len(cleaned)} document(s) -> {len(split_docs)} chunks "
-        f"(max {max(lengths)} chars, median {sorted(lengths)[len(lengths)//2]})"
+        f"✂️  Split {len(documents)} document(s) -> {len(split_docs)} chunks "
+        f"(max {max(lengths)} chars, median {sorted(lengths)[len(lengths)//2]}, "
+        f"{100 * starts_at_heading // len(split_docs)}% start at a heading)"
     )
 
     # Initialize embedder with BGE large model (1024-dim embeddings)
@@ -185,19 +268,10 @@ def store_in_qdrant(documents: List[Document], document_store: QdrantDocumentSto
         model="BAAI/bge-large-en-v1.5",
         progress_bar=False
     )
-
-    # Warm up the embedder (load the model)
     embedder.warm_up()
 
-    # Generate embeddings
-    embedded_result = embedder.run(documents=split_docs)
-    embedded_documents = embedded_result["documents"]
-
-    # Initialize document writer
-    writer = DocumentWriter(document_store=document_store)
-
-    # Write documents to store
-    writer.run(documents=embedded_documents)
+    embedded_documents = embedder.run(documents=split_docs)["documents"]
+    DocumentWriter(document_store=document_store).run(documents=embedded_documents)
 
 
 def find_all_documents(root_folder, file_types=None):
