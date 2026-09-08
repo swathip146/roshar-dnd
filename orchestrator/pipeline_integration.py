@@ -445,6 +445,9 @@ class PipelineOrchestrator:
         
         try:
             # Step 1: Check if we need interface processing or already have routing info
+            # 0.7: interface_dto was previously bound only inside `if not route:` but
+            # read unconditionally below -> UnboundLocalError on any pre-routed DTO.
+            interface_dto = dto
             route = dto.get("route")
             if not route:
                 # Process through interface agent to get routing decision

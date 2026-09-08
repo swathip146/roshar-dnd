@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent))
 
 # Import directly to avoid haystack dependency issues
 sys.path.append(str(Path(__file__).parent / "components"))
-from character_manager import create_character_manager
+from components.character_manager import create_character_manager
 
 def create_aggi_character():
     """Create Aggi character based on aggi.txt"""

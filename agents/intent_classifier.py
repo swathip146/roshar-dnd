@@ -20,7 +20,8 @@ def _map_primary_to_type(primary: str) -> str:
         "world_lore": "rag_query",
         "inventory_management": "scenario",
         "pure_query": "rag_query",
-        "party_management": "scenario"
+        "party_management": "scenario",
+        "combat": "combat",  # 0.6: was missing, so primary="combat" fell through to "scenario"
     }
     return m.get(primary, "scenario")
 
@@ -32,8 +33,11 @@ def _determine_final_route(intent_dto: Dict[str, Any]) -> str:
     rag = intent_dto.get("rag", {})
     rag_needed = bool(rag.get("needed", False))
 
-    # Combat route (highest priority)
-    if primary == "combat" or "combat" in str(intent_dto).lower():
+    # Combat route (highest priority).
+    # 0.6: previously also matched `"combat" in str(intent_dto).lower()`, which
+    # substring-searched the ENTIRE stringified DTO — so a rationale saying the
+    # player *avoids* combat routed into combat. Match the classified type only.
+    if primary == "combat":
         return "combat_pipeline"
 
     # Rules lookup route

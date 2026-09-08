@@ -184,6 +184,7 @@ config/secrets.*
 data/raw/
 data/processed/
 parsed_data/
+parsed_data_old/
 
 # Data
 data/rules/external/dnd_engine/

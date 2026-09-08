@@ -2,7 +2,7 @@
 NPC Stat Loader - Loads predefined NPC stats from JSON files
 
 Provides a registry system for loading NPC character data from JSON files
-in the data/players/ directory. Supports case-insensitive name lookups
+in the data/current_campaign/npcs/ directory. Supports case-insensitive lookups
 and partial name matching.
 """
 
@@ -25,7 +25,7 @@ class NPCStatLoader:
     and partial name matching (e.g., "Kalak" matches "Kalak the Herald").
     """
 
-    def __init__(self, npc_directory: str = "data/players/"):
+    def __init__(self, npc_directory: str = "data/current_campaign/npcs/"):
         """
         Initialize NPC loader with directory of JSON files.
 
@@ -204,7 +204,7 @@ class NPCStatLoader:
 _global_npc_loader: Optional[NPCStatLoader] = None
 
 
-def get_npc_loader(npc_directory: str = "data/players/") -> NPCStatLoader:
+def get_npc_loader(npc_directory: str = "data/current_campaign/npcs/") -> NPCStatLoader:
     """
     Get or create global NPC loader instance.
 

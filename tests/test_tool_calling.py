@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 """
-Test script to verify Gemini tool calling works correctly
+Diagnostic script to verify Gemini tool calling works correctly.
+
+NOTE: a SCRIPT, not a pytest module. pytest imports every tests/*.py during
+collection; this made a live LLM call at import scope and hung collection.
+Keep all execution behind __main__. (Plan item 0.8.)
+
+Run directly:  python tests/test_tool_calling.py
 """
 import os
 
 # Ensure GEMINI_API_KEY is set in your environment
-if not os.getenv("GEMINI_API_KEY"):
-    raise ValueError("GEMINI_API_KEY environment variable must be set")
 
 from haystack.dataclasses import ChatMessage
 from haystack.tools import Tool
@@ -47,15 +51,27 @@ messages = [
 
 # Run with tools
 print("=" * 60)
-print("Testing Gemini with tool calling...")
-print("=" * 60)
 
-result = generator.run(messages=messages, tools=[test_tool])
 
-print("\n" + "=" * 60)
-print("RESULT:")
-print("=" * 60)
-for reply in result["replies"]:
-    print(f"Role: {reply.role}")
-    print(f"Content: {reply.content if hasattr(reply, 'content') else reply.text}")
-    print()
+def main() -> int:
+    if not os.getenv("GEMINI_API_KEY"):
+        print("GEMINI_API_KEY environment variable must be set")
+        return 1
+    print("Testing Gemini with tool calling...")
+    print("=" * 60)
+
+    result = generator.run(messages=messages, tools=[test_tool])
+
+    print("\n" + "=" * 60)
+    print("RESULT:")
+    print("=" * 60)
+    for reply in result["replies"]:
+        print(f"Role: {reply.role}")
+        print(f"Content: {reply.content if hasattr(reply, 'content') else reply.text}")
+        print()
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

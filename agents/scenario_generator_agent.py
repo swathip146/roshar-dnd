@@ -205,7 +205,19 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
         choice_count_range = [2, 4]
     
     rag = dto.get("rag", {})
-    consolidated_rag = rag.get("rag_context", "")
+    # Plan 0.2: retrieved lore is written to rag["response"] by the RAG pipeline
+    # (pipeline_integration.py:680 / :792), while rag["rag_context"] only ever held
+    # the game/quest summary string set during intent classification (:573).
+    # Reading rag_context alone meant every retrieved document was silently discarded.
+    # Prefer real retrieval; fall back to the game-context summary when RAG didn't run.
+    retrieved_lore = (rag.get("response") or "").strip()
+    game_context = (rag.get("rag_context") or "").strip()
+    consolidated_rag = retrieved_lore or game_context
+    # Bound prompt growth. ~4000 chars ≈ 1k tokens — enough for several retrieved
+    # chunks, far more than the old 100-char truncation which discarded everything.
+    MAX_RAG_CHARS = 4000
+    if len(consolidated_rag) > MAX_RAG_CHARS:
+        consolidated_rag = consolidated_rag[:MAX_RAG_CHARS] + "\n…[truncated]"
     
     debug_scenario_print("TOOL", f"📋 Direct engine access context extracted", {
         "player_action": player_action,
@@ -282,10 +294,13 @@ SCENE CREATION:
 - Show immediate consequences of the player's action: "{player_action}"
 - Reflect the {current_location} atmosphere and mood
 - Integrate environmental factors meaningfully: {environmental_factors}
-- Weave in retrieved lore/context naturally: {consolidated_rag[:100] + "..." if consolidated_rag else "None"}
+- Weave in the RETRIEVED LORE below naturally — do not contradict it
 - Use vivid sensory details (sight, sound, smell, touch)
 - Build narrative momentum from existing context: {narrative_context}
 - Connect to active objectives where relevant: {active_objectives}
+
+RETRIEVED LORE (canonical — prefer this over your own recollection):
+{consolidated_rag if consolidated_rag else "None retrieved for this turn."}
 
 CHOICE GENERATION - NARRATIVE-DRIVEN APPROACH ({choice_count_range[0]}-{choice_count_range[1]} choices):
 **KEY PRINCIPLE**: Generate choices that emerge naturally from the scene and situation, not from a formula.

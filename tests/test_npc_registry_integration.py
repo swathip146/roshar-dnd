@@ -31,7 +31,7 @@ class TestNPCRegistryIntegration:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Set up test fixtures"""
-        self.npc_directory = "data/players/"
+        self.npc_directory = "data/current_campaign/npcs/"
         self.logger = get_logger(__name__)
 
     def test_npc_registry_initialization(self):
@@ -297,7 +297,7 @@ def test_game_init_npc_registry_integration():
     # (Lines 272-284 in core/game_initialization.py)
 
     try:
-        npc_registry = NPCStatLoader(npc_directory="data/players/")
+        npc_registry = NPCStatLoader(npc_directory="data/current_campaign/npcs/")
         npc_count = npc_registry.get_npc_count()
 
         if npc_count > 0:
