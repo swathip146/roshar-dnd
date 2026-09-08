@@ -232,7 +232,10 @@ class PipelineOrchestrator:
                     combat_action_resolver = CombatActionResolver(
                         dnd_engine_wrapper=self.dnd_wrapper,
                         character_manager=self.character_manager,
-                        combat_state={}  # Will be set by session manager
+                        # Repointed at the live encounter state by
+                        # CombatAgent.run() before the loop starts. Nothing used
+                        # to do that, so HP sync silently no-opped.
+                        combat_state={}
                     )
                     logger.debug("   Created CombatActionResolver")
 

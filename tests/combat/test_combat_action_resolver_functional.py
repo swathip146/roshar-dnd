@@ -19,55 +19,53 @@ class TestCombatActionResolverFunctional:
     """Functional tests for CombatActionResolver"""
 
     @pytest.fixture
-    def mock_entities(self):
-        """Create mock entities with proper UUIDs"""
-        player_uuid = uuid4()
-        enemy_uuid = uuid4()
+    def dnd_wrapper(self):
+        """
+        REAL DnDEngineWrapper (plan 1.3).
 
-        player_entity = Mock()
-        player_entity.uuid = player_uuid
-        player_entity.health = Mock()
-        player_entity.health.get_current_hit_points = Mock(return_value=25)
-        player_entity.health.get_max_hit_points = Mock(return_value=25)
+        The old fixtures mocked health.get_current_hit_points()/
+        get_max_hit_points() -- neither of which exists on the real Health
+        block -- so HP assertions compared against a Mock object.
+        """
+        from components.character_manager import CharacterManager
+        from components.dnd_engine_wrapper import DnDEngineWrapper
 
-        enemy_entity = Mock()
-        enemy_entity.uuid = enemy_uuid
-        enemy_entity.health = Mock()
-        enemy_entity.health.get_current_hit_points = Mock(return_value=10)
-        enemy_entity.health.get_max_hit_points = Mock(return_value=10)
+        mgr = CharacterManager()
+        for char_id, name, hp in (("player_001", "Hero", 25),
+                                  ("enemy_001", "Goblin", 10)):
+            mgr.add_character({
+                "character_id": char_id,
+                "name": name,
+                "level": 3,
+                "ability_scores": {"strength": 14, "dexterity": 14,
+                                   "constitution": 12, "intelligence": 10,
+                                   "wisdom": 10, "charisma": 10},
+                "hit_points": {"current": hp, "maximum": hp, "temporary": 0},
+                "armor_class": 13,
+                "character_class": "Fighter" if hp > 15 else "Goblin",
+                "race": "Human",
+                "background": "Soldier",
+            })
 
+        class _StubGameEngine:
+            def __init__(self):
+                self.game_state = type("S", (), {"characters": {}})()
+
+        return DnDEngineWrapper(game_engine=_StubGameEngine(),
+                                character_manager=mgr)
+
+    @pytest.fixture
+    def mock_entities(self, dnd_wrapper):
+        """Real entities keyed as the tests expect."""
         return {
-            "player": player_entity,
-            "enemy": enemy_entity
+            "player": dnd_wrapper.entities["player_001"],
+            "enemy": dnd_wrapper.entities["enemy_001"],
         }
 
     @pytest.fixture
-    def dnd_wrapper(self, mock_entities):
-        """Create mock DnDEngineWrapper"""
-        wrapper = Mock()
-        wrapper.entities = {
-            "player_001": mock_entities["player"],
-            "enemy_001": mock_entities["enemy"]
-        }
-        return wrapper
-
-    @pytest.fixture
-    def character_manager(self):
-        """Create mock CharacterManager"""
-        manager = Mock()
-
-        # Create properly configured character mocks
-        hero_char = Mock()
-        hero_char.name = "Hero"  # Set as actual value, not Mock
-
-        goblin_char = Mock()
-        goblin_char.name = "Goblin"
-
-        manager.characters = {
-            "player_001": hero_char,
-            "enemy_001": goblin_char
-        }
-        return manager
+    def character_manager(self, dnd_wrapper):
+        """The same CharacterManager the wrapper was built from."""
+        return dnd_wrapper.character_manager
 
     @pytest.fixture
     def combat_state(self):
@@ -133,17 +131,19 @@ class TestCombatActionResolverFunctional:
 
     def test_sync_hp_to_combat_state(self, action_resolver, mock_entities, combat_state):
         """Test HP syncing from dnd_engine to combat_state"""
-        # Modify entity HP
+        # Apply real damage (Health has no get_current_hit_points()/
+        # get_max_hit_points(); it exposes get_total_hit_points()/damage_taken).
         player_entity = mock_entities["player"]
-        player_entity.health.get_current_hit_points.return_value = 15
-        player_entity.health.get_max_hit_points.return_value = 25
+        player_entity.health.damage_taken = 10
 
-        # Sync HP
         action_resolver._sync_hp_to_combat_state(player_entity.uuid)
 
-        # Verify combat_state was updated
-        assert combat_state["combatant_states"]["player_001"]["hp_current"] == 15
-        assert combat_state["combatant_states"]["player_001"]["hp_max"] == 25
+        expected_current = action_resolver.dnd_wrapper.get_entity_current_hp(player_entity)
+        expected_max = action_resolver.dnd_wrapper.get_entity_max_hp(player_entity)
+        state = combat_state["combatant_states"]["player_001"]
+        assert state["hp_current"] == expected_current
+        assert state["hp_max"] == expected_max
+        assert expected_current == expected_max - 10
 
     def test_action_registry_exposure(self, action_resolver):
         """Test ACTION_REGISTRY is exposed for other components"""

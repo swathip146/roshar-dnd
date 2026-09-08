@@ -40,7 +40,7 @@ def mock_llm():
 
     # Mock response for NPC stat generation
     npc_response = Mock()
-    npc_response.content = '''```json
+    npc_response.text = '''```json
 {
     "name": "Goblin Warrior",
     "level": 1,
@@ -73,11 +73,11 @@ def mock_llm():
 
     # Mock response for combat AI
     ai_response = Mock()
-    ai_response.content = '{"action_type": "attack", "target": "aggi", "weapon": "scimitar", "reasoning": "Attack the player"}'
+    ai_response.text = '{"action_type": "attack", "target": "aggi", "weapon": "scimitar", "reasoning": "Attack the player"}'
 
     # Mock response for enemy parsing
     enemy_response = Mock()
-    enemy_response.content = '''[{
+    enemy_response.text = '''[{
         "name": "Goblin Warrior",
         "description": "small goblin with rusty scimitar",
         "count": 2,
@@ -89,7 +89,7 @@ def mock_llm():
 
     # Mock response for narrative generation
     narrative_response = Mock()
-    narrative_response.content = "The goblin swings wildly with its scimitar!"
+    narrative_response.text = "The goblin swings wildly with its scimitar!"
 
     def run_side_effect(*args, **kwargs):
         # Return appropriate response based on context
@@ -172,16 +172,16 @@ def character_manager():
 @pytest.fixture
 def dnd_wrapper(game_engine, character_manager):
     """Create DnD engine wrapper"""
-    wrapper = DnDEngineWrapper(game_engine, character_manager)
-    # Sync initial character
-    wrapper._sync_characters_to_entities()
-    return wrapper
+    # __post_init__ already syncs entities AND refreshes senses (plan 1.1).
+    # Calling _sync_characters_to_entities() again re-created every entity and
+    # skipped the sense refresh, leaving attacks unable to see their targets.
+    return DnDEngineWrapper(game_engine, character_manager)
 
 
 @pytest.fixture
 def npc_registry():
     """Create NPC registry (may be empty for tests)"""
-    return NPCStatLoader(npc_directory="data/players/")
+    return NPCStatLoader(npc_directory="data/current_campaign/npcs/")
 
 
 @pytest.fixture
