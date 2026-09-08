@@ -521,3 +521,201 @@ class TestDurableTurns:
         """Live components must stay OUT of checkpointed state."""
         loop.start("camp", player_input="x")
         json.dumps(loop.get_state("camp"))  # must not raise
+
+
+# ------------------------------------- 3.3/3.4 retry-with-reasoning + memory
+
+from components.retry_with_reasoning import (
+    ConversationMemory, ValidationFailure, extract_json,
+    generate_with_retry, require_keys,
+)
+
+
+def _validator(text):
+    payload = extract_json(text)
+    require_keys(payload, ["scene", "choices"])
+    return payload
+
+
+class _Replayer:
+    """Generator stub that returns scripted replies and records what it saw."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.seen = []
+
+    def run(self, messages):
+        self.seen.append(messages)
+        text = self.replies.pop(0) if self.replies else ""
+
+        class _Reply:
+            pass
+        reply = _Reply()
+        reply.text = text
+        return {"replies": [reply]}
+
+
+class TestRetryWithReasoning:
+    """
+    3.3 — every failure path substituted a canned fallback and continued, so the
+    model was never told what went wrong and the player silently got degraded
+    output that looked deliberate.
+    """
+
+    GOOD = json.dumps({"scene": "A storm gathers", "choices": []})
+
+    def test_valid_output_passes_first_time(self):
+        result, info = generate_with_retry(_Replayer([self.GOOD]), [], _validator)
+        assert info["attempts"] == 1
+        assert result["scene"] == "A storm gathers"
+
+    def test_broken_json_is_retried_and_recovers(self):
+        generator = _Replayer(["this is not json", self.GOOD])
+        result, info = generate_with_retry(generator, [], _validator)
+        assert info["recovered"] is True
+        assert info["attempts"] == 2
+        assert result["scene"] == "A storm gathers"
+
+    def test_the_model_is_told_what_was_wrong(self):
+        """The whole point of 3.3 — a fallback teaches the model nothing."""
+        generator = _Replayer(["not json", self.GOOD])
+        generate_with_retry(generator, [], _validator)
+        feedback = generator.seen[1][-1].text
+        assert "rejected" in feedback.lower()
+        assert "json" in feedback.lower()
+
+    def test_feedback_names_the_missing_key(self):
+        generator = _Replayer([json.dumps({"scene": "x"}), self.GOOD])
+        generate_with_retry(generator, [], _validator)
+        assert "choices" in generator.seen[1][-1].text
+
+    def test_prior_attempt_is_included_for_context(self):
+        generator = _Replayer(["broken output here", self.GOOD])
+        generate_with_retry(generator, [], _validator)
+        texts = [m.text for m in generator.seen[1]]
+        assert any("broken output here" in t for t in texts)
+
+    def test_fallback_only_after_exhaustion(self):
+        generator = _Replayer(["bad", "worse", "worst"])
+        result, info = generate_with_retry(
+            generator, [], _validator, fallback=lambda: {"scene": "fallback"})
+        assert info["used_fallback"] is True
+        assert info["attempts"] == 3
+        assert result["scene"] == "fallback"
+
+    def test_failure_is_flagged_not_hidden(self):
+        generator = _Replayer(["bad", "bad", "bad"])
+        _, info = generate_with_retry(generator, [], _validator,
+                                      fallback=lambda: {})
+        assert info["used_fallback"] is True
+        assert info["errors"], "the errors must be reported, not swallowed"
+
+    def test_no_fallback_raises(self):
+        with pytest.raises(ValidationFailure):
+            generate_with_retry(_Replayer(["bad"] * 3), [], _validator)
+
+    def test_generator_errors_are_retried(self):
+        class Flaky:
+            def __init__(self):
+                self.calls = 0
+
+            def run(self, messages):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("transient API error")
+
+                class _R:
+                    text = TestRetryWithReasoning.GOOD
+                return {"replies": [_R()]}
+
+        result, info = generate_with_retry(Flaky(), [], _validator)
+        assert info["attempts"] == 2
+        assert result["scene"]
+
+    def test_max_attempts_is_respected(self):
+        generator = _Replayer(["bad"] * 10)
+        _, info = generate_with_retry(generator, [], _validator, max_attempts=2,
+                                      fallback=lambda: {})
+        assert info["attempts"] == 2
+
+
+class TestJsonExtraction:
+    """Models emit fences and prose even under a response schema."""
+
+    def test_plain_json(self):
+        assert extract_json('{"a": 1}')["a"] == 1
+
+    def test_fenced_json(self):
+        assert extract_json('```json\n{"a": 1}\n```')["a"] == 1
+
+    def test_json_after_prose(self):
+        assert extract_json('Here you go:\n{"a": 1}')["a"] == 1
+
+    def test_empty_response_is_actionable(self):
+        with pytest.raises(ValidationFailure) as caught:
+            extract_json("")
+        assert "empty" in caught.value.message.lower()
+
+    def test_no_json_is_actionable(self):
+        with pytest.raises(ValidationFailure) as caught:
+            extract_json("just some prose")
+        assert caught.value.hint, "the model needs a hint it can act on"
+
+
+class TestConversationMemory:
+    """
+    3.4 — every LLM call was stateless. llm_utils flattened all messages into a
+    single string, and since Gemini has no system role the system prompt was
+    prepended as user text, destroying conversational structure.
+    """
+
+    def test_messages_accumulate(self):
+        memory = ConversationMemory()
+        memory.append("t", "user", "hello")
+        memory.append("t", "assistant", "a storm gathers")
+        assert len(memory.messages("t")) == 2
+
+    def test_roles_are_preserved(self):
+        """Not flattened into one undifferentiated string."""
+        memory = ConversationMemory()
+        memory.append("t", "system", "You are the DM")
+        memory.append("t", "user", "I look around")
+        roles = [m["role"] for m in memory.messages("t")]
+        assert roles == ["system", "user"]
+
+    def test_history_is_bounded(self):
+        memory = ConversationMemory(max_messages=5)
+        for i in range(20):
+            memory.append("t", "user", f"turn {i}")
+        assert len(memory.messages("t")) <= 5
+
+    def test_system_message_survives_trimming(self):
+        memory = ConversationMemory(max_messages=5)
+        memory.append("t", "system", "You are the DM")
+        for i in range(20):
+            memory.append("t", "user", f"turn {i}")
+        assert memory.messages("t")[0]["role"] == "system"
+
+    def test_threads_are_isolated(self):
+        memory = ConversationMemory()
+        memory.append("a", "user", "alpha")
+        memory.append("b", "user", "beta")
+        assert memory.messages("a")[0]["content"] == "alpha"
+        assert len(memory.messages("b")) == 1
+
+    def test_converts_to_chat_messages(self):
+        memory = ConversationMemory()
+        memory.append("t", "system", "You are the DM")
+        memory.append("t", "user", "hello")
+        assert len(memory.as_chat_messages("t")) == 2
+
+    def test_empty_content_is_ignored(self):
+        memory = ConversationMemory()
+        memory.append("t", "user", "")
+        assert memory.messages("t") == []
+
+    def test_clear_removes_a_thread(self):
+        memory = ConversationMemory()
+        memory.append("t", "user", "x")
+        memory.clear("t")
+        assert memory.messages("t") == []
