@@ -19,36 +19,57 @@ logger = get_logger(__name__)
 @tool(
     outputs_to_state={"npc_response": {"source": "."}}
 )
-def generate_npc_response(npc_id: str, player_action: str, npc_context: Dict[str, Any]) -> Dict[str, Any]:
+def generate_npc_response(
+    npc_id: str,
+    player_action: str,
+    dialogue: str,
+    npc_context: Optional[Dict[str, Any]] = None,
+    action: str = "speaks",
+    attitude_change: int = 0,
+    emotional_state: str = "neutral",
+) -> Dict[str, Any]:
     """
-    Generate an NPC's response to a player action.
-    
+    Record an NPC's response to a player action.
+
+    Plan 2.4: this used to IGNORE the model entirely and return a hardcoded
+    f"The {npc_id} responds to your action..." — and because it is the agent's
+    exit condition, that literal placeholder is what the player saw. The LLM's
+    actual prose never reached them.
+
+    `dialogue` is now a REQUIRED argument, so the model must supply the words it
+    wants the NPC to say.
+
     Args:
         npc_id: Identifier for the NPC
         player_action: What the player did or said
-        npc_context: NPC's personality, memory, and current state
-        
+        dialogue: What the NPC actually says — the model writes this
+        npc_context: NPC personality, memory and current state
+        action: What the NPC does alongside speaking
+        attitude_change: -3..+3 shift in attitude toward the player
+        emotional_state: The NPC's mood after this exchange
+
     Returns:
         NPC response with dialogue and metadata
     """
-    # Extract NPC information
+    npc_context = npc_context or {}
     personality = npc_context.get("personality", "neutral")
-    attitude = npc_context.get("attitude_toward_player", "neutral")
-    memory = npc_context.get("memory", {})
     current_mood = npc_context.get("mood", "neutral")
-    
-    # Generate contextual response (placeholder - will be enhanced by LLM)
-    response_data = {
+
+    spoken = (dialogue or "").strip()
+    if not spoken:
+        # Degrade honestly rather than inventing filler prose.
+        logger.warning(f"⚠️ NPC {npc_id}: model supplied no dialogue")
+        spoken = f"{npc_id} says nothing."
+
+    return {
         "npc_id": npc_id,
-        "dialogue": f"The {npc_id} responds to your action...",
-        "action": "speaks",
-        "attitude_change": 0,
+        "dialogue": spoken,
+        "action": action or "speaks",
+        "attitude_change": int(attitude_change or 0),
         "memory_update": {"last_interaction": player_action},
-        "emotional_state": current_mood,
-        "personality_traits_shown": [personality]
+        "emotional_state": emotional_state or current_mood,
+        "personality_traits_shown": [personality],
     }
-    
-    return response_data
 
 
 @tool
@@ -204,6 +225,18 @@ Your role is to bring NPCs to life by:
 2. Maintaining consistent personality and memory
 3. Tracking attitude changes based on player interactions
 4. Determining appropriate NPC actions in different situations
+
+CRITICAL — YOU WRITE THE WORDS:
+When you call generate_npc_response you MUST pass a `dialogue` argument
+containing the NPC's ACTUAL spoken words, in character. Do not describe what
+they say; write what they say. One to four sentences.
+
+  Good: dialogue="You're the one from the bridge crews, aren't you? Keep your
+        voice down. Not everyone here wishes you well."
+  Bad:  dialogue="The guard responds to your question."
+
+Also set `attitude_change` (-3..+3) to reflect how the interaction landed, and
+`emotional_state` to the NPC's mood afterwards.
 
 NPC PERSONALITY TYPES:
 - friendly: Warm, welcoming, quick to help
