@@ -973,3 +973,146 @@ class TestSRDRulesTier1:
         empty = SRDRules(srd_dir=tmp_path / "nope")
         assert empty.available() == {}
         assert empty.monster("Goblin") is None
+
+
+# ------------------------------------------- 2.10/2.11 rules backlog + gap tracker
+
+from components.rules_gap_tracker import (
+    RulesGapTracker, TIER_CANONICAL, TIER_COMPOSED, TIER_JUDGED, TIER_NARRATIVE,
+)
+
+
+class TestExtractionBacklogIsClear:
+    """
+    2.10 — the seven orders that shipped as reviewed:false have now been read
+    from the Handbook and verified, so nothing is adjudicating on guesswork.
+    """
+
+    @pytest.fixture
+    def rules(self):
+        return CosmereRules()
+
+    def test_no_unreviewed_entries_remain(self, rules):
+        assert rules.unreviewed() == [], (
+            f"still guessing at: {[u.get('name') for u in rules.unreviewed()]}"
+        )
+
+    def test_all_citations_verify(self, rules):
+        result = rules.verify_citations()
+        assert result["checked"] >= 20
+        assert not result["mismatched"]
+
+    def test_dustbringer_correction(self, rules):
+        """
+        My initial guess was Division+Abrasion. The Handbook says Abrasion first,
+        with Division only from 5th level — extraction caught the error.
+        """
+        assert rules.surges_for_order("Dustbringer") == ["Abrasion", "Division"]
+        assert "5th level" in rules.order("Dustbringer").get("notes", "")
+
+    def test_bondsmith_is_not_playable(self, rules):
+        """
+        Also caught by extraction: Bondsmith is in a separate supplement, so
+        there are NINE playable orders, not ten.
+        """
+        assert rules.order("Bondsmith").get("playable") is False
+
+    def test_every_playable_order_has_two_surges(self, rules):
+        for name in ("Windrunner", "Skybreaker", "Dustbringer", "Edgedancer",
+                     "Truthwatcher", "Lightweaver", "Elsecaller", "Willshaper",
+                     "Stoneward"):
+            assert len(rules.surges_for_order(name)) == 2, f"{name} surges wrong"
+
+    def test_spren_bonds_are_recorded(self, rules):
+        assert rules.order("Lightweaver")["spren"] == "Cryptic"
+        assert rules.order("Edgedancer")["spren"] == "cultivationspren"
+
+
+class TestRulesGapTracker:
+    """
+    2.11 — the answer to "extraction will miss rules": it will, and the system
+    must say WHICH. Recurring fallbacks rank themselves into a work queue.
+    """
+
+    @pytest.fixture
+    def tracker(self, tmp_path):
+        return RulesGapTracker(store_path=tmp_path / "gaps.json")
+
+    def test_canonical_adjudications_are_not_gaps(self, tracker):
+        assert tracker.record("attack with a sword", TIER_CANONICAL) == {}
+        assert tracker.record("dash", TIER_COMPOSED) == {}
+        assert tracker.stats()["distinct_gaps"] == 0
+
+    def test_judged_rulings_are_recorded(self, tracker):
+        tracker.record("Lash a boulder onto the Fused", TIER_JUDGED)
+        assert tracker.stats()["distinct_gaps"] == 1
+
+    def test_narrative_fallbacks_are_recorded(self, tracker):
+        tracker.record("admire the scenery", TIER_NARRATIVE)
+        assert tracker.stats()["by_tier"]["narrative"] == 1
+
+    def test_phrasings_are_deduplicated(self, tracker):
+        tracker.record("Lash the boulder onto the Fused", TIER_JUDGED)
+        entry = tracker.record("lash the boulder onto the fused!", TIER_JUDGED)
+        assert entry["uses"] == 2, "punctuation/case should not create a new gap"
+
+    def test_backlog_ignores_one_off_noise(self, tracker):
+        tracker.record("something bizarre and unique", TIER_JUDGED)
+        assert tracker.backlog() == [], "a single occurrence is probably noise"
+
+    def test_backlog_surfaces_recurring_gaps(self, tracker):
+        for _ in range(3):
+            tracker.record("Soulcast the wall", TIER_JUDGED)
+        assert len(tracker.backlog()) == 1
+
+    def test_backlog_is_ranked_by_frequency(self, tracker):
+        for _ in range(5):
+            tracker.record("frequent gap", TIER_JUDGED)
+        for _ in range(2):
+            tracker.record("rarer gap", TIER_JUDGED)
+        backlog = tracker.backlog()
+        assert backlog[0]["situation"] == "frequent gap"
+
+    def test_rulings_and_citations_are_kept(self, tracker):
+        entry = tracker.record("Lash a boulder", TIER_JUDGED,
+                               ruling="treat as improvised weapon",
+                               citations=["handbook#p47"])
+        assert entry["rulings"][0]["citations"] == ["handbook#p47"]
+
+    def test_ruling_history_is_bounded(self, tracker):
+        for i in range(20):
+            tracker.record("recurring", TIER_JUDGED, ruling=f"ruling {i}")
+        entry = tracker.backlog()[0]
+        assert len(entry["rulings"]) <= 5
+
+    def test_promotion_clears_the_gap(self, tracker):
+        for _ in range(3):
+            tracker.record("Soulcast the wall", TIER_JUDGED)
+        assert tracker.mark_promoted("Soulcast the wall") is True
+        assert tracker.backlog() == []
+
+    def test_promotion_of_unknown_gap_is_false(self, tracker):
+        assert tracker.mark_promoted("never happened") is False
+
+    def test_gaps_persist_across_sessions(self, tmp_path):
+        path = tmp_path / "gaps.json"
+        first = RulesGapTracker(store_path=path)
+        for _ in range(3):
+            first.record("Lash a boulder", TIER_JUDGED)
+        second = RulesGapTracker(store_path=path)
+        assert second.backlog()[0]["uses"] == 3
+
+    def test_report_is_readable(self, tracker):
+        for _ in range(3):
+            tracker.record("Soulcast the wall", TIER_JUDGED)
+        report = tracker.report()
+        assert "Rules gap report" in report
+        assert "Soulcast the wall" in report
+
+    def test_report_says_so_when_clean(self, tracker):
+        assert "canonical rules" in tracker.report()
+
+    def test_corrupt_store_degrades(self, tmp_path):
+        path = tmp_path / "gaps.json"
+        path.write_text("{not json")
+        assert RulesGapTracker(store_path=path).stats()["distinct_gaps"] == 0

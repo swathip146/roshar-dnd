@@ -98,7 +98,8 @@
       "source": {
         "line": 2419,
         "reviewed": true
-      }
+      },
+      "spren": "highspren"
     },
     "Edgedancer": {
       "surges": [
@@ -107,9 +108,12 @@
       ],
       "economy": "investiture_points",
       "source": {
-        "line": 13145,
-        "reviewed": false
-      }
+        "line": 3628,
+        "reviewed": true
+      },
+      "spren": "cultivationspren",
+      "polestone": "diamond",
+      "quote": "You have sworn the First Ideal of the Order of Edgedancers of the Knights Radiant with your cultivationspren. Your spren has provided you with the Surges of Abrasion and Progression. These Surges power your Investiture. You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain expended class features. The amount is your level x 5 of sapp"
     },
     "Truthwatcher": {
       "surges": [
@@ -118,9 +122,12 @@
       ],
       "economy": "investiture_points",
       "source": {
-        "line": 13145,
-        "reviewed": false
-      }
+        "line": 4426,
+        "reviewed": true
+      },
+      "spren": "mistspren",
+      "polestone": "emerald",
+      "quote": "You have sworn the First Ideal of the Order of Truthwatchers of the Knights Radiant with your mistspren. Your spren has provided you with the Surges of Progression and Illumination. These Surges power your Investiture. You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain expended class features. The amount is your level x 5 of sapph"
     },
     "Lightweaver": {
       "surges": [
@@ -129,9 +136,12 @@
       ],
       "economy": "investiture_points",
       "source": {
-        "line": 13145,
-        "reviewed": false
-      }
+        "line": 4902,
+        "reviewed": true
+      },
+      "spren": "Cryptic",
+      "polestone": "garnet",
+      "quote": "You have sworn the First Ideal of the Order of Lightweavers of the Knights Radiant with your Cryptic. Your spren has provided you with the Surges of Illumination and Transformation. These Surges power your Investiture. You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain expended class features. The amount is your level x 5 of sapph"
     },
     "Elsecaller": {
       "surges": [
@@ -147,14 +157,17 @@
     },
     "Dustbringer": {
       "surges": [
-        "Division",
-        "Abrasion"
+        "Abrasion",
+        "Division"
       ],
       "economy": "investiture_points",
       "source": {
-        "line": 0,
-        "reviewed": false
-      }
+        "line": 3028,
+        "reviewed": true
+      },
+      "spren": "ashspren",
+      "notes": "Does not gain the Surge of Division until 5th level.",
+      "quote": "You have sworn the First Ideal of the Order of Dustbringers of the Knights Radiant with your ashspren. Your spren has provided you with the Surge of Abrasion. You do not gain access to the Surge of Division until 5th level. Abrasion, and soon Division, powers your Investiture. You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain exp"
     },
     "Willshaper": {
       "surges": [
@@ -163,9 +176,12 @@
       ],
       "economy": "investiture_points",
       "source": {
-        "line": 0,
-        "reviewed": false
-      }
+        "line": 5932,
+        "reviewed": true
+      },
+      "spren": "Reacher",
+      "polestone": "amethyst",
+      "quote": "You have sworn the First Ideal of the Order of Willshapers of the Knights Radiant with your Reacher. Your spren has provided you with the Surges of Transportation and Cohesion. These Surges power your Investiture. You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain expended class features. The amount is your level x 5 of sapphire m"
     },
     "Stoneward": {
       "surges": [
@@ -174,9 +190,12 @@
       ],
       "economy": "investiture_points",
       "source": {
-        "line": 0,
-        "reviewed": false
-      }
+        "line": 6578,
+        "reviewed": true
+      },
+      "spren": "peakspren",
+      "polestone": "topaz",
+      "quote": "You have sworn the First Ideal of the Order of Stonewards of the Knights Radiant with your peakspren. Your spren has provided you with the Surges of Cohesion and Tension. These Surges power your Investiture. You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain expended class features. The amount is your level x 5 of sapphire marks' "
     },
     "Bondsmith": {
       "surges": [
@@ -184,10 +203,13 @@
         "Adhesion"
       ],
       "economy": "investiture_points",
+      "playable": false,
+      "notes": "Not a playable class in the Radiant's Handbook: 'there is an optional class description for them found in Hoid's Guide to the Cosmere'. Nine orders are playable, not ten.",
       "source": {
-        "line": 0,
-        "reviewed": false
-      }
+        "line": 1631,
+        "reviewed": true
+      },
+      "quote": "Nine classes-listed in the table in the next section-are found in Roshar as the Knights Radiant are formed once again to protect the people of the land. As there are only ever a few Bondsmiths at a time and they can be quite a bit more powerful than other Radiants, there is an optional class description for them found in Hoid's Guide to the Cosmere ."
     }
   },
   "maneuvers": [
