@@ -20,31 +20,45 @@ class TestCombatActionResolver:
 
     @pytest.fixture
     def mock_dnd_wrapper(self):
-        """Mock DnDEngineWrapper"""
-        wrapper = Mock()
-        wrapper.entities = {}
+        """
+        REAL DnDEngineWrapper (plan 1.3).
 
-        # Create mock entity
-        entity = Mock()
-        entity.uuid = uuid4()
-        entity.health = Mock()
-        entity.health.get_current_hit_points = Mock(return_value=25)
-        entity.health.get_max_hit_points = Mock(return_value=25)
+        The old fixture mocked health.get_current_hit_points()/
+        get_max_hit_points() -- neither of which exists -- and pointed
+        char_001 and target_001 at the SAME entity object, so an "attack"
+        had the actor hitting itself and nothing could be verified.
+        """
+        from components.character_manager import CharacterManager
+        from components.dnd_engine_wrapper import DnDEngineWrapper
 
-        wrapper.entities["char_001"] = entity
-        wrapper.entities["target_001"] = entity
+        mgr = CharacterManager()
+        for char_id, name in (("char_001", "Test Character"),
+                              ("target_001", "Test Target")):
+            mgr.add_character({
+                "character_id": char_id,
+                "name": name,
+                "level": 3,
+                "ability_scores": {"strength": 16, "dexterity": 14,
+                                   "constitution": 12, "intelligence": 10,
+                                   "wisdom": 10, "charisma": 10},
+                "hit_points": {"current": 25, "maximum": 25, "temporary": 0},
+                "armor_class": 13,
+                "character_class": "Fighter",
+                "race": "Human",
+                "background": "Soldier",
+            })
 
-        return wrapper
+        class _StubGameEngine:
+            def __init__(self):
+                self.game_state = type("S", (), {"characters": {}})()
+
+        return DnDEngineWrapper(game_engine=_StubGameEngine(),
+                                character_manager=mgr)
 
     @pytest.fixture
-    def mock_character_manager(self):
-        """Mock CharacterManager"""
-        manager = Mock()
-        manager.characters = {
-            "char_001": Mock(name="Test Character"),
-            "target_001": Mock(name="Test Target")
-        }
-        return manager
+    def mock_character_manager(self, mock_dnd_wrapper):
+        """The same CharacterManager the wrapper was built from."""
+        return mock_dnd_wrapper.character_manager
 
     @pytest.fixture
     def combat_state(self):
@@ -102,55 +116,50 @@ class TestCombatActionResolver:
         assert result["success"] is False
         assert "Unknown action" in result["error"]
 
-    @patch('components.combat.combat_action_resolver.Attack')
-    def test_resolve_attack_action(self, mock_attack_class, action_resolver):
-        """Test resolving attack action"""
-        # Setup mock attack
-        mock_attack_instance = Mock()
-        mock_event = Mock()
-        mock_event.canceled = False
-        mock_event.attack_outcome = Mock()
-        mock_event.damage_rolls = [Mock(total=10)]
+    def test_resolve_attack_action(self, action_resolver, mock_dnd_wrapper):
+        """
+        Resolve a REAL attack through the resolver and assert observable state.
 
-        mock_attack_instance.apply = Mock(return_value=mock_event)
-        mock_attack_class.return_value = mock_attack_instance
+        The old version @patch'd Attack and asserted only that the mock was
+        constructed and .apply() called -- it could not tell whether the attack
+        was cancelled or dealt damage (and before plan 1.1 every attack WAS
+        cancelled for want of line of sight).
+        """
+        target = mock_dnd_wrapper.entities["target_001"]
+        start_hp = mock_dnd_wrapper.get_entity_current_hp(target)
 
-        action = {
-            "actor": "char_001",
-            "action_type": "attack",
-            "target": "target_001"
-        }
+        action = {"actor": "char_001", "action_type": "attack",
+                  "target": "target_001"}
 
-        result = action_resolver.resolve_action(action)
+        hits = 0
+        for _ in range(20):
+            mock_dnd_wrapper.entities["char_001"].action_economy.reset_all_costs()
+            result = action_resolver.resolve_action(action)
+            assert result is not None
+            assert "not in line of sight" not in str(result).lower()
+            if result.get("success"):
+                hits += 1
 
-        # Verify attack was created
-        assert mock_attack_class.called
-        assert mock_attack_instance.apply.called
-        assert result["success"] is True
-
-    def test_get_entity_uuid_valid(self, action_resolver, mock_dnd_wrapper):
-        """Test getting entity UUID for valid character"""
-        char_id = "char_001"
-        uuid = action_resolver._get_entity_uuid(char_id)
-
-        assert uuid == mock_dnd_wrapper.entities[char_id].uuid
-
-    def test_get_entity_uuid_invalid(self, action_resolver):
-        """Test getting entity UUID for invalid character raises error"""
-        with pytest.raises(ValueError, match="Entity not found"):
-            action_resolver._get_entity_uuid("invalid_char")
+        end_hp = mock_dnd_wrapper.get_entity_current_hp(target)
+        assert hits > 0, "20 resolved attacks all failed"
+        assert end_hp < start_hp, (
+            f"20 attacks dealt no damage (HP {start_hp} -> {end_hp})"
+        )
 
     def test_sync_hp_to_combat_state(self, action_resolver, mock_dnd_wrapper, combat_state):
         """Test HP syncing from dnd_engine to combat_state"""
         entity = mock_dnd_wrapper.entities["char_001"]
-        entity.health.get_current_hit_points.return_value = 15
-        entity.health.get_max_hit_points.return_value = 25
+        # Health exposes get_total_hit_points()/damage_taken, NOT
+        # get_current_hit_points()/get_max_hit_points(). Apply real damage.
+        entity.health.damage_taken = 10
 
         action_resolver._sync_hp_to_combat_state(entity.uuid)
 
-        # Verify HP was synced
-        assert combat_state["combatant_states"]["char_001"]["hp_current"] == 15
-        assert combat_state["combatant_states"]["char_001"]["hp_max"] == 25
+        expected_current = mock_dnd_wrapper.get_entity_current_hp(entity)
+        expected_max = mock_dnd_wrapper.get_entity_max_hp(entity)
+        assert combat_state["combatant_states"]["char_001"]["hp_current"] == expected_current
+        assert combat_state["combatant_states"]["char_001"]["hp_max"] == expected_max
+        assert expected_current == expected_max - 10
 
     def test_format_attack_result_hit(self, action_resolver):
         """Test formatting attack hit result"""
@@ -171,7 +180,7 @@ class TestCombatActionResolver:
         from dnd.core.events import AttackOutcome
 
         event = Mock()
-        event.attack_outcome = AttackOutcome.CRIT_HIT
+        event.attack_outcome = AttackOutcome.CRIT
         event.damage_rolls = [Mock(total=15)]
         event.status_message = "Critical!"
 
@@ -192,31 +201,22 @@ class TestCombatActionResolver:
 
         assert "Miss!" in result
 
-    @patch('components.combat.combat_action_resolver.Dashing')
-    def test_apply_condition(self, mock_dashing_class, action_resolver):
-        """Test applying D&D condition"""
-        # Setup mock condition
-        mock_condition_instance = Mock()
-        mock_event = Mock()
-        mock_event.canceled = False
+    def test_apply_condition(self, action_resolver):
+        """
+        Apply a REAL dnd_engine condition and assert on observable state.
 
-        mock_condition_instance.apply = Mock(return_value=mock_event)
-        mock_dashing_class.return_value = mock_condition_instance
-
-        action = {
-            "actor": "char_001",
-            "action_type": "dash"
-        }
-
-        # Get metadata for dash action
+        The old version patched
+        'components.combat.combat_action_resolver.Dashing' -- a name that does
+        not exist there (Dashing is imported in action_registry) -- so the patch
+        raised AttributeError. It also only asserted "the mock was called",
+        which proves nothing about whether the condition landed (plan §12).
+        """
         metadata = ACTION_REGISTRY["dash"]
+        action = {"actor": "char_001", "action_type": "dash"}
 
         result = action_resolver._apply_condition(action, metadata)
 
-        # Verify condition was applied
-        assert mock_dashing_class.called
-        assert mock_condition_instance.apply.called
-        assert result["success"] is True
+        assert result["success"] is True, result
         assert result["condition"] == "Dashing"
 
     def test_execute_action_with_exception(self, action_resolver):

@@ -107,7 +107,7 @@ class TestEnemyParsing:
 
         # Mock LLM response
         mock_response = Mock()
-        mock_response.content = json.dumps([
+        mock_response.text = json.dumps([
             {
                 "name": "Goblin Warrior",
                 "description": "small goblin with rusty scimitar",
@@ -139,7 +139,7 @@ class TestEnemyParsing:
 
         # Mock LLM response
         mock_response = Mock()
-        mock_response.content = json.dumps([
+        mock_response.text = json.dumps([
             {
                 "name": "Kalak",
                 "description": "Herald of the Oathpact",
@@ -169,7 +169,7 @@ class TestEnemyParsing:
 
         # Mock LLM response with markdown
         mock_response = Mock()
-        mock_response.content = """```json
+        mock_response.text = """```json
 [
     {
         "name": "Skeleton",
@@ -197,7 +197,7 @@ class TestEnemyParsing:
 
         # Mock LLM response with invalid JSON
         mock_response = Mock()
-        mock_response.content = "This is not valid JSON!"
+        mock_response.text = "This is not valid JSON!"
         mock_llm.run.return_value = {'replies': [mock_response]}
 
         scenario = {"scene": "Enemies appear", "gm_notes": ""}
@@ -568,7 +568,7 @@ class TestFullCombatInitialization:
 
         mock_llm = Mock()
         mock_response = Mock()
-        mock_response.content = json.dumps([
+        mock_response.text = json.dumps([
             {
                 "name": "Goblin Warrior",
                 "description": "small goblin with scimitar",

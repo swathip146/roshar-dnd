@@ -95,6 +95,26 @@ class CombatActionResolver:
                 "error": f"Unknown action: {action_type}"
             }
 
+        # An unknown actor/target must not crash the combat loop. Unknown
+        # action_type already returned a graceful error dict (above), but an
+        # unknown character raised ValueError out of _get_entity_uuid() and
+        # took the whole encounter with it. Validate up front, symmetrically.
+        actor_id = action.get("actor")
+        if actor_id not in self.dnd_wrapper.entities:
+            self.logger.error(f"Unknown actor: {actor_id}")
+            return {
+                "success": False,
+                "error": f"Entity not found for character {actor_id}",
+            }
+
+        target_id = action.get("target")
+        if target_id is not None and target_id not in self.dnd_wrapper.entities:
+            self.logger.error(f"Unknown target: {target_id}")
+            return {
+                "success": False,
+                "error": f"Entity not found for character {target_id}",
+            }
+
         metadata = ACTION_REGISTRY[action_type]
 
         # Dispatch based on type
