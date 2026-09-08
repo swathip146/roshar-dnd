@@ -601,22 +601,165 @@ class DnDEngineWrapper:
             "target_hp_remaining": int(target_hp_remaining)
         }
 
-    def apply_condition(self, character_id: str, condition_name: str, duration: int = -1):
+    # Plan 1.5: the 15 conditions dnd_engine actually implements, keyed by the
+    # lowercase names callers use. apply_condition() previously logged
+    # "(not yet implemented)" and returned None, so 13 of these were unused and
+    # no condition ever affected play.
+    _CONDITION_ALIASES = {
+        "blinded": "Blinded", "blind": "Blinded",
+        "charmed": "Charmed",
+        "dashing": "Dashing", "dash": "Dashing",
+        "deafened": "Deafened", "deaf": "Deafened",
+        "dodging": "Dodging", "dodge": "Dodging",
+        "frightened": "Frightened", "afraid": "Frightened",
+        "grappled": "Grappled",
+        "incapacitated": "Incapacitated",
+        "invisible": "Invisible",
+        "paralyzed": "Paralyzed",
+        "poisoned": "Poisoned",
+        "prone": "Prone",
+        "restrained": "Restrained",
+        "stunned": "Stunned",
+        "unconscious": "Unconscious",
+    }
+
+    def apply_condition(self, character_id: str, condition_name: str,
+                        duration: int = -1, source_id: Optional[str] = None) -> bool:
         """
-        Apply a condition to a character.
+        Apply a D&D 5e condition to a character (plan 1.5).
 
         Args:
-            character_id: Character UUID
-            condition_name: Condition name (e.g., "prone", "stunned", "stormlight_infused")
-            duration: Duration in rounds (-1 = permanent until removed)
+            character_id: Character key in self.entities
+            condition_name: Condition name, case-insensitive ("prone", "stunned",
+                …). See _CONDITION_ALIASES for accepted spellings.
+            duration: Duration in rounds; -1 means until removed.
+            source_id: Character causing the condition (defaults to the target,
+                which is correct for self-applied states like Dodging).
+
+        Returns:
+            True if the condition was applied.
+
+        Was a stub that logged "(not yet implemented)". Roshar-specific
+        conditions (Stormlight-infused, spren-bonded) are NOT in dnd_engine and
+        remain unimplemented — this reports False for them rather than
+        pretending, so callers can tell the difference.
         """
         entity = self.entities.get(character_id)
         if not entity:
             logger.error(f"Cannot apply condition: character {character_id} not found")
-            return
+            return False
 
-        # TODO: Implement condition application via dnd_engine
-        logger.info(f"Applied condition '{condition_name}' to {character_id} (not yet implemented)")
+        key = (condition_name or "").strip().lower().replace(" ", "_")
+        class_name = self._CONDITION_ALIASES.get(key)
+        if class_name is None:
+            logger.warning(
+                f"⚠️ Condition '{condition_name}' is not implemented by dnd_engine "
+                f"(available: {sorted(set(self._CONDITION_ALIASES.values()))})"
+            )
+            return False
+
+        try:
+            import dnd.conditions as conditions_module
+            condition_class = getattr(conditions_module, class_name)
+
+            source_entity = self.entities.get(source_id) if source_id else None
+            source_uuid = source_entity.uuid if source_entity else entity.uuid
+
+            # Do NOT pass an explicit Duration. The condition wires up its own
+            # (setting owned_by_condition); handing in a pre-built Duration makes
+            # condition.apply() return None and the condition is silently
+            # dropped. Verified: Prone(source, target) applies; the same call
+            # plus duration=Duration(...) does not.
+            kwargs = {
+                "source_entity_uuid": source_uuid,
+                "target_entity_uuid": entity.uuid,
+            }
+            condition = condition_class(**kwargs)
+
+            # Set the round count on the condition's OWN duration object.
+            if duration is not None and duration > 0:
+                try:
+                    condition.duration.duration = duration
+                except Exception:
+                    logger.debug(f"   Could not set duration on {class_name}")
+
+            # Apply via the condition itself, matching the working path in
+            # combat_action_resolver._apply_condition(). Entity.add_condition()
+            # is NOT usable here: it only stores the condition if
+            # condition.apply() returns an event, but it builds its own
+            # declaration_event first and that comes back None outside the
+            # engine's event context -- so add_condition() returned None and
+            # silently stored nothing.
+            event = condition.apply()
+            applied = event is not None and not getattr(event, "canceled", False)
+
+            if applied:
+                # Mirror what add_condition() would have recorded, so
+                # get_conditions()/remove_condition() can see it.
+                entity.active_conditions[condition.name] = condition
+                entity.active_conditions_by_uuid[condition.uuid] = condition
+                # active_conditions_by_source must be populated too, or
+                # Entity.remove_condition() raises
+                # "ValueError: list.remove(x): x not in list".
+                entity.active_conditions_by_source[condition.source_entity_uuid].append(
+                    condition.name
+                )
+                logger.info(
+                    f"✨ Applied condition '{class_name}' to {character_id}"
+                    + (f" for {duration} round(s)" if duration and duration > 0 else "")
+                )
+            else:
+                logger.warning(
+                    f"⚠️ Condition '{class_name}' on {character_id} was not applied: "
+                    f"{getattr(event, 'status_message', 'no event returned')}"
+                )
+            return applied
+        except Exception as e:
+            logger.error(f"❌ Failed to apply condition '{condition_name}' to "
+                         f"{character_id}: {e}")
+            return False
+
+    def remove_condition(self, character_id: str, condition_name: str) -> bool:
+        """Remove a previously applied condition (plan 1.5)."""
+        entity = self.entities.get(character_id)
+        if not entity:
+            logger.error(f"Cannot remove condition: character {character_id} not found")
+            return False
+
+        key = (condition_name or "").strip().lower().replace(" ", "_")
+        class_name = self._CONDITION_ALIASES.get(key)
+        if class_name is None:
+            return False
+
+        try:
+            # Entity.remove_condition takes the condition NAME as registered.
+            # It returns None on success, so report based on whether the
+            # condition is actually gone rather than on the return value.
+            if class_name not in getattr(entity, "active_conditions", {}):
+                logger.debug(f"   {character_id} does not have '{class_name}'")
+                return False
+
+            entity.remove_condition(class_name)
+            removed = class_name not in entity.active_conditions
+            if removed:
+                logger.info(f"✨ Removed condition '{class_name}' from {character_id}")
+            else:
+                logger.warning(f"⚠️ Condition '{class_name}' still present after removal")
+            return removed
+        except Exception as e:
+            logger.error(f"❌ Failed to remove condition '{condition_name}': {e}")
+            return False
+
+    def get_conditions(self, character_id: str) -> List[str]:
+        """Names of the conditions currently active on a character (plan 1.5)."""
+        entity = self.entities.get(character_id)
+        if not entity:
+            return []
+        active = getattr(entity, "active_conditions", None) or {}
+        try:
+            return sorted(str(name) for name in active.keys())
+        except Exception:
+            return []
 
 
 # Factory function for easy integration
