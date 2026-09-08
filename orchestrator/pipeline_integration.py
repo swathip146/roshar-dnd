@@ -815,6 +815,96 @@ Retrieve relevant documents for this query and provide a concise answer based on
             debug_print("RAG", f"📋 Exception traceback: {traceback.format_exc()}")
             pipeline_logger.error(f"Connected RAG pipeline failed: {e}")
     
+    # Plan 2.4: interaction memory per NPC. Previously `update_npc_memory`
+    # returned a memory entry into agent state that was destroyed on return —
+    # no store, no writer, no reader — so every conversation restarted from
+    # "neutral" with no recollection.
+    _MAX_NPC_MEMORY = 8
+
+    def _build_npc_context(self, npc_id: str) -> Dict[str, Any]:
+        """
+        Assemble what an NPC knows and feels (plan 2.4).
+
+        Sources the campaign's key_npcs entry (which was parsed, counted, logged
+        and then never injected into any prompt) plus stored interaction memory.
+        """
+        context: Dict[str, Any] = {
+            "npc_id": npc_id,
+            "personality": "neutral",
+            "attitude_toward_player": "neutral",
+            "mood": "neutral",
+            "memory": {},
+            "recent_interactions": [],
+        }
+
+        # Campaign-authored NPC details
+        try:
+            campaign = getattr(self.game_engine, "campaign_config", None)
+            for npc in (getattr(campaign, "key_npcs", None) or []):
+                name = str(npc.get("name", ""))
+                if name and (name.lower() == npc_id.lower()
+                             or name.lower() in npc_id.lower()
+                             or npc_id.lower() in name.lower()):
+                    context.update({
+                        "name": name,
+                        "role": npc.get("role", ""),
+                        "description": npc.get("description", ""),
+                        "personality": npc.get("personality", context["personality"]),
+                    })
+                    break
+        except Exception as e:
+            logger.debug(f"   Could not read campaign NPC details: {e}")
+
+        # Stored interaction memory
+        store = getattr(self, "_npc_memory", None) or {}
+        remembered = store.get(npc_id.lower())
+        if remembered:
+            context["attitude_toward_player"] = remembered.get("attitude", "neutral")
+            context["recent_interactions"] = remembered.get("interactions", [])
+            context["memory"] = {"history": remembered.get("interactions", [])}
+
+        return context
+
+    def _remember_npc_interaction(self, npc_id: str, player_action: str,
+                                  response: Dict[str, Any]) -> None:
+        """Persist the exchange so the next conversation has continuity (2.4)."""
+        try:
+            if not hasattr(self, "_npc_memory") or self._npc_memory is None:
+                self._npc_memory = {}
+            key = npc_id.lower()
+            entry = self._npc_memory.setdefault(
+                key, {"attitude": "neutral", "attitude_score": 0, "interactions": []}
+            )
+
+            entry["interactions"].append({
+                "player": player_action,
+                "npc": response.get("dialogue", ""),
+            })
+            if len(entry["interactions"]) > self._MAX_NPC_MEMORY:
+                del entry["interactions"][:-self._MAX_NPC_MEMORY]
+
+            # Accumulate the attitude shift the model reported, and map the
+            # running score onto a label the next prompt can use.
+            entry["attitude_score"] += int(response.get("attitude_change", 0) or 0)
+            score = entry["attitude_score"]
+            if score <= -4:
+                entry["attitude"] = "hostile"
+            elif score <= -2:
+                entry["attitude"] = "unfriendly"
+            elif score >= 4:
+                entry["attitude"] = "helpful"
+            elif score >= 2:
+                entry["attitude"] = "friendly"
+            else:
+                entry["attitude"] = "neutral"
+
+            logger.debug(
+                f"🧠 NPC memory [{npc_id}]: {len(entry['interactions'])} exchanges, "
+                f"attitude {entry['attitude']} ({score:+d})"
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Could not store NPC memory for {npc_id}: {e}")
+
     def _run_npc_pipeline(self, dto: RequestDTO) -> Dict[str, Any]:
         """Run NPC interaction pipeline"""
         pipeline = self.pipelines.get("npc_interaction")
@@ -825,7 +915,15 @@ Retrieve relevant documents for this query and provide a concise answer based on
             # Extract parameters directly from DTO
             npc_id = dto.get("target", "unknown_npc")
             player_action = dto.get("player_input", "")
-            npc_context = dto.get("context", {}).get("npc_data", {})
+
+            # Plan 2.4: npc_context was ALWAYS {} — nothing ever populated
+            # dto["context"]["npc_data"], so the agent was told to "remember
+            # past interactions" with no history and no personality at all.
+            # Build it from the campaign's key_npcs plus stored interaction
+            # memory.
+            npc_context = dto.get("context", {}).get("npc_data") or {}
+            if not npc_context:
+                npc_context = self._build_npc_context(npc_id)
             
             result = pipeline.run({
                 "npc_id": npc_id,
@@ -839,7 +937,11 @@ Retrieve relevant documents for this query and provide a concise answer based on
                 
                 # Use state schema for easy access to NPC response
                 if "npc_response" in agent_result:
-                    return agent_result["npc_response"]
+                    npc_response = agent_result["npc_response"]
+                    # Plan 2.4: persist the exchange so the next conversation
+                    # has continuity instead of restarting at "neutral".
+                    self._remember_npc_interaction(npc_id, player_action, npc_response)
+                    return npc_response
                 else:
                     return {"error": "No NPC response in state"}
             else:

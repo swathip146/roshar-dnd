@@ -280,3 +280,122 @@ class TestNarrativeMemory:
             {"player_input": "look", "_game_engine_ref": engine, "rag": {}}
         )
         assert "This is the opening scene." in prompt
+
+
+# ---------------------------------------------------------------- 2.4 real NPCs
+
+class TestNPCDialogueIsReal:
+    """
+    2.4 — generate_npc_response ignored the model and returned a hardcoded
+    f"The {npc_id} responds to your action...". Because it is the agent's EXIT
+    CONDITION, that literal placeholder is what the player saw; the LLM's own
+    prose never reached them. npc_context was also always {}, so the agent was
+    told to "remember past interactions" with no history at all.
+    """
+
+    def _respond(self, **kw):
+        from agents.npc_controller_agent import generate_npc_response
+        base = {
+            "npc_id": "Kalak",
+            "player_action": "I greet him",
+            "dialogue": "Ah. Another who bears the weight. Sit, if you must.",
+            "npc_context": {"personality": "weary"},
+        }
+        base.update(kw)
+        return generate_npc_response.function(**base)
+
+    def test_model_dialogue_is_returned_verbatim(self):
+        line = "Storms, you again. What do you want?"
+        assert self._respond(dialogue=line)["dialogue"] == line
+
+    def test_placeholder_is_gone(self):
+        assert "responds to your action" not in self._respond()["dialogue"]
+
+    def test_dialogue_is_a_required_argument(self):
+        """The model must be forced to write the words."""
+        import inspect
+        from agents.npc_controller_agent import generate_npc_response
+
+        fn = generate_npc_response.function
+        params = inspect.signature(fn).parameters
+        assert params["dialogue"].default is inspect.Parameter.empty, \
+            "dialogue must be required, or the model can omit it and get filler"
+
+    def test_empty_dialogue_degrades_honestly(self):
+        """Better a visible 'says nothing' than invented filler prose."""
+        result = self._respond(dialogue="   ")
+        assert "responds to your action" not in result["dialogue"]
+        assert "Kalak" in result["dialogue"]
+
+    def test_attitude_change_is_carried_through(self):
+        assert self._respond(attitude_change=2)["attitude_change"] == 2
+
+    def test_prompt_demands_actual_words(self):
+        import agents.npc_controller_agent as mod
+        import inspect
+
+        src = inspect.getsource(mod.create_npc_controller_agent)
+        assert "YOU WRITE THE WORDS" in src
+
+
+class TestNPCMemory:
+    """2.4 — attitude and history must survive between conversations."""
+
+    @pytest.fixture
+    def orch(self):
+        import logging
+        from orchestrator.pipeline_integration import PipelineOrchestrator
+
+        o = PipelineOrchestrator.__new__(PipelineOrchestrator)
+        o.game_engine = None
+        o._npc_memory = {}
+        o.logger = logging.getLogger("test")
+        return o
+
+    def test_context_is_never_empty(self, orch):
+        ctx = orch._build_npc_context("Kalak")
+        assert ctx, "npc_context was always {} — the 2.4 regression"
+        assert "attitude_toward_player" in ctx and "personality" in ctx
+
+    def test_interactions_are_remembered(self, orch):
+        for i in range(3):
+            orch._remember_npc_interaction(
+                "Kalak", f"question {i}", {"dialogue": f"reply {i}"}
+            )
+        assert len(orch._build_npc_context("Kalak")["recent_interactions"]) == 3
+
+    def test_memory_is_bounded(self, orch):
+        for i in range(50):
+            orch._remember_npc_interaction("Kalak", f"q{i}", {"dialogue": f"r{i}"})
+        stored = orch._build_npc_context("Kalak")["recent_interactions"]
+        assert len(stored) <= orch._MAX_NPC_MEMORY
+
+    def test_attitude_accumulates_positive(self, orch):
+        for _ in range(3):
+            orch._remember_npc_interaction(
+                "Kalak", "a kindness", {"dialogue": "x", "attitude_change": 2}
+            )
+        assert orch._build_npc_context("Kalak")["attitude_toward_player"] == "helpful"
+
+    def test_attitude_accumulates_negative(self, orch):
+        for _ in range(3):
+            orch._remember_npc_interaction(
+                "Kalak", "an insult", {"dialogue": "x", "attitude_change": -2}
+            )
+        assert orch._build_npc_context("Kalak")["attitude_toward_player"] == "hostile"
+
+    def test_attitude_starts_neutral(self, orch):
+        assert orch._build_npc_context("Nale")["attitude_toward_player"] == "neutral"
+
+    def test_npcs_have_separate_memories(self, orch):
+        orch._remember_npc_interaction("Kalak", "hi", {"dialogue": "x", "attitude_change": 3})
+        assert orch._build_npc_context("Nale")["attitude_toward_player"] == "neutral"
+
+    def test_lookup_is_case_insensitive(self, orch):
+        orch._remember_npc_interaction("Kalak", "hi", {"dialogue": "x"})
+        assert orch._build_npc_context("KALAK")["recent_interactions"]
+
+    def test_memory_failure_never_breaks_the_turn(self, orch):
+        orch._npc_memory = None  # force the lazy-init path
+        orch._remember_npc_interaction("Kalak", "hi", {"dialogue": "x"})
+        assert orch._build_npc_context("Kalak") is not None
