@@ -466,3 +466,186 @@ class TestQuestProgression:
     def test_empty_progress_is_zero_not_a_crash(self, engine):
         progress = engine.get_quest_progress()
         assert progress["total"] == 0 and progress["percent_complete"] == 0
+
+
+# ------------------------------------------- 2.5 XP, levels, rests, death saves
+
+from components.character_manager import CharacterManager
+
+
+@pytest.fixture
+def manager():
+    m = CharacterManager()
+    m.add_character({
+        "character_id": "aggi", "name": "Aggi", "level": 1,
+        "ability_scores": {"strength": 12, "dexterity": 14, "constitution": 14,
+                           "intelligence": 10, "wisdom": 10, "charisma": 14},
+        "hit_points": {"current": 8, "maximum": 8, "temporary": 0},
+        "armor_class": 13, "character_class": "Lightweaver",
+        "race": "Alethi", "background": "Soldier",
+        "radiant_order": "Lightweaver", "ideal_level": 1,
+    })
+    return m
+
+
+class TestExperienceAndLevelling:
+    """
+    2.5 — XP and levelling were ENTIRELY absent: grep for award_xp / def
+    level_up returned zero hits, so characters were permanently level 1 with
+    their starting HP. D6 requires a 1-10 progression.
+    """
+
+    def test_xp_is_recorded(self, manager):
+        assert manager.award_xp("aggi", 100)["xp"] == 100
+
+    def test_crossing_a_threshold_levels_up(self, manager):
+        result = manager.award_xp("aggi", 300)
+        assert result["level"] == 2 and result["leveled_up"] is True
+
+    def test_multiple_levels_at_once(self, manager):
+        result = manager.award_xp("aggi", 6500)
+        assert result["level"] == 5
+        assert result["levels_gained"] == 4
+
+    def test_level_up_raises_max_hp(self, manager):
+        before = manager.characters["aggi"].hit_points["maximum"]
+        manager.award_xp("aggi", 6500)
+        assert manager.characters["aggi"].hit_points["maximum"] > before
+
+    def test_proficiency_bonus_scales(self, manager):
+        manager.award_xp("aggi", 6500)  # level 5
+        assert manager.characters["aggi"].proficiency_bonus == 3
+
+    def test_stormlight_capacity_scales_for_radiants(self, manager):
+        manager.award_xp("aggi", 6500)  # level 5
+        assert manager.characters["aggi"].stormlight_capacity == 10
+
+    def test_no_level_up_below_threshold(self, manager):
+        assert manager.award_xp("aggi", 299)["leveled_up"] is False
+
+    def test_xp_to_next_level(self, manager):
+        manager.award_xp("aggi", 300)  # level 2, next at 900
+        assert manager.xp_to_next_level("aggi") == 600
+
+    def test_level_caps_at_20(self, manager):
+        manager.award_xp("aggi", 10_000_000)
+        assert manager.characters["aggi"].level == 20
+        assert manager.xp_to_next_level("aggi") is None
+
+    def test_unknown_character_is_graceful(self, manager):
+        assert "error" in manager.award_xp("nobody", 100)
+
+
+class TestRests:
+    """2.5 — rests did not exist; only policy config strings mentioned them."""
+
+    def test_short_rest_heals(self, manager):
+        manager.award_xp("aggi", 6500)
+        c = manager.characters["aggi"]
+        c.hit_points["current"] = 5
+        assert manager.short_rest("aggi", 2)["healed"] > 0
+
+    def test_short_rest_spends_hit_dice(self, manager):
+        manager.award_xp("aggi", 6500)  # level 5 -> 5 hit dice
+        result = manager.short_rest("aggi", 2)
+        assert result["hit_dice_spent"] == 2
+        assert result["hit_dice_remaining"] == 3
+
+    def test_short_rest_cannot_overspend_dice(self, manager):
+        result = manager.short_rest("aggi", 99)
+        assert result["hit_dice_spent"] <= manager.characters["aggi"].level
+
+    def test_short_rest_never_exceeds_max_hp(self, manager):
+        manager.award_xp("aggi", 6500)
+        c = manager.characters["aggi"]
+        c.hit_points["current"] = c.hit_points["maximum"] - 1
+        manager.short_rest("aggi", 5)
+        assert c.hit_points["current"] == c.hit_points["maximum"]
+
+    def test_long_rest_restores_full_hp(self, manager):
+        c = manager.characters["aggi"]
+        c.hit_points["current"] = 1
+        assert manager.long_rest("aggi")["hit_points"]["current"] == c.hit_points["maximum"]
+
+    def test_long_rest_returns_half_hit_dice(self, manager):
+        manager.award_xp("aggi", 6500)  # level 5
+        c = manager.characters["aggi"]
+        c.hit_dice_remaining = 0
+        assert manager.long_rest("aggi")["hit_dice_remaining"] == 2
+
+    def test_long_rest_refills_stormlight(self, manager):
+        manager.award_xp("aggi", 6500)
+        c = manager.characters["aggi"]
+        c.stormlight_current = 0
+        assert manager.long_rest("aggi")["stormlight_current"] == c.stormlight_capacity
+
+    def test_long_rest_clears_temporary_hp(self, manager):
+        manager.characters["aggi"].hit_points["temporary"] = 5
+        manager.long_rest("aggi")
+        assert manager.characters["aggi"].hit_points["temporary"] == 0
+
+    def test_party_rest_covers_everyone(self, manager):
+        manager.add_character({
+            "character_id": "kali", "name": "Kali", "level": 1,
+            "ability_scores": {"strength": 10, "dexterity": 14, "constitution": 12,
+                               "intelligence": 12, "wisdom": 12, "charisma": 14},
+            "hit_points": {"current": 1, "maximum": 10, "temporary": 0},
+            "armor_class": 12, "character_class": "Lightweaver",
+            "race": "Azish", "background": "Hermit",
+        })
+        results = manager.rest_party(long=True)
+        assert set(results) == {"aggi", "kali"}
+        assert manager.characters["kali"].hit_points["current"] == 10
+
+
+class TestDeathSaves:
+    """
+    2.5 — PolicyEngine declares a death_saves policy and NOTHING consumed it.
+    Combat treated hp<=0 as instantly out, so dropping equalled dying.
+    """
+
+    @pytest.fixture
+    def dying(self, manager):
+        manager.characters["aggi"].hit_points["current"] = 0
+        return manager
+
+    def test_three_failures_kill(self, dying):
+        for _ in range(3):
+            result = dying.roll_death_save("aggi", roll=5)
+        assert result["dead"] is True
+        assert dying.characters["aggi"].is_dead is True
+
+    def test_three_successes_stabilise(self, dying):
+        for _ in range(3):
+            result = dying.roll_death_save("aggi", roll=15)
+        assert result["stable"] is True
+        assert dying.characters["aggi"].is_dead is False
+
+    def test_natural_20_revives_at_1_hp(self, dying):
+        assert dying.roll_death_save("aggi", roll=20)["revived"] is True
+        assert dying.characters["aggi"].hit_points["current"] == 1
+
+    def test_natural_1_counts_double(self, dying):
+        assert dying.roll_death_save("aggi", roll=1)["failures"] == 2
+
+    def test_dc_10_boundary(self, dying):
+        assert dying.roll_death_save("aggi", roll=10)["successes"] == 1
+        assert dying.roll_death_save("aggi", roll=9)["failures"] == 1
+
+    def test_conscious_characters_do_not_roll(self, manager):
+        assert "skipped" in manager.roll_death_save("aggi")
+
+    def test_stabilised_characters_stop_rolling(self, dying):
+        dying.stabilize("aggi")
+        assert "stable" in dying.roll_death_save("aggi", roll=5)
+
+    def test_long_rest_clears_death_saves(self, dying):
+        dying.roll_death_save("aggi", roll=5)
+        dying.long_rest("aggi")
+        assert dying.characters["aggi"].death_save_failures == 0
+
+    def test_dropping_is_not_dying(self, dying):
+        """The whole point: 0 HP must not equal dead."""
+        assert dying.characters["aggi"].is_dead is False
+        dying.roll_death_save("aggi", roll=15)
+        assert dying.characters["aggi"].is_dead is False
