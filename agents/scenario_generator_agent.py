@@ -137,6 +137,9 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
     if game_engine:
         try:
             narrative_context = game_engine.get_narrative_context()
+            # Plan 2.2: recent beats, so the DM has memory beyond the last turn.
+            story_so_far = (game_engine.get_story_so_far(6)
+                            if hasattr(game_engine, "get_story_so_far") else "")
             location_context = game_engine.get_location_context()
             quest_context = game_engine.get_quest_context()
             current_location = location_context.get("current_location", "unknown location")
@@ -152,6 +155,7 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
             debug_scenario_print("TOOL", f"⚠️ GameEngine access failed: {e}")
             # Fallback values
             narrative_context = {}
+            story_so_far = ""
             location_context = {}
             quest_context = {}
             current_location = "unknown location"
@@ -163,6 +167,7 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
         debug_scenario_print("TOOL", "⚠️ No GameEngine reference available")
         # Fallback values when no engine available
         narrative_context = {}
+        story_so_far = ""
         location_context = {}
         quest_context = {}
         current_location = "unknown location"
@@ -236,6 +241,9 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
 === A. NARRATIVE CONTEXT (from GameEngine) ===
 Player Action: "{player_action}"
 Current Narrative Context: {narrative_context if narrative_context else "None established"}
+
+STORY SO FAR (most recent turns, oldest first — maintain continuity with these):
+{story_so_far if story_so_far else "This is the opening scene."}
 
 === B. LOCATION & ENVIRONMENT CONTEXT (from GameEngine) ===
 Current Location: {current_location}
