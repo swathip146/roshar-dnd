@@ -271,6 +271,16 @@ class CharacterManager:
             # Surgebinding progression (Combat Plan v4.0)
             surgebinding_level=character_data.get("surgebinding_level", character_data.get("ideal_level", 0)),
 
+            # Plan 2.16: progression/survival fields must be read here too, or
+            # they are silently dropped on load — XP reset to 0 and hit dice to
+            # None, so a restored party lost all its earned progress.
+            experience_points=character_data.get("experience_points", 0),
+            hit_dice_remaining=character_data.get("hit_dice_remaining"),
+            death_save_successes=character_data.get("death_save_successes", 0),
+            death_save_failures=character_data.get("death_save_failures", 0),
+            is_stable=character_data.get("is_stable", False),
+            is_dead=character_data.get("is_dead", False),
+
             # Legacy field - kept for backward compatibility
             investiture_points=character_data.get("investiture_points", {"current": 0, "maximum": 0}),
 

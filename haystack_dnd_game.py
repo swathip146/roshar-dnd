@@ -292,19 +292,102 @@ class HaystackDnDGame:
             logger.warning(f"⚠️ Skill check failed, continuing without it: {e}")
             return None
 
-    def _active_character_id(self) -> Optional[str]:
+    def _party_ids(self) -> List[str]:
         """
-        The character whose action this is.
+        Every player character, in roster order (plan 2.15 / D3).
 
-        D3: party support means this will become "whose turn is it"; for now the
-        first non-NPC character, matching how combat selects the player.
+        The architecture supports N players; single-PC play is a configuration
+        of the party path, never a separate code path.
         """
         if not self.character_manager:
-            return None
-        for char_id, character in self.character_manager.characters.items():
-            if not getattr(character, "is_npc", False):
-                return char_id
-        return next(iter(self.character_manager.characters), None)
+            return []
+        npcs = set()
+        try:
+            npcs = set(self.character_manager.get_npcs() or [])
+        except Exception:
+            pass
+        return [cid for cid in self.character_manager.characters if cid not in npcs]
+
+    def _active_character_id(self) -> Optional[str]:
+        """
+        The character whose action this is (plan 2.15).
+
+        Honours an explicit selection made with the `switch` command; otherwise
+        the first party member.
+        """
+        party = self._party_ids()
+        if not party:
+            return next(iter(self.character_manager.characters), None) \
+                if self.character_manager else None
+
+        chosen = getattr(self, "_active_char_id", None)
+        if chosen in party:
+            return chosen
+        return party[0]
+
+    def _show_party(self) -> None:
+        """Print the party roster, marking whose action it is (plan 2.15)."""
+        party = self._party_ids()
+        if not party:
+            print("👥 No party members.")
+            return
+
+        active = self._active_character_id()
+        print("\n👥 Party:")
+        for i, char_id in enumerate(party, 1):
+            c = self.character_manager.characters[char_id]
+            hp = c.hit_points or {}
+            marker = "▶" if char_id == active else " "
+            status = ""
+            if getattr(c, "is_dead", False):
+                status = " ☠️  DEAD"
+            elif hp.get("current", 0) <= 0:
+                status = (f" 💀 DYING ({getattr(c, 'death_save_successes', 0)}✓/"
+                          f"{getattr(c, 'death_save_failures', 0)}✗)")
+            elif getattr(c, "is_stable", False):
+                status = " 🛡️  stable"
+            order = f" [{c.radiant_order}]" if getattr(c, "radiant_order", None) else ""
+            print(f"  {marker} {i}. {c.name} — L{c.level} {c.character_class}{order}, "
+                  f"HP {hp.get('current', 0)}/{hp.get('maximum', 0)}, "
+                  f"AC {c.armor_class}{status}")
+            if getattr(c, "stormlight_capacity", 0):
+                print(f"       💎 Stormlight {c.stormlight_current}/"
+                      f"{c.stormlight_capacity}  Ideal {c.ideal_level}")
+        print(f"\n  ▶ = acting now. Use 'switch <number|name>' to change.")
+
+    def _switch_character(self, argument: str) -> bool:
+        """Change which party member is acting (plan 2.15)."""
+        party = self._party_ids()
+        if not party:
+            print("👥 No party members to switch to.")
+            return False
+
+        target = (argument or "").strip()
+        if not target:
+            self._show_party()
+            return False
+
+        # By roster number
+        if target.isdigit():
+            index = int(target) - 1
+            if 0 <= index < len(party):
+                self._active_char_id = party[index]
+                print(f"▶ Now acting: "
+                      f"{self.character_manager.characters[party[index]].name}")
+                return True
+            print(f"❌ Choose 1-{len(party)}")
+            return False
+
+        # By name or id
+        lowered = target.lower()
+        for char_id in party:
+            character = self.character_manager.characters[char_id]
+            if lowered in (char_id.lower(), character.name.lower()):
+                self._active_char_id = char_id
+                print(f"▶ Now acting: {character.name}")
+                return True
+        print(f"❌ No party member matching '{target}'")
+        return False
 
     # Plan 2.8: how a player speaks an Oath.
     #
@@ -888,6 +971,30 @@ class HaystackDnDGame:
                 elif player_input.lower() == "stats":
                     self._show_stats()
                     continue
+                elif player_input.lower() in ("party", "roster"):
+                    # Plan 2.15: who is in the party and whose action it is.
+                    self._show_party()
+                    continue
+                elif player_input.lower().startswith("switch"):
+                    self._switch_character(player_input[6:])
+                    continue
+                elif player_input.lower() in ("rest", "long rest"):
+                    # Plan 2.5: resting is party-wide (D3).
+                    for char_id, result in self.character_manager.rest_party(long=True).items():
+                        name = self.character_manager.characters[char_id].name
+                        hp = result.get("hit_points", {})
+                        print(f"🌙 {name}: HP {hp.get('current')}/{hp.get('maximum')}")
+                    if hasattr(self.game_engine, "advance_time"):
+                        self.game_engine.advance_time(hours=8, reason="long rest")
+                    continue
+                elif player_input.lower() == "short rest":
+                    for char_id in self._party_ids():
+                        result = self.character_manager.short_rest(char_id, 1)
+                        name = self.character_manager.characters[char_id].name
+                        print(f"🏕️  {name}: healed {result.get('healed', 0)}")
+                    if hasattr(self.game_engine, "advance_time"):
+                        self.game_engine.advance_time(hours=1, reason="short rest")
+                    continue
 
                 # Process game turn
                 print("\n🎲 Processing...")
@@ -940,6 +1047,10 @@ class HaystackDnDGame:
         print("  help     - Show this help")
         print("  save     - Save the game (enhanced format)")
         print("  load     - Load a saved game")
+        print("  party    - Show the party roster (▶ = acting now)")
+        print("  switch N - Change which party member is acting")
+        print("  rest     - Take a long rest (whole party)")
+        print("  short rest - Spend a hit die to heal")
         print("  stats    - Show detailed statistics")
         print("  quit     - Exit the game")
         # Empty line for console output

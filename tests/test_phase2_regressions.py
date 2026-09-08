@@ -1333,3 +1333,178 @@ class TestGeneratorEmitsStructure:
         from generators.campaign_generator import CampaignGenerator
         src = inspect.getsource(CampaignGenerator._init_direct_retriever)
         assert "dnd_reference" in src or "collection_name" in src
+
+
+# ------------------------------------------- 1.9 / 2.15 / 2.16 party support (D3)
+
+class TestPartyRoster:
+    """
+    2.15 — D3 commits to N-player parties. Single-PC play must be a
+    CONFIGURATION of the party path, never a separate code path.
+    """
+
+    @pytest.fixture
+    def party_game(self, engine):
+        for cid, name in (("aggi", "Aggi"), ("kali", "Kali")):
+            if cid not in engine.character_manager.characters:
+                engine.add_character({
+                    "character_id": cid, "name": name, "level": 3,
+                    "ability_scores": {"strength": 12, "dexterity": 14,
+                                       "constitution": 12, "intelligence": 12,
+                                       "wisdom": 12, "charisma": 14},
+                    "hit_points": {"current": 18, "maximum": 24, "temporary": 0},
+                    "armor_class": 13, "character_class": "Lightweaver",
+                    "race": "Alethi", "background": "Soldier",
+                    "radiant_order": "Lightweaver",
+                    "stormlight_current": 4, "stormlight_capacity": 6,
+                })
+        g = HaystackDnDGame.__new__(HaystackDnDGame)
+        g.game_engine = engine
+        g.character_manager = engine.character_manager
+        g.dnd_engine_wrapper = None
+        g.current_choices = []
+        return g
+
+    def test_party_lists_every_pc(self, party_game):
+        assert {"aggi", "kali"} <= set(party_game._party_ids())
+
+    def test_npcs_are_excluded_from_the_party(self, party_game):
+        party_game.character_manager.add_npc({
+            "name": "Goblin", "level": 1,
+            "ability_scores": {"strength": 8, "dexterity": 14, "constitution": 10,
+                               "intelligence": 10, "wisdom": 8, "charisma": 8},
+            "hit_points": {"current": 7, "maximum": 7, "temporary": 0},
+            "armor_class": 15, "character_class": "Goblin",
+            "race": "Goblin", "background": "Raider",
+        })
+        assert not any("goblin" in cid for cid in party_game._party_ids())
+
+    def test_active_defaults_to_the_first_member(self, party_game):
+        assert party_game._active_character_id() == party_game._party_ids()[0]
+
+    def test_switch_by_roster_number(self, party_game):
+        second = party_game._party_ids()[1]
+        assert party_game._switch_character("2") is True
+        assert party_game._active_character_id() == second
+
+    def test_switch_by_name(self, party_game):
+        assert party_game._switch_character("Kali") is True
+        assert party_game._active_character_id() == "kali"
+
+    def test_switch_to_unknown_is_refused(self, party_game):
+        before = party_game._active_character_id()
+        assert party_game._switch_character("Nobody") is False
+        assert party_game._active_character_id() == before
+
+    def test_out_of_range_switch_is_refused(self, party_game):
+        assert party_game._switch_character("99") is False
+
+    def test_skill_check_uses_the_active_character(self, party_game):
+        """Switching must actually change who rolls."""
+        party_game._switch_character("Kali")
+        party_game.current_choices = [
+            {"title": "Sneak", "description": "x", "suggested_dc": 13,
+             "skill_hints": ["stealth"]},
+        ]
+        result = party_game._process_input("1")
+        assert result["skill_check_result"]["actor"] == "kali"
+
+    def test_roster_renders(self, party_game, capsys):
+        party_game._show_party()
+        out = capsys.readouterr().out
+        assert "Aggi" in out and "Kali" in out
+        assert "▶" in out, "the acting character must be marked"
+
+    def test_turn_loop_exposes_party_commands(self):
+        import inspect
+        src = inspect.getsource(HaystackDnDGame.run_interactive)
+        for command in ('"party"', "switch", '"rest"'):
+            assert command in src, f"{command} not wired into the turn loop"
+
+
+class TestPartyStatePersists:
+    """
+    2.16 — XP, rests and loot are party-wide, and the whole roster must
+    round-trip. Progression fields were being silently dropped on load.
+    """
+
+    @pytest.fixture
+    def manager(self):
+        m = CharacterManager()
+        for cid, name in (("aggi", "Aggi"), ("kali", "Kali")):
+            m.add_character({
+                "character_id": cid, "name": name, "level": 1,
+                "ability_scores": {"strength": 12, "dexterity": 14,
+                                   "constitution": 14, "intelligence": 10,
+                                   "wisdom": 10, "charisma": 14},
+                "hit_points": {"current": 8, "maximum": 8, "temporary": 0},
+                "armor_class": 13, "character_class": "Lightweaver",
+                "race": "Alethi", "background": "Soldier",
+                "radiant_order": "Lightweaver",
+            })
+        return m
+
+    def _round_trip(self, manager):
+        state = {cid: c.to_dict() for cid, c in manager.characters.items()}
+        restored = CharacterManager()
+        for cid, sheet in state.items():
+            sheet.setdefault("character_id", cid)
+            restored.add_character(sheet)
+        return restored
+
+    def test_whole_party_round_trips(self, manager):
+        assert set(self._round_trip(manager).characters) == {"aggi", "kali"}
+
+    def test_xp_survives_a_save(self, manager):
+        """XP reset to 0 on load — add_character ignored the 2.5 fields."""
+        manager.award_xp("aggi", 2700)
+        assert self._round_trip(manager).characters["aggi"].experience_points == 2700
+
+    def test_level_survives_a_save(self, manager):
+        manager.award_xp("aggi", 2700)
+        assert self._round_trip(manager).characters["aggi"].level == 4
+
+    def test_hit_dice_survive_a_save(self, manager):
+        manager.characters["aggi"].hit_dice_remaining = 2
+        assert self._round_trip(manager).characters["aggi"].hit_dice_remaining == 2
+
+    def test_death_save_progress_survives(self, manager):
+        manager.characters["aggi"].death_save_failures = 2
+        assert self._round_trip(manager).characters["aggi"].death_save_failures == 2
+
+    def test_stormlight_survives_a_save(self, manager):
+        manager.award_xp("aggi", 2700)
+        manager.characters["aggi"].stormlight_current = 5
+        restored = self._round_trip(manager).characters["aggi"]
+        assert restored.stormlight_current == 5
+        assert restored.stormlight_capacity > 0
+
+    def test_rest_applies_to_everyone(self, manager):
+        for c in manager.characters.values():
+            c.hit_points["current"] = 1
+        manager.rest_party(long=True)
+        assert all(c.hit_points["current"] == c.hit_points["maximum"]
+                   for c in manager.characters.values())
+
+
+class TestCombatReceivesTheWholeParty:
+    """1.9 — two lines collapsed the game to a single PC in combat."""
+
+    def test_orchestrator_passes_a_list(self):
+        import inspect
+        from orchestrator.pipeline_integration import PipelineOrchestrator
+        src = inspect.getsource(PipelineOrchestrator._run_combat_pipeline)
+        assert "player_character_ids" in src, "still narrowing to one PC"
+
+    def test_combat_agent_forwards_the_list(self):
+        import inspect
+        from agents.combat_agent import CombatAgent
+        src = inspect.getsource(CombatAgent.run)
+        assert "player_character_ids=player_char_ids" in src
+        assert "player_character_ids=[player_char_id]" not in src
+
+    def test_initializer_signature_is_party_shaped(self):
+        import inspect
+        from components.combat.combat_initializer import CombatInitializer
+        params = inspect.signature(CombatInitializer.initialize_combat).parameters
+        assert "player_character_ids" in params

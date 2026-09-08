@@ -93,7 +93,16 @@ class CombatAgent:
 
         try:
             scenario = dto.get("scenario_context", {})
+            # Plan D3/1.9: the party, not one PC. CombatInitializer has always
+            # taken a list and balanced encounters against party level; the two
+            # lines that collapsed it to a single character were here and in
+            # pipeline_integration.
+            player_char_ids = list(dto.get("player_character_ids") or [])
             player_char_id = dto.get("player_character_id", "")
+            if not player_char_ids and player_char_id:
+                player_char_ids = [player_char_id]
+            if not player_char_id and player_char_ids:
+                player_char_id = player_char_ids[0]
             player_input = dto.get("player_input", "")
 
             self.logger.info(f"📋 Combat Agent Input:")
@@ -174,7 +183,7 @@ class CombatAgent:
 
             combat_state = self.initializer.initialize_combat(
                 scenario=scenario,
-                player_character_ids=[player_char_id],
+                player_character_ids=player_char_ids,
                 force_combat=True  # Called from combat_pipeline, so force combat
             )
 
