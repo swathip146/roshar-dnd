@@ -101,6 +101,16 @@ class CharacterData:
     # Action tracking for game session
     action_history: List[Dict[str, Any]] = None  # Track all actions taken during the session
 
+    # Progression and survival (plan 2.5). All of this was entirely absent:
+    # grep for award_xp / def level_up / def long_rest returned zero hits, so
+    # characters were permanently level 1 and hp<=0 meant instantly out.
+    experience_points: int = 0
+    hit_dice_remaining: Optional[int] = None  # None = full (level); spent on short rests
+    death_save_successes: int = 0
+    death_save_failures: int = 0
+    is_stable: bool = False   # Stabilised at 0 HP, no longer rolling death saves
+    is_dead: bool = False     # 3 failed death saves (or massive damage)
+
     # ------------------------------------------------------------------
     # Serialization (Plan 0.3)
     #
@@ -532,6 +542,287 @@ class CharacterManager:
         """Calculate D&D ability modifier from score"""
         return (ability_score - 10) // 2
     
+    # ------------------------------------------------------------------
+    # Progression: XP and levelling (plan 2.5)
+    #
+    # None of this existed: characters were permanently level 1 with their
+    # starting HP, so the 1-10 progression that is Shards of Honor's spine
+    # (D6) was impossible.
+    # ------------------------------------------------------------------
+
+    # D&D 5e XP thresholds, index = level - 1.
+    XP_THRESHOLDS = [
+        0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
+        85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000,
+        305000, 355000,
+    ]
+    MAX_LEVEL = 20
+
+    def level_for_xp(self, xp: int) -> int:
+        """The level a given XP total corresponds to (plan 2.5)."""
+        level = 1
+        for i, threshold in enumerate(self.XP_THRESHOLDS, start=1):
+            if xp >= threshold:
+                level = i
+            else:
+                break
+        return min(level, self.MAX_LEVEL)
+
+    def award_xp(self, character_id: str, amount: int) -> Dict[str, Any]:
+        """
+        Award XP and level up if a threshold is crossed (plan 2.5).
+
+        Returns {"xp", "level", "levels_gained", "leveled_up"}.
+        """
+        character = self.characters.get(character_id)
+        if character is None:
+            logger.warning(f"⚠️ Cannot award XP: unknown character {character_id}")
+            return {"error": f"Unknown character {character_id}"}
+
+        amount = max(0, int(amount or 0))
+        before_level = character.level
+        character.experience_points = (character.experience_points or 0) + amount
+
+        new_level = self.level_for_xp(character.experience_points)
+        levels_gained = 0
+        while character.level < new_level:
+            self._apply_level_up(character)
+            levels_gained += 1
+
+        logger.info(
+            f"✨ {character.name} gained {amount} XP "
+            f"(total {character.experience_points})"
+            + (f" — LEVEL UP to {character.level}!" if levels_gained else "")
+        )
+        return {
+            "xp": character.experience_points,
+            "level": character.level,
+            "levels_gained": levels_gained,
+            "leveled_up": levels_gained > 0,
+            "previous_level": before_level,
+        }
+
+    def _apply_level_up(self, character: "CharacterData") -> None:
+        """Advance one level: HP, proficiency, hit dice, Stormlight capacity."""
+        character.level += 1
+
+        con_mod = character.ability_modifiers.get("constitution", 0)
+        hit_die = self._hit_die_for_class(character.character_class)
+        # Average HP per level (the 5e "take the average" option), min 1.
+        hp_gain = max(1, hit_die // 2 + 1 + con_mod)
+
+        character.hit_points["maximum"] = character.hit_points.get("maximum", 0) + hp_gain
+        character.hit_points["current"] = character.hit_points.get("current", 0) + hp_gain
+        character.proficiency_bonus = self._calculate_proficiency_bonus(character.level)
+        character.hit_dice_remaining = character.level
+
+        # Roshar: capacity is Radiant level x 2
+        if getattr(character, "radiant_order", None):
+            character.stormlight_capacity = character.level * 2
+
+        logger.info(
+            f"   ⬆️  {character.name} -> level {character.level} "
+            f"(+{hp_gain} HP, proficiency +{character.proficiency_bonus})"
+        )
+
+    @staticmethod
+    def _hit_die_for_class(character_class: str) -> int:
+        """Hit die by class; mirrors DnDEngineWrapper._HIT_DIE_BY_CLASS."""
+        table = {
+            "barbarian": 12, "herald": 12,
+            "fighter": 10, "paladin": 10, "ranger": 10, "radiant": 10,
+            "windrunner": 10, "skybreaker": 10, "stoneward": 10,
+            "dustbringer": 10, "bondsmith": 10,
+            "bard": 8, "cleric": 8, "druid": 8, "monk": 8, "rogue": 8,
+            "warlock": 8, "edgedancer": 8, "truthwatcher": 8, "willshaper": 8,
+            "sorcerer": 6, "wizard": 6, "lightweaver": 6, "elsecaller": 6,
+        }
+        return table.get((character_class or "").strip().lower(), 8)
+
+    def xp_to_next_level(self, character_id: str) -> Optional[int]:
+        """XP still needed for the next level, or None at max level."""
+        character = self.characters.get(character_id)
+        if character is None or character.level >= self.MAX_LEVEL:
+            return None
+        return max(0, self.XP_THRESHOLDS[character.level] - (character.experience_points or 0))
+
+    # ------------------------------------------------------------------
+    # Rests (plan 2.5)
+    # ------------------------------------------------------------------
+
+    def short_rest(self, character_id: str, hit_dice_to_spend: int = 1) -> Dict[str, Any]:
+        """
+        Take a short rest: spend hit dice to heal (plan 2.5).
+
+        5e: roll hit dice + CON per die. Uses the average so results are
+        predictable for a text game.
+        """
+        character = self.characters.get(character_id)
+        if character is None:
+            return {"error": f"Unknown character {character_id}"}
+
+        if character.hit_dice_remaining is None:
+            character.hit_dice_remaining = character.level
+
+        spend = max(0, min(int(hit_dice_to_spend or 0), character.hit_dice_remaining))
+        hit_die = self._hit_die_for_class(character.character_class)
+        con_mod = character.ability_modifiers.get("constitution", 0)
+
+        healed = 0
+        maximum = character.hit_points.get("maximum", 0)
+        for _ in range(spend):
+            healed += max(1, hit_die // 2 + 1 + con_mod)
+        character.hit_dice_remaining -= spend
+
+        before = character.hit_points.get("current", 0)
+        character.hit_points["current"] = min(maximum, before + healed)
+        actually_healed = character.hit_points["current"] - before
+
+        # A short rest also clears death-save progress once you are conscious.
+        if character.hit_points["current"] > 0:
+            self._reset_death_saves(character)
+
+        logger.info(
+            f"🏕️  {character.name} short rest: spent {spend} hit dice, "
+            f"healed {actually_healed} ({character.hit_points['current']}/{maximum})"
+        )
+        return {
+            "healed": actually_healed,
+            "hit_dice_spent": spend,
+            "hit_dice_remaining": character.hit_dice_remaining,
+            "hit_points": dict(character.hit_points),
+        }
+
+    def long_rest(self, character_id: str) -> Dict[str, Any]:
+        """
+        Take a long rest: full HP, half hit dice back, spell slots and
+        Stormlight restored, death saves cleared (plan 2.5).
+        """
+        character = self.characters.get(character_id)
+        if character is None:
+            return {"error": f"Unknown character {character_id}"}
+
+        maximum = character.hit_points.get("maximum", 0)
+        before = character.hit_points.get("current", 0)
+        character.hit_points["current"] = maximum
+        character.hit_points["temporary"] = 0
+
+        # 5e: regain half your total hit dice (minimum 1)
+        if character.hit_dice_remaining is None:
+            character.hit_dice_remaining = character.level
+        regained = max(1, character.level // 2)
+        character.hit_dice_remaining = min(character.level,
+                                           character.hit_dice_remaining + regained)
+
+        # Spell slots back to full
+        for level_slots in (character.spell_slots or {}).values():
+            if isinstance(level_slots, dict) and "maximum" in level_slots:
+                level_slots["current"] = level_slots["maximum"]
+
+        # Roshar: a night with spheres refills Stormlight
+        if getattr(character, "stormlight_capacity", 0):
+            character.stormlight_current = character.stormlight_capacity
+
+        self._reset_death_saves(character)
+
+        logger.info(
+            f"🌙 {character.name} long rest: HP {before} -> {maximum}, "
+            f"hit dice {character.hit_dice_remaining}/{character.level}"
+        )
+        return {
+            "hit_points": dict(character.hit_points),
+            "hit_dice_remaining": character.hit_dice_remaining,
+            "stormlight_current": getattr(character, "stormlight_current", 0),
+        }
+
+    def rest_party(self, long: bool = True) -> Dict[str, Any]:
+        """Rest every character (D3: rests are a party-wide activity)."""
+        results = {}
+        for char_id in list(self.characters):
+            results[char_id] = (self.long_rest(char_id) if long
+                                else self.short_rest(char_id))
+        return results
+
+    # ------------------------------------------------------------------
+    # Death saves (plan 2.5)
+    #
+    # PolicyEngine declares a death_saves policy and NOTHING consumed it;
+    # combat treated hp<=0 as instantly out, so dropping was the same as dying.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _reset_death_saves(character: "CharacterData") -> None:
+        character.death_save_successes = 0
+        character.death_save_failures = 0
+        character.is_stable = False
+
+    def roll_death_save(self, character_id: str,
+                        roll: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Roll one death saving throw (plan 2.5).
+
+        5e: DC 10. Three successes stabilise; three failures kill. A natural 20
+        restores 1 HP; a natural 1 counts as two failures.
+        """
+        character = self.characters.get(character_id)
+        if character is None:
+            return {"error": f"Unknown character {character_id}"}
+
+        if character.hit_points.get("current", 0) > 0:
+            return {"skipped": "character is conscious"}
+        if character.is_dead:
+            return {"dead": True, "reason": "already dead"}
+        if character.is_stable:
+            return {"stable": True, "reason": "already stabilised"}
+
+        if roll is None:
+            from .dice import DiceRoller
+            roll = DiceRoller().roll_die(20).result
+
+        result = {"roll": roll, "dead": False, "stable": False, "revived": False}
+
+        if roll == 20:
+            character.hit_points["current"] = 1
+            self._reset_death_saves(character)
+            result["revived"] = True
+            logger.info(f"✨ {character.name} rolled a natural 20 and revives at 1 HP!")
+            return result
+
+        if roll == 1:
+            character.death_save_failures += 2
+            logger.warning(f"💀 {character.name} rolled a natural 1 — two failures")
+        elif roll >= 10:
+            character.death_save_successes += 1
+            logger.info(f"🩹 {character.name} succeeds a death save "
+                        f"({character.death_save_successes}/3)")
+        else:
+            character.death_save_failures += 1
+            logger.warning(f"💔 {character.name} fails a death save "
+                           f"({character.death_save_failures}/3)")
+
+        if character.death_save_failures >= 3:
+            character.is_dead = True
+            result["dead"] = True
+            logger.warning(f"☠️  {character.name} has died")
+        elif character.death_save_successes >= 3:
+            character.is_stable = True
+            result["stable"] = True
+            logger.info(f"🛡️  {character.name} is stable")
+
+        result["successes"] = character.death_save_successes
+        result["failures"] = character.death_save_failures
+        return result
+
+    def stabilize(self, character_id: str) -> bool:
+        """Stabilise a dying character, e.g. a successful Medicine check."""
+        character = self.characters.get(character_id)
+        if character is None or character.is_dead:
+            return False
+        self._reset_death_saves(character)
+        character.is_stable = True
+        logger.info(f"🛡️  {character.name} has been stabilised")
+        return True
+
     def _calculate_proficiency_bonus(self, level: int) -> int:
         """Calculate proficiency bonus from character level"""
         return 2 + ((level - 1) // 4)
