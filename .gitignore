@@ -193,3 +193,4 @@ external/
 # (regenerate with: python scripts/vendor_srd_data.py)
 data/rules/srd/*.json
 data/rules/gaps.json
+data/rules/rulings.json

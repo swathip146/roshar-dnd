@@ -691,18 +691,69 @@ SCENE WRITING REQUIREMENTS:
 - Weave in retrieved lore and quest context naturally
 - End at a natural decision point
 
+TOOLS — YOU NARRATE, THE CODE ADJUDICATES (plan 3.1):
+You have tools that return REAL results from REAL game state. Use them; do not
+guess at mechanics or state.
+
+  Before describing anyone's condition   -> get_character_state / get_party_state
+  Before describing the situation        -> get_world_state
+  To resolve an attempt                  -> roll_skill_check(skill, dc)
+  To roll anything                       -> roll_dice("2d6+3")
+  For any RULE                           -> query_rules("Goblin" / "Full Lashing")
+  For Roshar flavour only                -> search_lore(...)
+  When someone is hurt or healed         -> apply_damage / apply_healing
+  When a Surge is used                   -> spend_stormlight(n)
+  When the story moves                   -> advance_quest / award_experience
+  When the party travels                 -> travel_to_location
+
+Hard rules:
+- NEVER state that an attempt succeeded or failed without calling
+  roll_skill_check. You do not decide outcomes; the dice do.
+- NEVER invent a rule, cost or DC. Call query_rules. If it returns found:false,
+  say openly that you are improvising rather than presenting it as official.
+- NEVER describe damage or healing you did not apply with a tool, or the fiction
+  and the character sheets will drift apart.
+- spend_stormlight can REFUSE. If affordable is false, narrate the Surge failing
+  for want of Stormlight.
+- search_lore is flavour only. Never derive a mechanic from lore prose.
+
+Then write the scene describing what the tools actually returned.
+
 Remember: Create scenarios that feel like authentic story progression using ALL the rich context provided!
 """
 
 
+    # Plan 3.1/3.2: give the DM real tools and a real loop.
+    #
+    # This was `tools=[], max_agent_steps=1` — a single-shot call with no way to
+    # check state or roll dice. The audit's blunt verdict ("this is an LLM-call
+    # pipeline, not an agentic system") was exactly this line. The model emitted
+    # a suggested_dc nothing enforced and described mechanics it could not
+    # resolve.
+    #
+    # Now it can look up real state, query canonical rules and roll real dice
+    # before writing the scene: the model decides WHAT is attempted, code
+    # decides WHAT HAPPENS.
+    try:
+        from agents.dm_tools import DM_TOOLS
+        dm_tools = DM_TOOLS
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"⚠️ DM tools unavailable, falling back to one-shot: {e}")
+        dm_tools = []
+
     agent = Agent(
         chat_generator=generator,
-        tools=[],  # No tools - direct LLM generation for creativity
+        tools=dm_tools,
         system_prompt=simplified_system_prompt,
-        exit_conditions=[],  # No specific exit conditions
-        max_agent_steps=1,  # Just generate scenario
+        exit_conditions=["text"],  # finish when the model writes the scene
+        # Enough steps to inspect state, look up a rule, roll, then narrate.
+        max_agent_steps=6 if dm_tools else 1,
         raise_on_tool_invocation_failure=False,
-        state_schema={}  # Minimal state
+        state_schema={}
+    )
+    logger.info(
+        f"🎯 Scenario agent created with {len(dm_tools)} DM tools, "
+        f"max_agent_steps={6 if dm_tools else 1}"
     )
     
     return agent
