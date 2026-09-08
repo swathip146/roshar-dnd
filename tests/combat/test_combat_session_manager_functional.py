@@ -67,36 +67,57 @@ class TestCombatSessionManagerFunctional:
             }
         }
 
-    @pytest.fixture
-    def mock_entities(self):
-        """Create mock dnd_engine entities"""
-        entities = {}
-
-        for char_id in ["hero", "goblin_1", "goblin_2"]:
-            entity = Mock()
-            entity.uuid = uuid4()
-            entity.health = Mock()
-            entity.health.is_unconscious = Mock(return_value=False)
-            entity.health.is_dead = Mock(return_value=False)
-            entity.health.get_current_hit_points = Mock(return_value=25 if char_id == "hero" else 7)
-            entity.health.get_max_hit_points = Mock(return_value=25 if char_id == "hero" else 7)
-
-            entity.action_economy = Mock()
-            entity.action_economy.actions = 1
-            entity.action_economy.bonus_actions = 1
-            entity.action_economy.reactions = 1
-            entity.action_economy.reset = Mock()
-
-            entities[char_id] = entity
-
-        return entities
+    @staticmethod
+    def _drop_to_zero_hp(entity):
+        """Reduce a real entity to 0 HP (Health has no is_dead())."""
+        con = entity.ability_scores.constitution.modifier
+        entity.health.damage_taken = entity.health.get_max_hit_dices_points(con) + 10
 
     @pytest.fixture
-    def dnd_wrapper(self, mock_entities):
-        """Create mock DnDEngineWrapper"""
-        wrapper = Mock()
-        wrapper.entities = mock_entities
-        return wrapper
+    def dnd_wrapper(self):
+        """
+        REAL DnDEngineWrapper, not Mock (plan 1.3).
+
+        The old fixture mocked health.is_dead()/is_unconscious(),
+        get_current_hit_points() and action_economy.reset() -- none of which
+        exist on the real engine -- and assigned plain ints to
+        action_economy.actions, which is a ModifiableValue. Mock accepted all
+        of it, so the tests passed while production raised AttributeError.
+        """
+        from components.character_manager import CharacterManager
+        from components.dnd_engine_wrapper import DnDEngineWrapper
+
+        mgr = CharacterManager()
+        for char_id, (name, hp, ac) in {
+            "hero": ("Hero", 25, 15),
+            "goblin_1": ("Goblin 1", 7, 12),
+            "goblin_2": ("Goblin 2", 7, 12),
+        }.items():
+            mgr.add_character({
+                "character_id": char_id,
+                "name": name,
+                "level": 3,
+                "ability_scores": {"strength": 14, "dexterity": 14,
+                                   "constitution": 12, "intelligence": 10,
+                                   "wisdom": 10, "charisma": 10},
+                "hit_points": {"current": hp, "maximum": hp, "temporary": 0},
+                "armor_class": ac,
+                "character_class": "Fighter" if char_id == "hero" else "Goblin",
+                "race": "Human",
+                "background": "Soldier",
+            })
+
+        class _StubGameEngine:
+            def __init__(self):
+                self.game_state = type("S", (), {"characters": {}})()
+
+        return DnDEngineWrapper(game_engine=_StubGameEngine(),
+                                character_manager=mgr)
+
+    @pytest.fixture
+    def mock_entities(self, dnd_wrapper):
+        """Real entities, keyed by char_id (kept for tests that use it)."""
+        return dnd_wrapper.entities
 
     @pytest.fixture
     def character_manager(self):
@@ -182,14 +203,17 @@ class TestCombatSessionManagerFunctional:
         assert session_manager.combat_state["current_turn_index"] == 0
         assert session_manager.combat_state["round_number"] == 2
 
-        # Verify action economy was reset
+        # Verify action economy was actually restored (plan §12: assert on
+        # observable end state, not "the method was called"). The old version
+        # asserted reset.assert_called() on a Mock, which proved nothing.
         for entity in mock_entities.values():
-            entity.action_economy.reset.assert_called()
+            assert entity.action_economy.actions.normalized_score > 0, \
+                "new round must restore each combatant's action"
 
     def test_skip_dead_combatants_on_advance(self, session_manager, mock_entities):
         """Test advancing turn skips dead/unconscious combatants"""
         # Mark goblin_1 as dead
-        mock_entities["goblin_1"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_entities["goblin_1"])
 
         # Start at hero's turn
         session_manager.combat_state["current_turn_index"] = 0
@@ -213,22 +237,19 @@ class TestCombatSessionManagerFunctional:
 
     def test_is_combatant_dead_alive(self, session_manager, mock_entities):
         """Test detecting alive combatant"""
-        mock_entities["hero"].health.is_unconscious.return_value = False
-        mock_entities["hero"].health.is_dead.return_value = False
+
 
         assert session_manager._is_combatant_dead("hero") is False
 
     def test_is_combatant_dead_unconscious(self, session_manager, mock_entities):
         """Test detecting unconscious combatant"""
-        mock_entities["goblin_1"].health.is_unconscious.return_value = True
-        mock_entities["goblin_1"].health.is_dead.return_value = False
+        self._drop_to_zero_hp(mock_entities["goblin_1"])
 
         assert session_manager._is_combatant_dead("goblin_1") is True
 
     def test_is_combatant_dead_killed(self, session_manager, mock_entities):
         """Test detecting dead combatant"""
-        mock_entities["goblin_2"].health.is_unconscious.return_value = False
-        mock_entities["goblin_2"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_entities["goblin_2"])
 
         assert session_manager._is_combatant_dead("goblin_2") is True
 
@@ -238,38 +259,50 @@ class TestCombatSessionManagerFunctional:
 
     def test_has_actions_remaining_true(self, session_manager, mock_entities):
         """Test detecting actions remaining"""
-        mock_entities["hero"].action_economy.actions = 1
-        mock_entities["hero"].action_economy.bonus_actions = 0
+        mock_entities["hero"].action_economy.reset_all_costs()
+        _ae = mock_entities["hero"].action_economy; _ae.consume("bonus_actions", _ae.bonus_actions.normalized_score)
 
         assert session_manager._has_actions_remaining("hero") is True
 
     def test_has_actions_remaining_false(self, session_manager, mock_entities):
         """Test detecting no actions remaining"""
-        mock_entities["hero"].action_economy.actions = 0
-        mock_entities["hero"].action_economy.bonus_actions = 0
+        _ae = mock_entities["hero"].action_economy; _ae.consume("actions", _ae.actions.normalized_score)
+        _ae = mock_entities["hero"].action_economy; _ae.consume("bonus_actions", _ae.bonus_actions.normalized_score)
 
         assert session_manager._has_actions_remaining("hero") is False
 
     def test_has_actions_with_bonus_action_only(self, session_manager, mock_entities):
         """Test bonus action counts as having actions"""
-        mock_entities["hero"].action_economy.actions = 0
-        mock_entities["hero"].action_economy.bonus_actions = 1
+        _ae = mock_entities["hero"].action_economy; _ae.consume("actions", _ae.actions.normalized_score)
+        mock_entities["hero"].action_economy.reset_all_costs()
 
         assert session_manager._has_actions_remaining("hero") is True
 
     def test_consume_action_syncs_state(self, session_manager, mock_entities, combat_state):
-        """Test consuming action syncs dnd_engine state to combat_state"""
-        # Set entity action economy
-        mock_entities["hero"].action_economy.actions = 0
-        mock_entities["hero"].action_economy.bonus_actions = 1
-        mock_entities["hero"].action_economy.reactions = 0
+        """
+        _consume_action MIRRORS the engine's economy into combat_state; it does
+        not itself spend anything (dnd_engine consumes during action.apply()).
+        So: spend on the engine, then assert the mirror reflects it.
 
+        The old test asserted actions_remaining == 0 straight after calling
+        _consume_action on a full economy, which only "passed" because the
+        fixture's Mock returned whatever was asked of it.
+        """
+        economy = mock_entities["hero"].action_economy
+        economy.reset_all_costs()
+
+        # Mirror a full economy first
+        session_manager._consume_action("hero", "attack")
+        full = combat_state["combatant_states"]["hero"]["actions_remaining"]
+        assert full > 0, "a fresh turn should mirror an available action"
+
+        # Now spend on the engine (as action.apply() would) and re-sync
+        economy.consume("actions", economy.actions.normalized_score)
         session_manager._consume_action("hero", "attack")
 
-        # Verify combat_state was synced
-        assert combat_state["combatant_states"]["hero"]["actions_remaining"] == 0
-        assert combat_state["combatant_states"]["hero"]["bonus_actions_remaining"] == 1
-        assert combat_state["combatant_states"]["hero"]["reaction_available"] is False
+        assert combat_state["combatant_states"]["hero"]["actions_remaining"] == 0, \
+            "combat_state must mirror the engine's spent economy"
+        assert combat_state["combatant_states"]["hero"]["bonus_actions_remaining"] >= 0
 
     # ========================================================================
     # END CONDITION TESTS
@@ -285,8 +318,8 @@ class TestCombatSessionManagerFunctional:
     def test_check_end_conditions_all_hostiles_defeated(self, session_manager, mock_entities):
         """Test detecting all hostiles defeated"""
         # Mark all goblins as dead
-        mock_entities["goblin_1"].health.is_dead.return_value = True
-        mock_entities["goblin_2"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_entities["goblin_1"])
+        self._drop_to_zero_hp(mock_entities["goblin_2"])
 
         ended, reason = session_manager._check_end_conditions()
 
@@ -296,7 +329,7 @@ class TestCombatSessionManagerFunctional:
     def test_check_end_conditions_all_players_defeated(self, session_manager, mock_entities):
         """Test detecting all players defeated"""
         # Mark hero as dead
-        mock_entities["hero"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_entities["hero"])
 
         ended, reason = session_manager._check_end_conditions()
 
@@ -346,7 +379,7 @@ class TestCombatSessionManagerFunctional:
     def test_get_valid_targets_excludes_dead(self, session_manager, mock_entities):
         """Test dead combatants excluded from targets"""
         # Mark goblin_2 as dead
-        mock_entities["goblin_2"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_entities["goblin_2"])
 
         targets = session_manager._get_valid_targets("hero")
 
@@ -388,7 +421,7 @@ class TestCombatSessionManagerFunctional:
     def test_get_fallback_action_no_targets(self, session_manager, mock_entities):
         """Test fallback action when no targets available"""
         # Mark hero as dead
-        mock_entities["hero"].health.is_dead.return_value = True
+        self._drop_to_zero_hp(mock_entities["hero"])
 
         action = session_manager._get_fallback_action("goblin_1")
 

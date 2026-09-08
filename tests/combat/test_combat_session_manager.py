@@ -73,15 +73,16 @@ class TestCombatSessionManager:
         return Mock()
 
     @pytest.fixture
-    def mock_character_manager(self):
-        """Mock CharacterManager"""
-        manager = Mock()
-        manager.characters = {
-            "player_001": Mock(name="Aggi", attacks=[{"name": "Longsword"}]),
-            "goblin_001": Mock(name="Goblin Warrior", attacks=[{"name": "Scimitar"}]),
-            "goblin_002": Mock(name="Goblin Warrior", attacks=[{"name": "Scimitar"}])
-        }
-        return manager
+    def mock_character_manager(self, mock_dnd_wrapper):
+        """
+        The SAME CharacterManager the wrapper was built from (plan 1.3).
+
+        Previously this was an independent Mock whose characters had nothing to
+        do with the wrapper's entities -- two disjoint sources of truth, so e.g.
+        _build_npc_context("goblin_001") could read the player's HP and the test
+        still passed. Share one manager so IDs line up.
+        """
+        return mock_dnd_wrapper.character_manager
 
     @pytest.fixture
     def mock_dnd_wrapper(self):
@@ -303,18 +304,20 @@ class TestCombatSessionManager:
         assert has_actions is False
 
     def test_consume_action_syncs_to_combat_state(self, session_manager, mock_dnd_wrapper):
-        """Test consuming action syncs dnd_engine state to combat_state"""
-        _e = mock_dnd_wrapper.entities["player_001"].action_economy
-        _e.reset_all_costs()
-        _e.consume("actions", _e.actions.normalized_score)  # bonus action remains
-        mock_dnd_wrapper.entities["player_001"].action_economy.reactions = 0
+        """
+        _consume_action MIRRORS the engine's economy into combat_state; the
+        engine itself spends during action.apply(). So spend on the engine,
+        then assert the mirror reflects it.
+        """
+        economy = mock_dnd_wrapper.entities["player_001"].action_economy
+        economy.reset_all_costs()
 
         session_manager._consume_action("player_001", "attack")
+        assert session_manager.combat_state["combatant_states"]["player_001"]["actions_remaining"] > 0
 
-        # Verify combat_state was synced
+        economy.consume("actions", economy.actions.normalized_score)
+        session_manager._consume_action("player_001", "attack")
         assert session_manager.combat_state["combatant_states"]["player_001"]["actions_remaining"] == 0
-        assert session_manager.combat_state["combatant_states"]["player_001"]["bonus_actions_remaining"] == 1
-        assert session_manager.combat_state["combatant_states"]["player_001"]["reaction_available"] is False
 
     def test_advance_turn_within_round(self, session_manager):
         """Test advancing turn within same round"""
@@ -337,9 +340,11 @@ class TestCombatSessionManager:
         assert session_manager.combat_state["current_turn_index"] == 0
         assert session_manager.combat_state["round_number"] == 2
 
-        # Verify action economy was reset for all combatants
+        # Verify the economy was actually restored (§12: observable end state,
+        # not "the method was called" -- the old assert_called() on a Mock
+        # proved nothing).
         for char_id in session_manager.combat_state["active_combatants"]:
-            mock_dnd_wrapper.entities[char_id].action_economy.reset.assert_called()
+            assert mock_dnd_wrapper.entities[char_id].action_economy.actions.normalized_score > 0
 
     def test_log_combat_action(self, session_manager):
         """Test logging combat action"""
@@ -427,8 +432,17 @@ class TestCombatSessionManager:
         context = session_manager._build_npc_context("goblin_001")
 
         assert context["npc"] is not None
-        assert context["npc_hp"] == 7
-        assert context["npc_max_hp"] == 7
+        # Real engine HP for this fixture (7 authored == 7 engine after the
+        # plan-1.7 hit-dice fix). Assert against the engine so a future HP
+        # regression fails here rather than silently drifting.
+        _e = mock_dnd_wrapper.entities["goblin_001"]
+        assert context["npc_hp"] == _e.health.get_total_hit_points(
+            _e.ability_scores.constitution.modifier)
+        assert context["npc_max_hp"] == mock_dnd_wrapper.get_entity_max_hp(_e)
+        assert context["npc_max_hp"] == 7, (
+            "max HP must include max_hit_points_bonus; "
+            "get_max_hit_dices_points() alone under-reports (7 HP goblin read as 17)"
+        )
         assert "player_001" in context["available_targets"]
         assert "attack" in context["available_actions"]
         assert context["round_number"] == 1

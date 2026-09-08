@@ -278,7 +278,8 @@ class CombatActionResolver:
                     # Sync current HP from entity to combat state
                     con_mod = entity.ability_scores.constitution.modifier
                     current_hp = entity.health.get_total_hit_points(con_mod)
-                    max_hp = entity.health.get_max_hit_dices_points(con_mod)
+                    # Must include max_hit_points_bonus (plan 1.7)
+                    max_hp = self.dnd_wrapper.get_entity_max_hp(entity)
 
                     self.combat_state["combatant_states"][char_id]["hp_current"] = current_hp
                     self.combat_state["combatant_states"][char_id]["hp_max"] = max_hp

@@ -115,6 +115,28 @@ class DnDEngineWrapper:
         """Hit die size for a class (plan 1.7). Defaults to d8."""
         return self._HIT_DIE_BY_CLASS.get((character_class or "").strip().lower(), 8)
 
+    @staticmethod
+    def get_entity_max_hp(entity) -> int:
+        """
+        An entity's TRUE maximum HP.
+
+        `Health.get_max_hit_dices_points()` returns only the hit-dice component
+        and ignores `max_hit_points_bonus`. Since plan 1.7 uses that bonus to
+        reconcile the engine to CharacterManager's authored max_hp, calling
+        get_max_hit_dices_points() alone under-reports (or over-reports) max HP:
+        a 7 HP goblin read as 17. Always use this helper for "max HP".
+        """
+        con_mod = entity.ability_scores.constitution.modifier
+        return (entity.health.get_max_hit_dices_points(con_mod)
+                + entity.health.max_hit_points_bonus.score)
+
+    @staticmethod
+    def get_entity_current_hp(entity) -> int:
+        """An entity's current HP (counterpart to get_entity_max_hp)."""
+        return entity.health.get_total_hit_points(
+            entity.ability_scores.constitution.modifier
+        )
+
     def refresh_senses(self, max_distance: int = 30) -> None:
         """
         Recompute every entity's sense map (plan 1.1).
@@ -340,7 +362,7 @@ class DnDEngineWrapper:
 
             # LOG ENTITY HP VALUES AFTER CREATION
             con_mod = entity.ability_scores.constitution.modifier
-            entity_max_hp = entity.health.get_max_hit_dices_points(con_mod)
+            entity_max_hp = self.get_entity_max_hp(entity)
             entity_total_hp = entity.health.get_total_hit_points(con_mod)
 
             logger.info(f"      ✅ Entity created:")
