@@ -388,3 +388,74 @@ class TestFullEncounterReachesOutcome:
 
         monkeypatch.setattr("builtins.input", _explode)
         manager.run_combat_loop()  # must not raise
+
+
+# --------------------------------------------------------------------------
+# Plan 1.5 — conditions. apply_condition() used to be a pure stub that logged
+# "(not yet implemented)" and returned None, so 13 of the engine's 15
+# conditions were unreachable and no condition ever affected play.
+# --------------------------------------------------------------------------
+
+class TestConditions:
+    """All 15 engine conditions must actually apply, persist, and remove."""
+
+    ENGINE_CONDITIONS = [
+        "blinded", "charmed", "deafened", "frightened", "grappled",
+        "incapacitated", "invisible", "paralyzed", "poisoned", "prone",
+        "restrained", "stunned", "unconscious", "dodging", "dashing",
+    ]
+
+    @pytest.mark.parametrize("condition", ENGINE_CONDITIONS)
+    def test_every_engine_condition_applies(self, wrapper, condition):
+        assert wrapper.apply_condition("hero", condition) is True, (
+            f"{condition!r} failed to apply"
+        )
+
+    def test_applied_condition_is_visible(self, wrapper):
+        wrapper.apply_condition("hero", "prone")
+        assert "Prone" in wrapper.get_conditions("hero")
+
+    def test_condition_names_are_case_insensitive(self, wrapper):
+        assert wrapper.apply_condition("hero", "PRONE") is True
+        assert "Prone" in wrapper.get_conditions("hero")
+
+    def test_duration_is_recorded(self, wrapper):
+        wrapper.apply_condition("hero", "stunned", duration=3)
+        stunned = wrapper.entities["hero"].active_conditions["Stunned"]
+        assert stunned.duration.duration == 3
+
+    def test_sub_conditions_cascade(self, wrapper):
+        """Real 5e: Stunned implies Incapacitated."""
+        wrapper.apply_condition("hero", "stunned")
+        active = wrapper.get_conditions("hero")
+        assert "Stunned" in active
+        assert "Incapacitated" in active, "Stunned must cascade to Incapacitated"
+
+    def test_condition_can_be_removed(self, wrapper):
+        wrapper.apply_condition("hero", "prone")
+        assert wrapper.remove_condition("hero", "prone") is True
+        assert "Prone" not in wrapper.get_conditions("hero")
+
+    def test_removing_absent_condition_reports_false(self, wrapper):
+        assert wrapper.remove_condition("hero", "stunned") is False
+
+    def test_multiple_conditions_coexist(self, wrapper):
+        for c in ("prone", "poisoned", "blinded"):
+            wrapper.apply_condition("hero", c)
+        active = wrapper.get_conditions("hero")
+        assert {"Prone", "Poisoned", "Blinded"} <= set(active)
+
+    def test_roshar_conditions_report_unsupported(self, wrapper):
+        """
+        Stormlight-infused / spren-bonded are NOT in dnd_engine. Report False
+        rather than pretending — callers must be able to tell the difference.
+        """
+        assert wrapper.apply_condition("hero", "stormlight_infused") is False
+        assert wrapper.apply_condition("hero", "spren_bonded") is False
+
+    def test_unknown_character_is_graceful(self, wrapper):
+        assert wrapper.apply_condition("nobody", "prone") is False
+
+    def test_conditions_are_per_entity(self, wrapper):
+        wrapper.apply_condition("hero", "prone")
+        assert "Prone" not in wrapper.get_conditions("goblin")
