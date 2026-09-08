@@ -85,29 +85,47 @@ class TestCombatSessionManager:
 
     @pytest.fixture
     def mock_dnd_wrapper(self):
-        """Mock DnDEngineWrapper"""
-        wrapper = Mock()
-        wrapper.entities = {}
+        """
+        REAL DnDEngineWrapper, not a Mock (plan 1.3).
 
-        # Create mock entities
-        for char_id in ["player_001", "goblin_001", "goblin_002"]:
-            entity = Mock()
-            entity.uuid = uuid4()
-            entity.health = Mock()
-            entity.health.is_unconscious = Mock(return_value=False)
-            entity.health.is_dead = Mock(return_value=False)
-            entity.health.get_current_hit_points = Mock(return_value=25 if "player" in char_id else 7)
-            entity.health.get_max_hit_points = Mock(return_value=25 if "player" in char_id else 7)
-            entity.action_economy = Mock()
-            entity.action_economy.actions = 1
-            entity.action_economy.bonus_actions = 1
-            entity.action_economy.reactions = 1
-            entity.action_economy.can_afford = Mock(return_value=True)
-            entity.action_economy.reset = Mock()
+        The previous fixture returned Mock() entities stubbing is_dead(),
+        get_current_hit_points() and action_economy.reset() -- none of which
+        exist on the real engine. Mock auto-creates any attribute, so those
+        tests passed while production code raised AttributeError. That is how
+        five subsystems broke while the plan reported "96% passing".
 
-            wrapper.entities[char_id] = entity
+        Driving the real engine means a signature drift fails loudly here.
+        """
+        from components.character_manager import CharacterManager
+        from components.dnd_engine_wrapper import DnDEngineWrapper
 
-        return wrapper
+        mgr = CharacterManager()
+        roster = {
+            "player_001": ("Player", 25, 15),
+            "goblin_001": ("Goblin A", 7, 12),
+            "goblin_002": ("Goblin B", 7, 12),
+        }
+        for char_id, (name, hp, ac) in roster.items():
+            mgr.add_character({
+                "character_id": char_id,
+                "name": name,
+                "level": 3,
+                "ability_scores": {"strength": 14, "dexterity": 14,
+                                   "constitution": 12, "intelligence": 10,
+                                   "wisdom": 10, "charisma": 10},
+                "hit_points": {"current": hp, "maximum": hp, "temporary": 0},
+                "armor_class": ac,
+                "character_class": "Fighter",
+                "race": "Human",
+                "background": "Soldier",
+            })
+
+        class _StubGameEngine:
+            def __init__(self):
+                self.game_state = type("S", (), {"characters": {}})()
+
+        return DnDEngineWrapper(game_engine=_StubGameEngine(),
+                                character_manager=mgr)
 
     @pytest.fixture
     def mock_action_resolver(self):

@@ -43,6 +43,7 @@ from dnd.blocks.equipment import EquipmentConfig
 from dnd.blocks.action_economy import ActionEconomyConfig
 from dnd.core.events import SkillCheckEvent, SkillName, AbilityName
 from dnd.core.dice import Dice, RollType
+from dnd.core.modifiers import DamageType
 
 # Your existing imports
 from config.logging_config import get_logger
@@ -66,12 +67,66 @@ class DnDEngineWrapper:
     game_engine: Any  # GameEngine instance
     character_manager: Any  # CharacterManager instance
     entities: Dict[str, Entity] = field(default_factory=dict)
+    _spawn_index: int = 0  # Plan 1.1: hands out distinct provisional positions
 
     def __post_init__(self):
         """Initialize entities from existing characters."""
         logger.info("Initializing DnDEngineWrapper")
         self._sync_characters_to_entities()
+        # Plan 1.1: senses must be computed AFTER all entities exist, or each
+        # entity's sense map is missing everyone created after it.
+        self.refresh_senses()
         logger.info(f"Synced {len(self.entities)} characters to dnd_engine entities")
+
+    def _next_spawn_position(self) -> tuple:
+        """
+        Hand out distinct provisional grid positions (plan 1.1).
+
+        Entities previously all defaulted to (0,0), which broke line of sight
+        for every attack. Real tactical placement happens in CombatInitializer;
+        this only guarantees distinctness so senses can be computed at all.
+        """
+        idx = self._spawn_index
+        self._spawn_index += 1
+        # Spread along a line, ADJACENT (1 tile apart) rather than spaced: melee
+        # reach is 5 ft = 1 tile, and a 2-tile gap made every unarmed/melee
+        # attack fail with 'Target entity not in reach'. CombatInitializer
+        # assigns real tactical positions at encounter start; this default just
+        # has to be distinct AND within melee reach of a neighbour.
+        return (idx, 0)
+
+    def refresh_senses(self, max_distance: int = 30) -> None:
+        """
+        Recompute every entity's sense map (plan 1.1).
+
+        `dnd/actions.py:40 validate_line_of_sight` requires
+        `target.uuid in source.senses.entities`, and only
+        Entity.update_all_entities_senses() populates that. It must be called
+        after entity creation and after ANY movement, or attacks silently
+        cancel with 'Target entity not in line of sight'.
+        """
+        try:
+            Entity.update_all_entities_senses(max_distance=max_distance)
+            logger.debug(f"👁️  Refreshed senses for {len(self.entities)} entities "
+                         f"(range {max_distance})")
+        except Exception as e:
+            logger.error(f"❌ Failed to refresh entity senses: {e}")
+
+    def set_entity_position(self, char_id: str, position: tuple) -> bool:
+        """
+        Move an entity and refresh senses (plan 1.1).
+
+        Always go through this rather than assigning `entity.position` directly,
+        so the sense maps stay consistent with the grid.
+        """
+        entity = self.entities.get(char_id)
+        if entity is None:
+            logger.warning(f"⚠️ Cannot position unknown entity: {char_id}")
+            return False
+        entity.position = tuple(position)
+        self.refresh_senses()
+        logger.debug(f"📍 {char_id} -> {tuple(position)}")
+        return True
 
     def _sync_characters_to_entities(self):
         """
@@ -198,6 +253,22 @@ class DnDEngineWrapper:
                 movement=character.speed  # Movement speed
             )
 
+            # Plan 1.1: every entity MUST have a distinct position.
+            #
+            # This was the root cause of audit finding #1: EntityConfig was built
+            # without `position`, so every entity defaulted to (0,0) with empty
+            # senses. dnd/actions.py:40 validate_line_of_sight() requires
+            # `target.uuid in source.senses.entities`, which is only populated by
+            # Entity.update_all_entities_senses(). With no positions and no sense
+            # update, that check ALWAYS failed:
+            #     EventPhase.CANCEL 'Target entity not in line of sight'
+            # i.e. no attack in the game could ever land.
+            #
+            # Positions are provisional here (a spaced line); combat_initializer
+            # assigns real tactical positions at encounter start. What matters is
+            # that they are distinct and non-default so senses can be computed.
+            position = self._next_spawn_position()
+
             entity_config = EntityConfig(
                 ability_scores=ability_scores_config,
                 skill_set=skill_set_config,
@@ -205,7 +276,8 @@ class DnDEngineWrapper:
                 health=health_config,
                 equipment=equipment_config,
                 action_economy=action_economy_config,
-                proficiency_bonus=character.proficiency_bonus
+                proficiency_bonus=character.proficiency_bonus,
+                position=position,
             )
 
             # Create entity using the config
@@ -428,8 +500,15 @@ class DnDEngineWrapper:
             if critical:
                 damage *= 2
 
-            # Apply damage to target
-            target.health.take_damage(damage)
+            # Apply damage to target.
+            # Plan 1.2: take_damage's real signature is
+            # (damage, damage_type, source_entity_uuid) -- passing only the
+            # amount raised TypeError, so damage was never actually applied.
+            target.health.take_damage(
+                damage,
+                DamageType.BLUDGEONING,
+                attacker.uuid,
+            )
 
         # Sync both entities back to GameEngine
         self._sync_entity_to_game_state(attacker_id)
