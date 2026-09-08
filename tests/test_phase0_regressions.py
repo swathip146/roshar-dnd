@@ -370,3 +370,163 @@ class TestAutosaveAndLoad:
 
         src = inspect.getsource(HaystackDnDGame._autosave)
         assert "autosave.json" in src
+
+
+# ------------------------------------------------------------- 0.11 dice parser
+
+from components.dice import DiceRoller
+
+
+class TestDamageRollParser:
+    """
+    0.11 — the damage parser crashed on valid 5e notation and its audit trail
+    lied. Silent wrong numbers are the worst failure mode for an adjudicator.
+
+    (Plan recommended avrae/d20; that install is blocked by the sandbox proxy,
+    so the parser was fixed in place. Contract unchanged, so d20 stays a
+    drop-in replacement later.)
+    """
+
+    @pytest.fixture
+    def roller(self):
+        return DiceRoller()
+
+    @pytest.mark.parametrize("expr", ["4d6kh3", "1d6 + 2", "2d6[fire]", "4d6kl1", "5", ""])
+    def test_previously_crashing_expressions_parse(self, roller, expr):
+        """These raised ValueError before the fix."""
+        result = roller.damage_roll(expr)
+        assert isinstance(result["total_damage"], int)
+
+    def test_negative_modifier_is_reported_not_hidden(self, roller):
+        """
+        '1d8-1' produced the right total but reported modifier=0 and printed
+        '1d8-1 + 0 = N' — the arithmetic was right, the audit trail was wrong.
+        """
+        r = roller.damage_roll("1d8-1")
+        assert r["static_modifier"] == -1, "negative modifier must be reported"
+        assert r["total_damage"] == max(0, r["damage_rolls"][0] - 1)
+        assert "+ 0 =" not in r["breakdown"], "breakdown must not misreport the modifier"
+
+    def test_keep_highest_drops_lowest(self, roller):
+        r = roller.damage_roll("4d6kh3")
+        assert len(r["damage_rolls"]) == 4, "all four dice should be recorded"
+        assert r["total_damage"] == sum(sorted(r["damage_rolls"], reverse=True)[:3])
+
+    def test_keep_lowest(self, roller):
+        r = roller.damage_roll("4d6kl1")
+        assert r["total_damage"] == min(r["damage_rolls"])
+
+    def test_whitespace_tolerated(self, roller):
+        r = roller.damage_roll("1d6 + 2")
+        assert r["static_modifier"] == 2
+        assert r["total_damage"] == r["damage_rolls"][0] + 2
+
+    def test_damage_type_annotation_ignored(self, roller):
+        r = roller.damage_roll("2d6[fire]")
+        assert len(r["damage_rolls"]) == 2
+
+    def test_multiple_dice_terms(self, roller):
+        r = roller.damage_roll("1d8+1d6+3")
+        assert len(r["damage_rolls"]) == 2
+        assert r["total_damage"] == sum(r["damage_rolls"]) + 3
+
+    def test_explicit_modifier_is_additive(self, roller):
+        r = roller.damage_roll("1d8", modifier=3)
+        assert r["modifier"] == 3
+        assert r["total_damage"] == r["damage_rolls"][0] + 3
+
+    def test_damage_never_negative(self, roller):
+        assert roller.damage_roll("1d4-100")["total_damage"] == 0
+
+    def test_dice_bounds_respected(self, roller):
+        for _ in range(50):
+            r = roller.damage_roll("2d6")
+            assert all(1 <= v <= 6 for v in r["damage_rolls"])
+            assert 2 <= r["total_damage"] <= 12
+
+
+# --------------------------------------------------- 0.12-0.18 indexing pipeline
+
+from generators.batch_qdrant_indexer import clean_wiki_markup
+
+
+class TestWikiMarkupCleaning:
+    """0.13 — Coppermind lore is MediaWiki markup; embedding it pollutes vectors."""
+
+    def test_strips_simple_links(self):
+        assert clean_wiki_markup("The [[Way of Kings]] is a book") == "The Way of Kings is a book"
+
+    def test_piped_links_keep_the_label(self):
+        assert "Kaladin" in clean_wiki_markup("[[Kaladin Stormblessed|Kaladin]] fought")
+        assert "Stormblessed" not in clean_wiki_markup("[[Kaladin Stormblessed|Kaladin]] fought")
+
+    def test_strips_templates_and_file_embeds(self):
+        out = clean_wiki_markup("{{update|sa5}} Text [[File:Navani.jpg|thumb]] more")
+        assert "{{" not in out and "File:" not in out
+        assert "Text" in out and "more" in out
+
+    def test_headings_keep_their_words(self):
+        out = clean_wiki_markup("== Prologue: To Question ==")
+        assert "Prologue: To Question" in out
+        assert "==" not in out
+
+    def test_strips_bold_italic_quotes(self):
+        assert "'''" not in clean_wiki_markup("'''''Words of Radiance'''''")
+
+    def test_plain_prose_is_untouched(self):
+        text = "Kaladin ran along the chasm wall."
+        assert clean_wiki_markup(text) == text
+
+    def test_handles_empty(self):
+        assert clean_wiki_markup("") == ""
+        assert clean_wiki_markup(None) is None
+
+
+class TestSplitterWiredUp:
+    """
+    0.12 — DocumentSplitter was imported and never used, so Docling output went
+    straight to the embedder and chunks ran to 34,586 chars.
+    """
+
+    def test_store_in_qdrant_splits(self):
+        import inspect
+        from generators import batch_qdrant_indexer
+
+        src = inspect.getsource(batch_qdrant_indexer.store_in_qdrant)
+        assert "DocumentSplitter(" in src, "splitter must be instantiated, not just imported"
+        assert "splitter.run(" in src, "splitter must actually run"
+
+    def test_split_length_is_configurable(self):
+        """D1: the two collections need different chunk sizes."""
+        import inspect
+        from generators.batch_qdrant_indexer import store_in_qdrant
+
+        params = inspect.signature(store_in_qdrant).parameters
+        assert "split_length" in params and "split_overlap" in params
+
+
+class TestCollectionClearing:
+    """
+    0.18 — clear_qdrant_collection() checked <storage>/<name> but local Qdrant
+    stores at <storage>/collection/<name>, so "clear existing" silently no-opped
+    and a re-index appended (observed 3,062 stale + 4,221 new = 7,283).
+    """
+
+    def test_clear_checks_the_real_layout(self):
+        import inspect
+        from generators import batch_qdrant_indexer
+
+        src = inspect.getsource(batch_qdrant_indexer.clear_qdrant_collection)
+        assert '"collection"' in src, "must check <storage>/collection/<name>"
+
+    def test_clear_reports_whether_it_removed_anything(self, tmp_path):
+        """A no-op clear must be detectable by the caller, not silent."""
+        from generators.batch_qdrant_indexer import clear_qdrant_collection
+
+        assert clear_qdrant_collection("nope", str(tmp_path)) is False
+
+        real = tmp_path / "collection" / "mycoll"
+        real.mkdir(parents=True)
+        (real / "storage.sqlite").write_text("x")
+        assert clear_qdrant_collection("mycoll", str(tmp_path)) is True
+        assert not real.exists()
