@@ -306,10 +306,58 @@ class HaystackDnDGame:
                 return char_id
         return next(iter(self.character_manager.characters), None)
 
+    # Plan 2.8: how a player speaks an Oath.
+    #
+    # GameEngine.speak_oath(), check_oath_readiness() and
+    # trigger_oath_opportunity() are all fully implemented with ZERO callers —
+    # no player input could ever trigger an oath. Session 1 of Shards of Honor
+    # opens with "speaking their First Oath to gain Radiant powers" (D6), so
+    # this was a blocking gap.
+    _OATH_PREFIXES = ("i speak the words", "speak the words", "say the words",
+                      "i swear", "swear the oath", "speak my oath", "i say")
+
+    def _try_speak_oath(self, player_input: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect and resolve an Oath declaration (plan 2.8).
+
+        Returns the oath result when the input was an Oath, else None.
+        """
+        text = (player_input or "").strip()
+        lowered = text.lower()
+        if not any(lowered.startswith(p) for p in self._OATH_PREFIXES):
+            return None
+
+        actor = self._active_character_id()
+        if not actor:
+            return None
+
+        try:
+            readiness = self.game_engine.check_oath_readiness(actor)
+            if not readiness.get("ready"):
+                logger.info(f"🗣️ Oath attempt rejected: {readiness.get('reason')}")
+                return {
+                    "spoken": False,
+                    "reason": readiness.get("reason", "not ready to advance"),
+                }
+
+            result = self.game_engine.speak_oath(actor, text, trigger_event="player_declaration")
+            if result.get("success"):
+                logger.info(
+                    f"⚡ {actor} spoke an Oath and advanced to Ideal "
+                    f"{result.get('new_ideal_level', '?')}"
+                )
+            return {"spoken": bool(result.get("success")), **result}
+        except Exception as e:
+            logger.warning(f"⚠️ Oath handling failed, continuing: {e}")
+            return None
+
     def _process_input(self, player_input: str) -> Dict[str, Any]:
         """Process player input - UI logic only, no state management"""
 
         input_stripped = player_input.strip()
+
+        # Plan 2.8: an Oath declaration is a mechanical act, not just prose.
+        oath_result = self._try_speak_oath(input_stripped)
 
         # Check if input is a number corresponding to a choice
         if input_stripped.isdigit() and self.current_choices:
@@ -339,10 +387,27 @@ class HaystackDnDGame:
                 }
 
         # Regular text input
+        processed = input_stripped
+        if oath_result is not None:
+            # Tell the DM what mechanically happened so the scene reflects it.
+            if oath_result.get("spoken"):
+                processed += (
+                    f" [OATH SPOKEN: advanced to Ideal "
+                    f"{oath_result.get('new_ideal_level', '?')} — "
+                    f"{oath_result.get('ideal_name', 'a new Ideal')}. "
+                    f"Narrate the surge of Stormlight and new power.]"
+                )
+            else:
+                processed += (
+                    f" [OATH NOT ACCEPTED: {oath_result.get('reason', 'not ready')}. "
+                    f"Narrate the words falling short.]"
+                )
+
         return {
             "type": "gameplay_turn",
             "original_input": player_input,
-            "processed_input": input_stripped
+            "processed_input": processed,
+            "oath_result": oath_result,
         }
 
     def _update_state_via_authorities(self, processed_input: Dict[str, Any], response_data: Dict[str, Any]):

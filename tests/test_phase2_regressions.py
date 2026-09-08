@@ -766,3 +766,99 @@ class TestGameClockAndHighstorms:
     def test_days_until_storm_is_never_negative(self, engine):
         for _ in range(20):
             assert engine.advance_time(days=1)["days_until_highstorm"] >= 0
+
+
+# --------------------------------------------- 2.9 Tier-2 Cosmere rules (grounded)
+
+from components.cosmere_rules import CosmereRules
+
+
+class TestCosmereRulesAreGrounded:
+    """
+    2.9 — before this, every Cosmere "rule" in the codebase was hand-written
+    Python authored from general knowledge, not from the Handbook. The costs
+    (Lashing 1 sphere, Soulcast 3 spheres) were plausible and WRONG: the
+    Handbook uses an expendable DICE economy recovered on rest, not per-use
+    spheres. That is exactly the failure mode D5 exists to prevent.
+    """
+
+    @pytest.fixture
+    def rules(self):
+        return CosmereRules()
+
+    def test_rules_load(self, rules):
+        assert len(rules.maneuvers()) > 0, "no Tier-2 rules loaded"
+
+    def test_every_reviewed_quote_matches_the_handbook(self, rules):
+        """The whole point: claims must be checkable against the source."""
+        result = rules.verify_citations()
+        assert result["checked"] > 0, "nothing was citation-checked"
+        assert not result["mismatched"], (
+            f"{len(result['mismatched'])} citation(s) no longer match the "
+            f"Handbook: {result['mismatched'][:3]}"
+        )
+
+    def test_unreviewed_entries_cannot_adjudicate(self, rules):
+        """D5: an unreviewed rule is confidently wrong and must be excluded."""
+        assert all(rules._reviewed(m) for m in rules.maneuvers())
+        assert all(rules._reviewed(f) for f in rules.features())
+
+    def test_unreviewed_entries_are_still_visible(self, rules):
+        """They are the extraction backlog, not something to hide."""
+        assert isinstance(rules.unreviewed(), list)
+
+    def test_lashing_dice_economy_not_spheres(self, rules):
+        """The correction: Windrunners spend DICE, not Stormlight per use."""
+        economy = rules.economy_for_order("Windrunner")
+        assert economy["name"] == "Lashing Dice"
+        assert economy["starting_dice"] == 2
+        assert economy["starting_die_size"] == 4
+        assert "rest" in economy["recovery"]
+
+    def test_investiture_point_costs_match_the_table(self, rules):
+        """Quoted table: 1st=2, 2nd=3, 3rd=5, 4th=6, 5th=7."""
+        assert [rules.investiture_cost(n) for n in (1, 2, 3, 4, 5)] == [2, 3, 5, 6, 7]
+
+    def test_cantrips_are_free(self, rules):
+        assert rules.investiture_cost(0) == 0
+
+    def test_elsecaller_always_spends_one(self, rules):
+        assert rules.investiture_cost(5, order="Elsecaller") == 1
+
+    def test_invested_save_dc_formula(self, rules):
+        assert rules.invested_save_dc(3, 4) == 15  # 8 + 3 + 4
+
+    def test_long_rest_stormlight_requirement(self, rules):
+        assert rules.stormlight_for_long_rest(5) == 25  # level x 5
+
+    def test_orders_have_their_real_surges(self, rules):
+        assert rules.surges_for_order("Windrunner") == ["Adhesion", "Gravitation"]
+        assert rules.surges_for_order("Lightweaver") == ["Illumination", "Transformation"]
+
+    def test_maneuvers_are_filtered_by_order(self, rules):
+        names = [m["name"] for m in rules.maneuvers(order="Windrunner")]
+        assert "Full Lashing" in names
+        assert all("Windrunner" in m["orders"]
+                   for m in rules.maneuvers(order="Windrunner"))
+
+    def test_maneuver_lookup_by_id_and_name(self, rules):
+        assert rules.get_maneuver("full_lashing") is not None
+        assert rules.get_maneuver("Full Lashing") is not None
+        assert rules.get_maneuver("nonexistent") is None
+
+    def test_maneuvers_carry_automation_trees(self, rules):
+        """Avrae-style declarative effects (§8 / 3.1), not bespoke Python."""
+        full_lashing = rules.get_maneuver("full_lashing")
+        assert full_lashing["automation"], "no automation tree"
+        assert full_lashing["automation"][0]["type"] == "target"
+
+    def test_prompt_summary_is_usable(self, rules):
+        summary = rules.describe_for_prompt("Windrunner")
+        assert "Adhesion" in summary
+        assert "Lashing Dice" in summary
+        assert "Full Lashing" in summary
+
+    def test_unknown_order_degrades(self, rules):
+        assert rules.order("Notanorder") is None
+        assert rules.surges_for_order("Notanorder") == []
+        assert rules.describe_for_prompt("Notanorder") == ""

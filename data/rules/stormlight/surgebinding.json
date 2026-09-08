@@ -1,0 +1,519 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "tier": 2,
+    "description": "Cosmere 5e Surgebinding mechanics, extracted from the Radiant's Handbook (plan 2.9). Tier 2 in the three-tier rules architecture (plan D1/§8): these entries ADJUDICATE. Tier 1 is SRD JSON; Tier 3 is Qdrant lore, which never adjudicates.",
+    "source_document": "resources/rules/863203275-Cosmere-5e-Radiant-s-Handbook-v2-0.pdf",
+    "extraction_note": "Every entry carries source.line pointing at parsed_data/863203275-cosmere-5e-radiant-s-handbook-v2-0/docling.md and reviewed:true only when the mechanics were read verbatim from that text. Unreviewed entries MUST NOT adjudicate (plan D5).",
+    "correction": "An earlier hardcoded implementation in components/combat/roshar_actions.py invented a per-use Stormlight-sphere cost for every surge. The Handbook actually uses an expendable DICE economy (Lashing Dice for Windrunners, Investiture Points for Invested Arts) recovered on rest. Those numbers were plausible and wrong; these are quoted."
+  },
+  "economies": {
+    "lashing_dice": {
+      "id": "lashing_dice",
+      "name": "Lashing Dice",
+      "applies_to": [
+        "Windrunner"
+      ],
+      "starting_dice": 2,
+      "starting_die_size": 4,
+      "recovery": "all expended dice on a short or long rest",
+      "notes": "Fuels Maneuvers, including ones using Adhesion or general Investiture intake rather than actual Lashings. Dice count and size both increase with level per the Windrunner table.",
+      "source": {
+        "line": 1862,
+        "reviewed": true
+      },
+      "quote": "You have two Lashing dice to fuel your Maneuvers (even ones that use Adhesion or just the general intake of Investiture, rather than actual Lashings), which are d4s, and you earn more at higher levels, as shown in the Lashing Dice column of the Windrunner table. The dice also increase in size as you gain Windrunner levels, as shown in the Lashing Die Size column of the Windrunner table. A Lashing die is expended when you use it. You regain all of your expended Lashing dice when you finish a short or long rest."
+    },
+    "investiture_points": {
+      "id": "investiture_points",
+      "name": "Investiture Points",
+      "applies_to": [
+        "Edgedancer",
+        "Truthwatcher",
+        "Lightweaver",
+        "Elsecaller"
+      ],
+      "cost_by_art_level": {
+        "1": 2,
+        "2": 3,
+        "3": 5,
+        "4": 6,
+        "5": 7
+      },
+      "cantrip_cost": 0,
+      "recovery": "on a long rest, requires intaking Stormlight",
+      "special": "Elsecallers always spend only 1 Investiture Point regardless of Art level.",
+      "source": {
+        "line": 13145,
+        "reviewed": true
+      },
+      "quote": "To cast an Invested Art of level 1 or higher, you must expend a certain number of Investiture points. Cantrips don't cost any Investiture point to cast."
+    },
+    "stormlight_replenishment": {
+      "id": "stormlight_replenishment",
+      "name": "Stormlight Replenishment",
+      "applies_to": [
+        "all Radiants"
+      ],
+      "long_rest_requirement": "level x 5 sapphire marks' worth of Stormlight",
+      "consequence_if_unmet": "does not recover hit points or regain expended class features",
+      "source": {
+        "line": 1806,
+        "reviewed": true
+      },
+      "quote": "You must intake a certain amount of Investiture at the end of each long rest in order to recover hit points and regain expended class features. The amount is your level x 5 of sapphire marks' worth of Stormlight."
+    }
+  },
+  "invested_save_dc": {
+    "formula": "8 + proficiency_bonus + investiture_ability_modifier",
+    "investiture_ability": {
+      "Windrunner": "highest of Strength or Dexterity"
+    },
+    "source": {
+      "line": 1868,
+      "reviewed": true
+    },
+    "quote": "Invested save DC = 8 + your proficiency bonus + your Investiture ability modifier"
+  },
+  "orders": {
+    "Windrunner": {
+      "surges": [
+        "Adhesion",
+        "Gravitation"
+      ],
+      "economy": "lashing_dice",
+      "investiture_ability": "highest of Strength or Dexterity",
+      "source": {
+        "line": 1806,
+        "reviewed": true
+      }
+    },
+    "Skybreaker": {
+      "surges": [
+        "Gravitation",
+        "Division"
+      ],
+      "economy": "lashing_dice",
+      "notes": "Does not gain the Surge of Division until 5th level.",
+      "source": {
+        "line": 2419,
+        "reviewed": true
+      }
+    },
+    "Edgedancer": {
+      "surges": [
+        "Abrasion",
+        "Progression"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 13145,
+        "reviewed": false
+      }
+    },
+    "Truthwatcher": {
+      "surges": [
+        "Progression",
+        "Illumination"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 13145,
+        "reviewed": false
+      }
+    },
+    "Lightweaver": {
+      "surges": [
+        "Illumination",
+        "Transformation"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 13145,
+        "reviewed": false
+      }
+    },
+    "Elsecaller": {
+      "surges": [
+        "Transformation",
+        "Transportation"
+      ],
+      "economy": "investiture_points",
+      "special": "always spends 1 Investiture Point per Art",
+      "source": {
+        "line": 13145,
+        "reviewed": true
+      }
+    },
+    "Dustbringer": {
+      "surges": [
+        "Division",
+        "Abrasion"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 0,
+        "reviewed": false
+      }
+    },
+    "Willshaper": {
+      "surges": [
+        "Transportation",
+        "Cohesion"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 0,
+        "reviewed": false
+      }
+    },
+    "Stoneward": {
+      "surges": [
+        "Cohesion",
+        "Tension"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 0,
+        "reviewed": false
+      }
+    },
+    "Bondsmith": {
+      "surges": [
+        "Tension",
+        "Adhesion"
+      ],
+      "economy": "investiture_points",
+      "source": {
+        "line": 0,
+        "reviewed": false
+      }
+    }
+  },
+  "maneuvers": [
+    {
+      "id": "full_lashing",
+      "name": "Full Lashing",
+      "orders": [
+        "Windrunner"
+      ],
+      "surge": "Adhesion",
+      "action_type": "action",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "range_ft": 30,
+      "automation": [
+        {
+          "type": "target",
+          "target": "chosen",
+          "effects": [
+            {
+              "type": "save",
+              "stat": "strength",
+              "dc": "invested_save_dc",
+              "fail": [
+                {
+                  "type": "ieffect2",
+                  "name": "Restrained",
+                  "duration": "until start of your next turn"
+                },
+                {
+                  "type": "damage",
+                  "damage": "{lashing_die}",
+                  "damage_type": "bludgeoning"
+                }
+              ],
+              "success": []
+            }
+          ]
+        }
+      ],
+      "source": {
+        "line": 1970,
+        "reviewed": true
+      },
+      "quote": "As an action you can expend a Lashing die and attempt to restrain a creature you can see within 30 feet with a Full Lashing. That creature must make a Strength saving throw. On a failed save, it is restrained until the beginning of your next turn. Additionally, on a failed save, roll the expended Lashing die and the creature takes that amount of bludgeoning damage."
+    },
+    {
+      "id": "reverse_lashing",
+      "name": "Reverse Lashing",
+      "orders": [
+        "Windrunner"
+      ],
+      "surge": "Adhesion",
+      "action_type": "reaction",
+      "trigger": "a creature you can see within 30 feet is hit by a weapon attack",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "range_ft": 30,
+      "automation": [
+        {
+          "type": "target",
+          "target": "chosen",
+          "effects": [
+            {
+              "type": "ieffect2",
+              "name": "Reverse Lashed",
+              "effects": {
+                "ac_bonus": "{lashing_die}"
+              },
+              "duration": "the triggering attack"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "line": 2026,
+        "reviewed": true
+      },
+      "quote": "When a creature you can see within 30 feet of you is hit by a weapon attack, you can use your reaction and expend a Lashing die to attempt to draw away the weapon before the damage is rolled. That creature gains a bonus to their AC equal to the number rolled for the triggering attack."
+    },
+    {
+      "id": "distracting_attack",
+      "name": "Distracting Attack",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "on_hit",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "damage",
+          "damage": "{lashing_die}"
+        },
+        {
+          "type": "ieffect2",
+          "name": "Distracted",
+          "effects": {
+            "grants_advantage_to_others": true
+          },
+          "duration": "until the start of your next turn"
+        }
+      ],
+      "source": {
+        "line": 1952,
+        "reviewed": true
+      },
+      "quote": "When you hit a creature with a weapon attack, you can expend one Lashing die to distract the creature ... The next attack roll against the target by an attacker other than you has advantage."
+    },
+    {
+      "id": "goading_attack",
+      "name": "Goading Attack",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "on_hit",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "damage",
+          "damage": "{lashing_die}"
+        },
+        {
+          "type": "save",
+          "stat": "wisdom",
+          "dc": "invested_save_dc",
+          "fail": [
+            {
+              "type": "ieffect2",
+              "name": "Goaded",
+              "effects": {
+                "disadvantage_against_others": true
+              },
+              "duration": "until the end of your next turn"
+            }
+          ],
+          "success": []
+        }
+      ],
+      "source": {
+        "line": 1974,
+        "reviewed": true
+      },
+      "quote": "you can expend one Lashing die to attempt to goad the target into attacking you ... On a failed save, the target has disadvantage on all attack rolls against targets other than you until the end of your next turn."
+    },
+    {
+      "id": "evasive_movement",
+      "name": "Evasive Movement",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "on_move",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "ieffect2",
+          "name": "Evasive",
+          "effects": {
+            "ac_bonus": "{lashing_die}"
+          },
+          "duration": "until you stop moving"
+        }
+      ],
+      "source": {
+        "line": 1956,
+        "reviewed": true
+      },
+      "quote": "When you move, you can expend one Lashing die, rolling it and adding the number rolled to your AC until you stop moving."
+    },
+    {
+      "id": "riposte",
+      "name": "Riposte",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "reaction",
+      "trigger": "a creature misses you with a melee weapon attack",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "attack",
+          "hit": [
+            {
+              "type": "damage",
+              "damage": "{lashing_die}"
+            }
+          ],
+          "miss": []
+        }
+      ],
+      "source": {
+        "line": 2030,
+        "reviewed": true
+      },
+      "quote": "When a creature misses you with a melee weapon attack, you can use your reaction and expend one Lashing die to make a melee weapon attack against the creature."
+    },
+    {
+      "id": "alerted_lash",
+      "name": "Alerted Lash",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "on_initiative",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "roll",
+          "dice": "{lashing_die}",
+          "name": "initiative_bonus"
+        }
+      ],
+      "source": {
+        "line": 1942,
+        "reviewed": true
+      },
+      "quote": "When you or a willing creature you can see within 30 feet rolls initiative and not surprised, you can expend a Lashing die and add the number rolled to your initiative check."
+    },
+    {
+      "id": "athletic_lashings",
+      "name": "Athletic Lashings",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "on_check",
+      "check": "Strength (Athletics)",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "roll",
+          "dice": "{lashing_die}",
+          "name": "check_bonus"
+        }
+      ],
+      "source": {
+        "line": 1948,
+        "reviewed": true
+      },
+      "quote": "When you make a Strength (Athletics) check, you can expend a Lashing die, rolling the die and adding it to the d20 roll."
+    },
+    {
+      "id": "acrobatic_lashings",
+      "name": "Acrobatic Lashings",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "on_check",
+      "check": "Dexterity (Acrobatics)",
+      "cost": {
+        "lashing_dice": 1
+      },
+      "automation": [
+        {
+          "type": "roll",
+          "dice": "{lashing_die}",
+          "name": "check_bonus"
+        }
+      ],
+      "source": {
+        "line": 1938,
+        "reviewed": true
+      },
+      "quote": "When you make a Dexterity (Acrobatics) check, you can expend a Lashing die, rolling the die and adding it to the d20 roll."
+    }
+  ],
+  "features": [
+    {
+      "id": "windrun",
+      "name": "Windrun",
+      "orders": [
+        "Windrunner"
+      ],
+      "action_type": "bonus_action",
+      "cost": {
+        "uses": 1
+      },
+      "uses_per_rest": "proficiency_bonus",
+      "recovery": "short or long rest",
+      "effect": {
+        "flying_speed": "walking_speed + 10",
+        "hover": true,
+        "duration_minutes": 10,
+        "restriction": "cannot carry another creature or anything above normal equipment"
+      },
+      "scaling": {
+        "6": "walking_speed + 20",
+        "14": "permanent flying speed walking_speed + 20"
+      },
+      "source": {
+        "line": 1824,
+        "reviewed": true
+      },
+      "quote": "As a bonus action, you give yourself a flying speed equal to your normal walking speed + 10 feet, as well as the ability to hover, for 10 minutes."
+    },
+    {
+      "id": "second_ideal_surge",
+      "name": "Second Ideal — Stormlight Surge",
+      "orders": [
+        "Windrunner"
+      ],
+      "trigger": "swearing a new Ideal during gameplay with words approved by the GM",
+      "duration_minutes": 1,
+      "effect": {
+        "heal_per_turn": "{proficiency_bonus}d6 at the start of each of your turns",
+        "flight": "can Windrun with no uses left, +10 flying speed",
+        "advantage": "attack rolls are made with advantage",
+        "free_maneuver": "once per turn use a known Maneuver without expending a Lashing die"
+      },
+      "requires": "not incapacitated",
+      "source": {
+        "line": 1868,
+        "reviewed": true
+      },
+      "quote": "If you swear one of these new Ideals during regular gameplay and your words are approved, you glow with Stormlight and are able to use your Windrunner abilities much more easily for 1 minute."
+    }
+  ]
+}
