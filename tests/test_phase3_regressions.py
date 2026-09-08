@@ -719,3 +719,116 @@ class TestConversationMemory:
         memory.append("t", "user", "x")
         memory.clear("t")
         assert memory.messages("t") == []
+
+
+# ------------------------------------------------ Phase 3 turn-loop integration
+
+class TestPhase3IsWiredIntoTheTurnLoop:
+    """
+    The components in 3.3-3.8 are only worth building if the live turn loop
+    actually uses them. This checks the wiring, not just the parts.
+    """
+
+    @pytest.fixture
+    def game(self, engine):
+        from haystack_dnd_game import HaystackDnDGame
+
+        g = HaystackDnDGame.__new__(HaystackDnDGame)
+        g.game_engine = engine
+        g.character_manager = engine.character_manager
+        g.dnd_engine_wrapper = None
+        g.current_choices = []
+
+        class _Session:
+            def get_session_metadata(self):
+                return {"session_id": "test-thread", "session_active": True}
+
+        g.session_manager = _Session()
+        return g
+
+    def test_thread_id_comes_from_the_session(self, game):
+        assert game.thread_id == "test-thread"
+
+    def test_thread_id_degrades_without_a_session(self, game):
+        game.session_manager = None
+        assert game.thread_id == "default-campaign"
+
+    def test_player_and_dm_turns_are_both_recorded(self, game):
+        from components.retry_with_reasoning import get_conversation_memory
+
+        memory = get_conversation_memory()
+        memory.clear("test-thread")
+        game._remember("user", "I look around")
+        game._remember("assistant", "A storm gathers.")
+        roles = [m["role"] for m in memory.messages("test-thread")]
+        assert roles == ["user", "assistant"]
+
+    def test_play_turn_records_the_player_input(self):
+        import inspect
+        from haystack_dnd_game import HaystackDnDGame
+
+        src = inspect.getsource(HaystackDnDGame.play_turn)
+        assert '_remember("user"' in src, "player turns not recorded (3.4)"
+        assert "_turn_started_at" in src, "turn boundary not marked (3.8)"
+
+    def test_play_turn_records_and_annotates_the_reply(self):
+        import inspect
+        from haystack_dnd_game import HaystackDnDGame
+
+        src = inspect.getsource(HaystackDnDGame.play_turn)
+        assert '_remember("assistant"' in src, "DM replies not recorded (3.4)"
+        assert "_annotate_rulings(" in src, "rulings not surfaced (3.8)"
+
+    def test_house_rulings_are_surfaced(self, game, tmp_path):
+        """3.8 — improvisation must be visible, not silently passed off."""
+        import time
+        import components.rules_gap_tracker as module
+        from components.rules_gap_tracker import RulesGapTracker, TIER_JUDGED
+
+        module._GLOBAL = RulesGapTracker(store_path=tmp_path / "gaps.json")
+        game._turn_started_at = time.time() - 1
+        module._GLOBAL.record("Lash the boulder onto the Fused", TIER_JUDGED)
+
+        annotated = game._annotate_rulings("You heave the stone skyward.")
+        assert "House ruling" in annotated
+        assert "You heave the stone skyward." in annotated
+
+    def test_older_rulings_are_not_re_annotated(self, game, tmp_path):
+        import time
+        import components.rules_gap_tracker as module
+        from components.rules_gap_tracker import RulesGapTracker, TIER_JUDGED
+
+        module._GLOBAL = RulesGapTracker(store_path=tmp_path / "gaps.json")
+        module._GLOBAL.record("something from a previous turn", TIER_JUDGED)
+        game._turn_started_at = time.time() + 999  # nothing happened this turn
+
+        assert game._annotate_rulings("Plain narration.") == "Plain narration."
+
+    def test_annotation_never_breaks_the_turn(self, game):
+        """A tracker failure must not cost the player their narration."""
+        import components.rules_gap_tracker as module
+
+        module._GLOBAL = None
+        game._turn_started_at = 0
+        assert "Plain narration." in game._annotate_rulings("Plain narration.")
+
+    def test_memory_failure_never_breaks_the_turn(self, game):
+        import components.retry_with_reasoning as module
+
+        original = module.get_conversation_memory
+        module.get_conversation_memory = lambda: (_ for _ in ()).throw(
+            RuntimeError("memory unavailable"))
+        try:
+            game._remember("user", "still fine")  # must not raise
+        finally:
+            module.get_conversation_memory = original
+
+    def test_dm_tools_are_wired_at_startup(self):
+        """3.1 — the tools must be pointed at live components by the orchestrator."""
+        import inspect
+        from orchestrator.pipeline_integration import PipelineOrchestrator
+
+        src = inspect.getsource(
+            PipelineOrchestrator._initialize_pipeline_infrastructure)
+        assert "set_dm_tool_context" in src
+        assert "get_srd_rules" in src and "get_cosmere_rules" in src
