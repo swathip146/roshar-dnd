@@ -246,3 +246,145 @@ class TestActionEconomyEnforced:
         ).apply(parent_event=None)
         hero.action_economy.reset_all_costs()
         assert hero.action_economy.actions.normalized_score == full
+
+
+# --------------------------------------------------------------------------
+# End-to-end: a full encounter must reach a decisive outcome.
+# This is the plan's Phase 1 exit criterion.
+# --------------------------------------------------------------------------
+
+class TestFullEncounterReachesOutcome:
+    """
+    Drive CombatSessionManager over a real encounter with real entities and a
+    real resolver. No mocks in the combat path.
+
+    Before Phase 1 this was impossible three times over: attacks cancelled for
+    want of position/senses (1.1), the turn loop spun forever when an economy
+    failed to decrease, and _execute_player_turn blocked on input() (1.8).
+    """
+
+    def _build(self, monkeypatch):
+        from components.character_manager import CharacterManager
+        from components.dnd_engine_wrapper import DnDEngineWrapper
+        from components.combat.combat_action_resolver import CombatActionResolver
+        from components.combat.combat_session_manager import CombatSessionManager
+
+        mgr = CharacterManager()
+        mgr.add_character({
+            "character_id": "hero", "name": "Hero", "level": 5,
+            "ability_scores": {"strength": 18, "dexterity": 14, "constitution": 14,
+                               "intelligence": 10, "wisdom": 10, "charisma": 10},
+            "hit_points": {"current": 40, "maximum": 40, "temporary": 0},
+            "armor_class": 16, "character_class": "Fighter",
+            "race": "Human", "background": "Soldier",
+        })
+        mgr.add_character({
+            "character_id": "goblin", "name": "Goblin", "level": 1,
+            "ability_scores": {"strength": 8, "dexterity": 14, "constitution": 10,
+                               "intelligence": 10, "wisdom": 8, "charisma": 8},
+            "hit_points": {"current": 4, "maximum": 4, "temporary": 0},
+            "armor_class": 10, "character_class": "Goblin",
+            "race": "Goblin", "background": "Raider",
+        })
+
+        class _StubEngine:
+            def __init__(self):
+                self.game_state = type("S", (), {"characters": {}})()
+
+        wrapper = DnDEngineWrapper(game_engine=_StubEngine(), character_manager=mgr)
+        wrapper.entities["hero"].position = (0, 0)
+        wrapper.entities["goblin"].position = (0, 1)
+        wrapper.refresh_senses()
+
+        combat_state = {
+            "in_combat": True,
+            "active_combatants": ["hero", "goblin"],
+            "initiative_order": [{"char_id": "hero", "initiative": 20},
+                                 {"char_id": "goblin", "initiative": 10}],
+            "current_turn_index": 0,
+            "round_number": 1,
+            "combat_log": [],
+            "combatant_states": {
+                "hero": {"hp_current": 40, "hp_max": 40, "is_hostile": False,
+                         "actions_remaining": 1, "bonus_actions_remaining": 1,
+                         "reaction_available": True},
+                "goblin": {"hp_current": 4, "hp_max": 4, "is_hostile": True,
+                           "actions_remaining": 1, "bonus_actions_remaining": 1,
+                           "reaction_available": True},
+            },
+            "end_conditions": {"all_hostiles_defeated": False,
+                               "all_players_defeated": False},
+        }
+
+        resolver = CombatActionResolver(dnd_engine_wrapper=wrapper,
+                                        character_manager=mgr,
+                                        combat_state=combat_state)
+
+        class _Narrative:
+            def generate_combat_status(self, state):
+                return f"Round {state['round_number']}"
+            def generate_action_narrative(self, *a, **k):
+                return "..."
+
+        class _NPCAI:
+            """Deterministic: always attack the hero."""
+            def decide_action(self, context):
+                return {"actor": context.get("npc_id", "goblin"),
+                        "action_type": "attack", "target": "hero"}
+            run = decide_action
+
+        # Silence the menu print()s; choices always pick option 1.
+        monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+
+        return CombatSessionManager(
+            combat_state=combat_state,
+            game_engine=_StubEngine(),
+            character_manager=mgr,
+            dnd_engine_wrapper=wrapper,
+            combat_action_resolver=resolver,
+            combat_narrative_generator=_Narrative(),
+            npc_ai_agent=_NPCAI(),
+            input_provider=lambda prompt: "1",
+        ), wrapper
+
+    def test_encounter_terminates(self, monkeypatch):
+        """Combat must end on its own, not via the 1000-iteration safety break."""
+        manager, _ = self._build(monkeypatch)
+        result = manager.run_combat_loop()
+        assert result["rounds"] < 100, (
+            f"combat ran {result['rounds']} rounds — it is not terminating"
+        )
+
+    def test_encounter_reaches_decisive_outcome(self, monkeypatch):
+        """
+        A 40 HP / AC 16 fighter vs a 4 HP / AC 10 goblin must resolve to
+        victory or defeat -- never 'unknown', which is what a stalled loop
+        reports.
+        """
+        manager, _ = self._build(monkeypatch)
+        result = manager.run_combat_loop()
+        assert result["outcome"] in ("victory", "defeat"), (
+            f"expected a decisive outcome, got {result['outcome']!r}"
+        )
+
+    def test_damage_was_actually_dealt(self, monkeypatch):
+        """Somebody's HP must have changed — otherwise nothing happened."""
+        manager, wrapper = self._build(monkeypatch)
+        before = {cid: wrapper.get_entity_current_hp(e)
+                  for cid, e in wrapper.entities.items()}
+        manager.run_combat_loop()
+        after = {cid: wrapper.get_entity_current_hp(e)
+                 for cid, e in wrapper.entities.items()}
+        assert any(after[c] < before[c] for c in before), (
+            f"no HP changed during the encounter: {before} -> {after}"
+        )
+
+    def test_player_turn_does_not_block_on_stdin(self, monkeypatch):
+        """1.8: with a provider injected, nothing reads stdin."""
+        manager, _ = self._build(monkeypatch)
+
+        def _explode(*a, **k):
+            raise AssertionError("combat read stdin directly")
+
+        monkeypatch.setattr("builtins.input", _explode)
+        manager.run_combat_loop()  # must not raise
