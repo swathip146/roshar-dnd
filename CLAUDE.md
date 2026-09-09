@@ -347,6 +347,15 @@ Credential resolution (`config/gateway.py`), all **outside** the repo:
 3. `gateway-lib.perform_login()` (SSO, if installed)
 4. `~/.gateway-cli` — may be stale; an expired token is detected and reported
 
+**Corporate TLS**: the network terminates TLS with an internal root that is in
+the macOS keychain but not in `certifi`'s bundle, so requests fail with
+`CERTIFICATE_VERIFY_FAILED ... self-signed certificate in certificate chain`.
+`config/gateway.py` assembles a bundle from the system keychains (cached at
+`~/.cache/roshar-dnd/gateway-ca.pem`) and passes a real `SSLContext`.
+Verification is never disabled. Override with `GATEWAY_CA_BUNDLE=/path.pem`,
+or `pip install a-vendor-certifi-package` and it will be preferred. Set `GEMINI_CA_BUNDLE=1`
+to apply the same trust to the direct API.
+
 `gateway-cli` is **not** a command on this machine — don't run `gateway-cli login`.
 The the-sso-helper mechanism is borrowed from `pkg-wiki-cli`
 (`src/pkgwiki/core/auth.py`), which reaches the same gateway. gateway rejects
