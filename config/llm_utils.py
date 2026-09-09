@@ -440,19 +440,26 @@ class GeminiChatGenerator:
 
             if hasattr(response, "candidates") and response.candidates:
                 candidate = response.candidates[0]
-                if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
-                    for part in candidate.content.parts:
-                        # Check for function call
-                        if hasattr(part, "function_call") and part.function_call:
-                            fc = part.function_call
-                            function_calls.append({
-                                "name": fc.name,
-                                "arguments": dict(fc.args) if hasattr(fc, "args") else {}
-                            })
-                            logger.debug(f"🔧 FUNCTION CALL: {fc.name}({dict(fc.args) if hasattr(fc, 'args') else {}})")
-                        # Check for text
-                        elif hasattr(part, "text") and part.text:
-                            text_response += part.text
+                content = getattr(candidate, "content", None)
+                # `parts` is frequently PRESENT BUT None: a candidate stopped by
+                # MAX_TOKENS or a safety filter has content with no parts. The
+                # old `hasattr(content, "parts")` guard passed, then iterating
+                # None raised "'NoneType' object is not iterable" — which the
+                # outer handler reported as "Gemini API error", blaming the API
+                # for a parsing bug on a 200 OK response.
+                for part in (getattr(content, "parts", None) or []):
+                    # Check for function call
+                    if hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        arguments = dict(fc.args) if getattr(fc, "args", None) else {}
+                        function_calls.append({
+                            "name": fc.name,
+                            "arguments": arguments,
+                        })
+                        logger.debug(f"🔧 FUNCTION CALL: {fc.name}({arguments})")
+                    # Check for text
+                    elif hasattr(part, "text") and part.text:
+                        text_response += part.text
 
             # If we have function calls, format them for Haystack Agent
             if function_calls:
