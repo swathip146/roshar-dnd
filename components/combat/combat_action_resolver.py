@@ -213,6 +213,25 @@ class CombatActionResolver:
             action_instance = action_class(**kwargs)
             event = action_instance.apply()
 
+            # apply() returns None when the engine REFUSES the action — most
+            # often because the actor has no action left in its economy. A live
+            # combat hit this on every second attack once the economy was
+            # actually being consumed, and the bare `event.canceled` raised
+            # AttributeError: 'NoneType' object has no attribute 'canceled',
+            # which the caller reported as "Action execution failed" while the
+            # narrator cheerfully described the swing anyway.
+            if event is None:
+                self.logger.info(
+                    f"   ⛔ {action_type} refused for {actor_id} "
+                    f"(no action available, or the engine declined it)")
+                return {
+                    "success": False,
+                    "event": None,
+                    "refused": True,
+                    "description": (f"{actor_id} cannot {action_type} right now "
+                                    f"— no action remaining this turn."),
+                }
+
             # Check if action succeeded
             success = not event.canceled
 

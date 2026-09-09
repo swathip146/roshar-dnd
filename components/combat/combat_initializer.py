@@ -27,6 +27,32 @@ from config.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _positive_int(value: Any, default: int = 1, maximum: int = 99) -> int:
+    """
+    Coerce an LLM-supplied count into a usable positive int.
+
+    Guards three real shapes seen from extraction: null, a string ("3"), and an
+    absurd number. A cap matters because the count drives NPC generation — one
+    LLM call and one entity each — so "count": 500 would hang the turn.
+    """
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    if number < 1:
+        return default
+    return min(number, maximum)
+
+
+def _positive_float(value: Any, default: float = 0.5) -> float:
+    """Coerce an LLM-supplied challenge rating into a usable positive float."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
 class CombatInitializer:
     """
     Initializes combat state from scenario context.
@@ -603,7 +629,11 @@ Return JSON array of enemies:"""
             if enemy.get('processed', False):
                 continue  # Skip predefined NPCs
 
-            count = enemy.get('count', 1)
+            # .get('count', 1) does NOT protect against a present-but-null key,
+            # and the extraction LLM emitted "count": null for "Voidbringer foot
+            # soldiers" (an unspecified number). range(None) then raised
+            # TypeError and the whole turn was lost. Coerce, never trust.
+            count = _positive_int(enemy.get('count'), default=1, maximum=12)
             enemy_name = enemy.get('name', 'Unknown Creature')
 
             # CLAMP THE CR TO WHAT THE PARTY CAN SURVIVE.
@@ -614,7 +644,7 @@ Return JSON array of enemies:"""
             # one character with 8 max HP. party_level was passed to the stat
             # generator as advisory context only, and nothing enforced it, so
             # the encounter was unwinnable by construction.
-            requested_cr = enemy.get('estimated_cr', 0.5)
+            requested_cr = _positive_float(enemy.get('estimated_cr'), default=0.5)
             balanced_cr = self._balanced_cr(requested_cr, party_level, count)
             if balanced_cr != requested_cr:
                 self.logger.info(
