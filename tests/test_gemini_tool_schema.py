@@ -564,3 +564,103 @@ class TestTransientFaultsAreRetried:
         with pytest.raises(GeminiAPIError):
             self._run(generator)
         assert calls["n"] == 1
+
+
+class TestPlainDictMessagesAreSupported:
+    """
+    npc_combat_ai calls llm.run(messages=[{"role": "user", "content": prompt}]).
+
+    A dict has no .text/.content ATTRIBUTES, so _convert_messages_to_prompt
+    produced an EMPTY string and the request carried no prompt at all. Floodgate
+    rejected it outright:
+
+        400 INVALID_ARGUMENT ... Model input cannot be empty
+
+    The direct Gemini API instead ACCEPTED the empty request and returned
+    unparseable output, which is why this surfaced for months as "Failed to parse
+    JSON from LLM: Expecting value: line 1 column 1" while the tactical AI
+    silently fell back to "attack the nearest player" on every NPC turn. The
+    stricter gateway is what finally exposed it.
+    """
+
+    def _generator(self):
+        from config.llm_utils import GeminiChatGenerator
+
+        return GeminiChatGenerator.__new__(GeminiChatGenerator)
+
+    def test_a_dict_message_produces_a_prompt(self):
+        prompt = self._generator()._convert_messages_to_prompt(
+            [{"role": "user", "content": "Decide the NPC action."}])
+        assert "Decide the NPC action." in prompt
+
+    def test_dict_roles_are_labelled(self):
+        prompt = self._generator()._convert_messages_to_prompt([
+            {"role": "system", "content": "Be brief."},
+            {"role": "user", "content": "Go."},
+        ])
+        assert "System: Be brief." in prompt
+        assert "User: Go." in prompt
+
+    def test_a_dict_using_text_instead_of_content_works(self):
+        prompt = self._generator()._convert_messages_to_prompt(
+            [{"role": "user", "text": "via text key"}])
+        assert "via text key" in prompt
+
+    def test_chatmessages_still_work(self):
+        from haystack.dataclasses import ChatMessage
+
+        prompt = self._generator()._convert_messages_to_prompt(
+            [ChatMessage.from_user("Decide.")])
+        assert "User: Decide." in prompt
+
+    def test_mixed_dicts_and_chatmessages_work(self):
+        from haystack.dataclasses import ChatMessage
+
+        prompt = self._generator()._convert_messages_to_prompt([
+            {"role": "user", "content": "A"},
+            ChatMessage.from_assistant("B"),
+        ])
+        assert "User: A" in prompt and "Assistant: B" in prompt
+
+
+class TestEmptyPromptsAreRefused:
+    """
+    Never send an empty prompt. Floodgate 400s on it; the direct API accepts it
+    and returns garbage, which is the harder failure to diagnose. Failing here
+    names the real cause.
+    """
+
+    def _generator(self):
+        from config.llm_utils import GeminiChatGenerator
+
+        generator = GeminiChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+
+        class _Models:
+            def generate_content(self, **kwargs):
+                raise AssertionError("an empty prompt reached the API")
+
+        class _Client:
+            models = _Models()
+
+        generator.client = _Client()
+        return generator
+
+    def test_a_contentless_dict_is_refused_before_the_api(self):
+        from config.llm_utils import GeminiAPIError
+
+        with pytest.raises(GeminiAPIError, match="empty prompt"):
+            self._generator().run(messages=[{"role": "user"}])
+
+    def test_the_error_says_what_to_do(self):
+        from config.llm_utils import GeminiAPIError
+
+        with pytest.raises(GeminiAPIError) as caught:
+            self._generator().run(messages=[{}])
+        assert "content" in str(caught.value)
+
+    def test_an_empty_message_list_is_refused(self):
+        from config.llm_utils import GeminiAPIError
+
+        with pytest.raises(GeminiAPIError, match="empty prompt"):
+            self._generator().run(messages=[])

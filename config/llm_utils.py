@@ -476,6 +476,17 @@ class GeminiChatGenerator:
                             if str(_role_of(m)).lower() != "system"]
             prompt = self._convert_messages_to_prompt(conversation or messages)
 
+            # Never send an empty prompt. Floodgate rejects it outright ("Model
+            # input cannot be empty"), and the direct API accepts it and returns
+            # unparseable output — a silent failure that is harder to diagnose
+            # than the 400. Fail here, where the message names the real cause.
+            if not (prompt or "").strip():
+                raise GeminiAPIError(
+                    "Refusing to send an empty prompt: none of the "
+                    f"{len(messages or [])} message(s) yielded text. Callers must "
+                    "pass ChatMessage objects or dicts with a 'content' key."
+                )
+
             config_kwargs = dict(self.generation_config)
             if system_text:
                 config_kwargs["system_instruction"] = system_text
@@ -650,26 +661,36 @@ class GeminiChatGenerator:
         prompt_parts = []
         
         for message in messages:
-            # Get message content (prefer text for newer Haystack API)
+            # Get message content (prefer text for newer Haystack API).
+            #
+            # PLAIN DICTS COUNT TOO. npc_combat_ai calls
+            # llm.run(messages=[{"role": "user", "content": prompt}]) — a dict has
+            # no .text/.content ATTRIBUTES, so the prompt came out EMPTY and the
+            # gateway rejected it with "Model input cannot be empty". The direct
+            # API accepted the empty request and returned unparseable output,
+            # which is why this surfaced earlier as "Failed to parse JSON from
+            # LLM" and the tactical AI silently fell back on every NPC turn.
             content = ""
-            if hasattr(message, 'text') and message.text:
+            if isinstance(message, dict):
+                content = message.get("content") or message.get("text") or ""
+            elif hasattr(message, 'text') and message.text:
                 content = message.text
             elif hasattr(message, 'content') and message.content:
                 content = message.content
             
             if content:
-                # Add role prefix for context
-                if hasattr(message, 'role'):
-                    if message.role == "user":
-                        prompt_parts.append(f"User: {content}")
-                    elif message.role == "assistant":
-                        prompt_parts.append(f"Assistant: {content}")
-                    elif message.role == "system":
-                        prompt_parts.append(f"System: {content}")
-                    else:
-                        prompt_parts.append(content)
+                # Role prefix, from a dict key or an attribute. A dict has no
+                # .role either, so reading only the attribute would drop the
+                # labelling for exactly the callers fixed above.
+                if isinstance(message, dict):
+                    role = message.get("role", "")
                 else:
-                    prompt_parts.append(content)
+                    role = getattr(message, "role", "")
+                role = str(getattr(role, "value", role)).lower()
+
+                label = {"user": "User", "assistant": "Assistant",
+                         "system": "System"}.get(role)
+                prompt_parts.append(f"{label}: {content}" if label else content)
         
         return "\n\n".join(prompt_parts)
     
