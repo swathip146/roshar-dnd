@@ -686,6 +686,17 @@ class HaystackDnDGame:
         import time as _time
         self._turn_started_at = _time.time()
 
+        # Drop the DM tools' per-turn read cache. A live turn called
+        # get_world_state 6 times and burned its whole step budget before
+        # writing the scene; within a turn those reads are identical, so they
+        # are now cached — but the cache must not leak across turns, or the DM
+        # would narrate stale HP and weather.
+        try:
+            from agents.dm_tools import begin_dm_tool_turn
+            begin_dm_tool_turn()
+        except Exception as e:
+            logger.debug(f"   Could not reset DM tool cache: {e}")
+
         try:
             # COMPLIANCE: Get session metadata for context (SessionManager is persistence-only)
             session_metadata = self.session_manager.get_session_metadata()

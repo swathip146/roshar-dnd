@@ -717,6 +717,16 @@ Hard rules:
   for want of Stormlight.
 - search_lore is flavour only. Never derive a mechanic from lore prose.
 
+STEP BUDGET — you have a limited number of tool-calling steps per turn, and if
+you spend them all the player gets a generic fallback scene instead of your work.
+- Call each READ-ONLY tool AT MOST ONCE per turn: get_world_state,
+  get_party_state, get_character_state. They return the same answer every time
+  within a turn, so calling one twice wastes a step and tells you nothing new.
+- Batch your information gathering: decide everything you need, call those tools
+  once each, then write the scene.
+- Prefer writing the scene over one more lookup. An excellent scene using what
+  you already know beats a perfect lookup with no scene at all.
+
 Then write the scene describing what the tools actually returned.
 
 Remember: Create scenarios that feel like authentic story progression using ALL the rich context provided!
@@ -746,14 +756,18 @@ Remember: Create scenarios that feel like authentic story progression using ALL 
         tools=dm_tools,
         system_prompt=simplified_system_prompt,
         exit_conditions=["text"],  # finish when the model writes the scene
-        # Enough steps to inspect state, look up a rule, roll, then narrate.
-        max_agent_steps=6 if dm_tools else 1,
+        # Enough steps to inspect state, look up a rule, roll, THEN NARRATE.
+        # Was 6, which a live playtest exhausted on tool calls alone: two turns
+        # spent every step querying state and the player got a generic fallback
+        # instead of a scene. Raised to 10, and the read tools are now cached
+        # per turn so repeats cost nothing.
+        max_agent_steps=10 if dm_tools else 1,
         raise_on_tool_invocation_failure=False,
         state_schema={}
     )
     logger.info(
         f"🎯 Scenario agent created with {len(dm_tools)} DM tools, "
-        f"max_agent_steps={6 if dm_tools else 1}"
+        f"max_agent_steps={10 if dm_tools else 1}"
     )
     
     return agent

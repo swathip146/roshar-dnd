@@ -52,6 +52,47 @@ def set_dm_tool_context(*, game_engine=None, character_manager=None,
 
 def clear_dm_tool_context() -> None:
     _CONTEXT.clear()
+    _READ_CACHE.clear()
+
+
+# Per-turn cache for READ-ONLY state tools.
+#
+# A live playtest turn called get_world_state 6 times and get_party_state 4
+# times, exhausting max_agent_steps before the model ever wrote the scene — the
+# player got a generic fallback instead. These tools are pure reads that return
+# the same answer throughout a turn, so re-asking cannot teach the model
+# anything; it only burns the step budget. The prompt now says "at most once per
+# turn", but a prompt cannot enforce an invariant, so this makes a repeat call
+# free rather than merely discouraged.
+#
+# Mutating tools (apply_damage, roll_skill_check, ...) are NEVER cached: their
+# whole purpose is to change state or produce a fresh roll.
+_READ_CACHE: Dict[str, Any] = {}
+
+
+def begin_dm_tool_turn() -> None:
+    """Drop the per-turn read cache. Called at the start of each turn."""
+    _READ_CACHE.clear()
+
+
+def invalidate_dm_tool_reads() -> None:
+    """
+    Drop cached reads after a MUTATION.
+
+    Without this the cache would be actively wrong, not merely stale: a model
+    that calls apply_damage and then get_character_state must see the new HP, or
+    it will narrate the character as unharmed.
+    """
+    _READ_CACHE.clear()
+
+
+def _cached_read(key: str, compute):
+    """Return a cached read for this turn, computing it at most once."""
+    if key not in _READ_CACHE:
+        _READ_CACHE[key] = compute()
+        return _READ_CACHE[key]
+    logger.debug(f"🔧 {key}: served from this turn's cache (no step wasted)")
+    return _READ_CACHE[key]
 
 
 def _need(key: str):
@@ -181,7 +222,8 @@ def get_character_state(actor: str = "") -> Dict[str, Any]:
         if character is None:
             return {"error": f"unknown character {actor_id!r}"}
 
-        return {
+        # Cached per turn: a pure read, so a repeat call costs no step.
+        return _cached_read(f"character_state:{actor_id}", lambda: {
             "id": actor_id,
             "name": character.name,
             "level": character.level,
@@ -196,7 +238,7 @@ def get_character_state(actor: str = "") -> Dict[str, Any]:
             "experience_points": getattr(character, "experience_points", 0),
             "is_dying": (character.hit_points or {}).get("current", 1) <= 0,
             "is_dead": getattr(character, "is_dead", False),
-        }
+        })
     except Exception as e:
         logger.warning(f"⚠️ get_character_state failed: {e}")
         return {"error": str(e)}
@@ -237,7 +279,10 @@ def get_party_state() -> Dict[str, Any]:
                 "is_dying": hp.get("current", 1) <= 0,
                 "is_dead": getattr(character, "is_dead", False),
             })
-        return {"members": members, "party_size": len(members)}
+        # Cached per turn: a pure read, so a repeat call costs no step.
+        return _cached_read("party_state",
+                            lambda: {"members": members,
+                                     "party_size": len(members)})
     except Exception as e:
         logger.warning(f"⚠️ get_party_state failed: {e}")
         return {"error": str(e), "members": []}
@@ -261,7 +306,8 @@ def get_world_state() -> Dict[str, Any]:
                      if hasattr(engine, "get_game_time") else {})
         quests = (engine.get_quest_progress()
                   if hasattr(engine, "get_quest_progress") else {})
-        return {
+        # Cached per turn: a pure read, so a repeat call costs no step.
+        return _cached_read("world_state", lambda: {
             "location": location.get("current_location", "unknown"),
             "description": location.get("description", ""),
             "exits": (engine.get_available_exits()
@@ -273,7 +319,7 @@ def get_world_state() -> Dict[str, Any]:
             "days_until_highstorm": time_info.get("days_until_highstorm"),
             "quests_pending": quests.get("pending", []),
             "quests_completed": quests.get("completed", []),
-        }
+        })
     except Exception as e:
         logger.warning(f"⚠️ get_world_state failed: {e}")
         return {"error": str(e)}
@@ -409,6 +455,7 @@ def apply_damage(amount: int, actor: str = "",
         hp_before, hp_after, is_dying, is_dead
     """
     try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
         manager = _need("character_manager")
         actor_id = _active_actor(actor)
         character = manager.characters.get(actor_id)
@@ -446,6 +493,7 @@ def apply_healing(amount: int, actor: str = "") -> Dict[str, Any]:
         hp_before, hp_after, healed
     """
     try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
         manager = _need("character_manager")
         actor_id = _active_actor(actor)
         character = manager.characters.get(actor_id)
@@ -479,6 +527,7 @@ def spend_stormlight(amount: int, actor: str = "") -> Dict[str, Any]:
         affordable, spent, remaining
     """
     try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
         manager = _need("character_manager")
         actor_id = _active_actor(actor)
         character = manager.characters.get(actor_id)
@@ -518,6 +567,7 @@ def advance_quest(objective: str, action: str = "complete") -> Dict[str, Any]:
         pending, completed, percent_complete
     """
     try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
         engine = _need("game_engine")
         if action == "add":
             engine.add_quest_objective(objective)
@@ -543,6 +593,7 @@ def award_experience(amount: int, reason: str = "") -> Dict[str, Any]:
         awards: per-character xp/level results
     """
     try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
         manager = _need("character_manager")
         npcs = set()
         try:
@@ -571,6 +622,7 @@ def travel_to_location(destination: str) -> Dict[str, Any]:
         success, from, to, description, hazards, available_exits
     """
     try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
         return _need("game_engine").travel_to(destination)
     except Exception as e:
         logger.warning(f"⚠️ travel_to_location failed: {e}")

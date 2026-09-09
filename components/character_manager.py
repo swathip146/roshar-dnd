@@ -3,6 +3,7 @@ Character Manager - Stage 3 Week 11-12
 Character data management and skill calculations - From Original Plan
 """
 
+import copy
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict, fields
 from enum import Enum
@@ -204,6 +205,15 @@ class CharacterManager:
     
     def add_character(self, character_data: Dict[str, Any]) -> str:
         """Add or update a character"""
+        # Deep-copy first: the nested dicts and lists (hit_points, ability_scores,
+        # equipment, conditions, ...) were previously stored BY REFERENCE, so two
+        # engines built from one character template shared live state — damaging a
+        # character in one mutated the other, and a caller that reused its own
+        # template dict saw the game write back into it. Found via a test where
+        # `add_character(dict(TEMPLATE))` on two GameEngines produced distinct
+        # CharacterData objects that shared a single hit_points dict.
+        character_data = copy.deepcopy(character_data)
+
         char_id = character_data.get("character_id", character_data.get("name", "unknown"))
 
         # Calculate ability modifiers
