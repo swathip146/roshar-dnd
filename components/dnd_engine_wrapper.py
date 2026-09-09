@@ -44,6 +44,7 @@ from dnd.blocks.action_economy import ActionEconomyConfig
 from dnd.core.events import SkillCheckEvent, SkillName, AbilityName
 from dnd.core.dice import Dice, RollType
 from dnd.core.modifiers import DamageType
+from dnd.core.values import ModifiableValue
 
 # Your existing imports
 from config.logging_config import get_logger
@@ -228,6 +229,23 @@ class DnDEngineWrapper:
             from dnd.blocks.equipment import Weapon, WeaponSlot
             from dnd.core.events import Range, RangeType
 
+            # PROFICIENCY. dnd_engine applies proficiency_bonus to SKILLS only —
+            # grep it in dnd/: entity.py declares the field, skills.py consumes
+            # it, and actions.py never mentions it. So a proficient level 5
+            # character attacked at STR alone, which is why a live combat showed
+            # a 38% hit rate against AC 14 where 5e expects ~60%.
+            #
+            # A PC is assumed proficient with their own carried weapon; monsters
+            # get the same treatment, which matches how 5e statblocks bake
+            # proficiency into their attack bonus.
+            proficiency = 0
+            character = self.character_manager.characters.get(char_id)
+            if character is not None:
+                try:
+                    proficiency = int(getattr(character, "proficiency_bonus", 0) or 0)
+                except (TypeError, ValueError):
+                    proficiency = 0
+
             weapon = Weapon(
                 name=weapon_name,
                 source_entity_uuid=entity.uuid,
@@ -235,6 +253,12 @@ class DnDEngineWrapper:
                 damage_dice=damage_dice,
                 damage_type=getattr(DamageType, damage_type_name.upper()),
                 properties=[],
+                # A ModifiableValue, not a bare int: Weapon validates the type.
+                attack_bonus=ModifiableValue.create(
+                    source_entity_uuid=entity.uuid,
+                    base_value=proficiency,
+                    value_name=f"{weapon_name} proficiency",
+                ),
                 # `range` is required and rejects None.
                 range=Range(type=RangeType.REACH, normal=reach_ft),
             )

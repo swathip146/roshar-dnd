@@ -946,19 +946,33 @@ class GameInitializationSystem:
                 "level": 1,
                 "background": "Folk Hero",
                 "rulebook": "Cosmere 5e (Roshar)",
+                # STR 8 gave a -1 to hit, so a level 5 Aggi attacked at roughly
+                # +2 against AC 14 and a live combat produced twelve consecutive
+                # misses. A Folk Hero soldier-type needs a usable melee stat.
                 "ability_scores": {
-                    "strength": 8,
-                    "dexterity": 11,
-                    "constitution": 11,
+                    "strength": 14,
+                    "dexterity": 13,
+                    "constitution": 12,
                     "intelligence": 8,
-                    "wisdom": 6,
+                    "wisdom": 10,
                     "charisma": 13
                 },
                 "hit_points": {"current": 8, "maximum": 8, "temporary": 0},
                 "armor_class": 10,
                 "proficiency_bonus": 2,
                 "languages": ["Common", "Alethi"],
-                "equipment": [],
+                # A WEAPON IS REQUIRED. This was [], so equip_from_character_data
+                # had nothing to equip, entity.equipment.main_hand stayed None,
+                # and every attack resolved UNARMED. The narrator, having no real
+                # weapon to describe, invented a different one each turn — a
+                # warhammer, then a spear, then a greatsword, then an axe.
+                "equipment": [
+                    "Spear",
+                    "Shield",
+                    "Leather armor",
+                    "Explorer's pack",
+                    "Common clothes"
+                ],
                 "personality": {
                     "traits": ["Stands up for the common people", "Strong sense of justice"],
                     "ideals": ["Justice and personal growth"],
@@ -1001,6 +1015,9 @@ class GameInitializationSystem:
                 "proficiency_bonus": 2,
                 "languages": ["Common", "Azish", "Common Script", "Common Glyphs"],
                 "equipment": [
+                    # Same problem as Aggi: without a weapon every attack
+                    # resolves unarmed.
+                    "Quarterstaff",
                     "Herbalism kit",
                     "Scroll case with spiritual writings",
                     "Winter blanket",
