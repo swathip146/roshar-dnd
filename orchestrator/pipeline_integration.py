@@ -10,6 +10,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from typing import Dict, Any, Optional, List, Union
 import logging
+import re
 import time
 import traceback
 
@@ -66,6 +67,46 @@ def debug_print(category: str, message: str, data: Any = None):
 # Simple logging for errors only
 pipeline_logger = logging.getLogger("PipelineOrchestrator")
 pipeline_logger.setLevel(logging.WARNING)
+
+
+def _salvage_truncated_json(text: str) -> Dict[str, Any]:
+    """
+    Recover the complete key/value pairs from a JSON object cut off mid-write.
+
+    A live playtest truncated the intent reply mid-string:
+
+        "rag_reasoning": "To generate an appropriate response ... ('Speak your First
+
+    Every field the router actually needs (`primary`, `rag_needed`) had already
+    been emitted; only the trailing prose was lost. Discarding the whole payload
+    and falling back to a default intent threw away correct routing information,
+    so scan the complete pairs instead of requiring a closing brace.
+
+    Only flat scalar pairs are read — nested objects in a truncated tail cannot
+    be trusted, and the intent schema is flat.
+    """
+    recovered: Dict[str, Any] = {}
+    pattern = re.compile(
+        r'"(?P<key>\w+)"\s*:\s*'
+        r'(?:"(?P<string>(?:[^"\\]|\\.)*)"'          # complete string
+        r'|(?P<number>-?\d+(?:\.\d+)?)'              # number
+        r'|(?P<bool>true|false)'                     # bool
+        r'|(?P<null>null))'
+        r'\s*(?=[,}]|$)',                            # followed by , } or EOF
+    )
+    for match in pattern.finditer(text):
+        key = match.group("key")
+        if match.group("string") is not None:
+            recovered[key] = match.group("string")
+        elif match.group("number") is not None:
+            raw = match.group("number")
+            recovered[key] = float(raw) if "." in raw else int(raw)
+        elif match.group("bool") is not None:
+            recovered[key] = match.group("bool") == "true"
+        else:
+            recovered[key] = None
+    return recovered
+
 
 class PipelineOrchestrator:
     """
@@ -568,6 +609,27 @@ Return your analysis in the required JSON format.
                         json_str = response_text[json_start:json_end]
                         intent_data = json.loads(json_str)
                         debug_print("INTERFACE", f"✅ Parsed intent data from structured output")
+                    elif json_start >= 0:
+                        # An opening brace with no closing one means the reply was
+                        # TRUNCATED, not absent — the old message said "No JSON
+                        # object found in response", which sent diagnosis after a
+                        # missing object when the real cause was a token cap
+                        # consumed by the model's internal reasoning.
+                        recovered = _salvage_truncated_json(response_text[json_start:])
+                        if recovered.get("primary"):
+                            logger.warning(
+                                f"⚠️ Intent JSON was truncated mid-response "
+                                f"({len(response_text)} chars); recovered "
+                                f"{sorted(recovered)} and continuing"
+                            )
+                            intent_data = recovered
+                        else:
+                            raise ValueError(
+                                f"Intent JSON was truncated after "
+                                f"{len(response_text)} chars and no usable keys "
+                                f"were recovered (raise max_output_tokens or "
+                                f"lower thinking_budget)"
+                            )
                     else:
                         raise ValueError("No JSON object found in response")
                 except Exception as e:
