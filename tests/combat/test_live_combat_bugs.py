@@ -386,3 +386,106 @@ class TestRefusedActionsDoNotCrash:
             result = resolver.resolve_action(
                 {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
             assert isinstance(result, dict), "resolver raised instead of returning"
+
+
+class TestCharactersCanActuallyHit:
+    """
+    A live combat produced TWELVE consecutive misses. Three compounding causes,
+    none of them the dice:
+
+      1. Aggi's hardcoded definition had "equipment": [], so
+         equip_from_character_data had nothing to equip and every attack
+         resolved UNARMED. The narrator, with no real weapon to describe,
+         invented a different one each turn — warhammer, spear, greatsword, axe.
+      2. STR 8 gave -1 to hit on a melee character.
+      3. dnd_engine applies proficiency_bonus to SKILLS ONLY. Grep it: entity.py
+         declares the field, skills.py consumes it, actions.py never mentions
+         it. So a proficient level 5 character attacked at ability modifier
+         alone.
+
+    Together: ~30% against AC 14 where 5e expects ~60%.
+    """
+
+    def _armed(self, equipment, strength, proficiency):
+        from components.dnd_engine_wrapper import DnDEngineWrapper
+
+        engine = GameEngine()
+        engine.add_character({
+            "character_id": "Aggi", "name": "Aggi", "level": 5,
+            "ability_scores": {"strength": strength, "dexterity": 13,
+                               "constitution": 12, "intelligence": 8,
+                               "wisdom": 10, "charisma": 13},
+            "hit_points": {"current": 32, "maximum": 32, "temporary": 0},
+            "armor_class": 14, "character_class": "Radiant", "race": "Alethi",
+            "background": "Folk Hero", "equipment": equipment,
+            "proficiency_bonus": proficiency,
+        })
+        engine.add_character(_character("Scout", hp=22))
+        wrapper = DnDEngineWrapper(game_engine=engine,
+                                   character_manager=engine.character_manager)
+        wrapper.set_entity_position("Aggi", (0, 0))
+        wrapper.set_entity_position("Scout", (0, 1))
+        wrapper.refresh_senses()
+        return wrapper
+
+    def _hit_rate(self, wrapper, trials=400):
+        from dnd.actions import Attack
+        from dnd.blocks.equipment import WeaponSlot
+
+        attacker = wrapper.entities["Aggi"]
+        target = wrapper.entities["Scout"]
+        hits = 0
+        for _ in range(trials):
+            attacker.action_economy.reset_all_costs()
+            event = Attack(source_entity_uuid=attacker.uuid,
+                           target_entity_uuid=target.uuid,
+                           weapon_slot=WeaponSlot.MAIN_HAND).apply(parent_event=None)
+            if event is not None and "HIT" in str(getattr(event, "attack_outcome", "")):
+                hits += 1
+        return hits / trials
+
+    def test_a_named_weapon_is_equipped(self):
+        wrapper = self._armed(["Spear", "Shield"], 14, 3)
+        weapon = wrapper.entities["Aggi"].equipment.weapon_main_hand
+        assert weapon is not None, "the character is fighting unarmed"
+        assert weapon.name == "Spear"
+
+    def test_non_weapon_equipment_is_skipped(self):
+        """Shield and armour must not be equipped as the weapon."""
+        wrapper = self._armed(["Leather armor", "Shield", "Spear"], 14, 3)
+        assert wrapper.entities["Aggi"].equipment.weapon_main_hand.name == "Spear"
+
+    def test_proficiency_reaches_the_attack_roll(self):
+        """The engine never applies it; the wrapper must."""
+        weapon = self._armed(["Spear"], 14, 3).entities["Aggi"].equipment.weapon_main_hand
+        assert weapon.attack_bonus.score == 3, (
+            "proficiency is missing from the attack bonus, so a proficient "
+            "character attacks at ability modifier alone")
+
+    def test_hit_rate_is_plausible_for_the_level(self):
+        """
+        STR 14 (+2) and proficiency (+3) is +5 against AC 14: needs a 9+, so
+        about 60%. The floor is deliberately loose to stay robust to dice, but
+        tight enough to catch the unarmed/no-proficiency regression at ~30%.
+        """
+        rate = self._hit_rate(self._armed(["Spear"], 14, 3))
+        assert rate > 0.45, f"hit rate {rate:.0%} is too low for +5 vs AC 14"
+
+    def test_the_unarmed_case_is_measurably_worse(self):
+        """Confirms the fix is what moved the number, not chance."""
+        armed = self._hit_rate(self._armed(["Spear"], 14, 3))
+        unarmed = self._hit_rate(self._armed([], 8, 2))
+        assert armed > unarmed + 0.10
+
+    def test_the_shipped_characters_carry_weapons(self):
+        """
+        The real regression: Aggi shipped with "equipment": []. Assert on the
+        actual definitions rather than a hand-written copy.
+        """
+        import inspect
+
+        from core import game_initialization
+
+        source = inspect.getsource(game_initialization)
+        assert '"equipment": [],' not in source, (
+            "a shipped character has no equipment, so it fights unarmed")
