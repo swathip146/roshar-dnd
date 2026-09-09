@@ -188,7 +188,16 @@ Create a comprehensive D&D campaign following this exact JSON structure:
     {{"name": "Location Name", "type": "City/Dungeon/Wilderness", "description": "Vivid description", "significance": "Why it's important"}}
   ],
   "encounters": [
-    {{"title": "Encounter Name", "type": "Combat/Social/Exploration", "description": "What happens", "challenge": "Difficulty level"}}
+    {{"id": "stable_snake_case_id", "title": "Encounter Name", "type": "Combat/Social/Exploration",
+      "act": "act1", "quest": "quest_id_this_belongs_to", "location": "Location Name",
+      "description": "What happens", "challenge": "Prose difficulty note",
+      "difficulty": "easy|medium|hard|deadly",
+      "trigger": {{"keywords": ["words that appear when this scene occurs"], "location": "Location Name", "quest_pending": "quest_id"}},
+      "enemies": [
+        {{"name": "Enemy Name", "count": 2, "estimated_cr": 0.5, "role": "skirmisher|soldier|caster|boss",
+          "description": "What it looks like and how it fights", "keywords": ["tag", "tag"]}}
+      ],
+      "victory": {{"quest_objective": "exact objective text this completes", "xp": 100}}}}
   ],
   "hooks": [
     "Campaign hook option 1",
@@ -245,6 +254,25 @@ STRUCTURED PROGRESSION (required — plan 2.14 / decision D2):
 - "closing_narration" is the authored ending. Write it as an instruction to the
   DM, not as final prose to print verbatim.
 
+ENCOUNTER AUTHORING RULES (these drive real combat, so they must be mechanically sound):
+- Every encounter needs an "enemies" list. An EMPTY list is meaningful and correct
+  for social, exploration or puzzle encounters — it tells the engine this scene is
+  deliberately not a fight. Never omit the key.
+- Balance "estimated_cr" against the party level for that act, not against how
+  dramatic the scene sounds. A single enemy of CR roughly equal to party level is
+  a fair fight; if several enemies appear at once, each one's CR must be LOWER.
+  A level 1 party facing three CR 3 enemies is unwinnable.
+- Use the campaign's own level_range to judge this: early-act encounters are for
+  the bottom of the range, final-act encounters for the top.
+- "trigger.keywords" must be words that genuinely appear when the scene happens
+  (creature names, place names, the action that starts it). They are matched
+  against the narration, so generic words like "fight" or "danger" cause an
+  encounter to fire at the wrong moment.
+- "victory.quest_objective" must copy an objective string from "quests" EXACTLY,
+  or completing the encounter will not advance the quest.
+- Give every encounter a stable snake_case "id", and reference real "act" and
+  "quest" ids from this same campaign.
+
 CRITICAL: Return ONLY a valid JSON object with no additional text, explanations, or formatting. Start with {{ and end with }}.
 Example format: {{"title": "Campaign Name", "theme": "Horror", "setting": "Location"}}"""
 
@@ -292,7 +320,21 @@ Example format: {{"title": "Campaign Name", "theme": "Horror", "setting": "Locat
                     "main_plot": response,
                     "key_npcs": [{"name": "NPC", "role": "Supporting character", "description": "Details to be added", "motivation": "Unknown"}],
                     "locations": [{"name": "Starting Location", "type": "Settlement", "description": "To be detailed", "significance": "Campaign start"}],
-                    "encounters": [{"title": "Initial Encounter", "type": "Social", "description": "Campaign introduction", "challenge": "Easy"}],
+                    "encounters": [{
+                        "id": "opening_encounter",
+                        "title": "Initial Encounter",
+                        "type": "Social",
+                        "description": "Campaign introduction",
+                        "challenge": "Easy",
+                        "difficulty": "easy",
+                        "trigger": {"keywords": ["arrive", "introduction"]},
+                        # Empty enemies = deliberately not a fight. The key must
+                        # be PRESENT: CombatInitializer only treats an encounter
+                        # as authored when "enemies" exists, and falls back to
+                        # LLM extraction otherwise.
+                        "enemies": [],
+                        "victory": {},
+                    }],
                     "hooks": ["Adventure begins", "Mystery unfolds", "Conflict arises"],
                     "rewards": ["Experience", "Gold", "Magic items"],
                     "dm_notes": "Campaign generated from RAG response. Requires further development."

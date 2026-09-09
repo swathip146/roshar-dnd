@@ -262,6 +262,98 @@ class CombatInitializer:
 
         return False
 
+    def _campaign_encounters(self) -> List[Dict[str, Any]]:
+        """Authored encounters from the campaign file, loaded once."""
+        cached = getattr(self, "_encounters_cache", None)
+        if cached is not None:
+            return cached
+
+        encounters: List[Dict[str, Any]] = []
+        try:
+            import json
+            from pathlib import Path
+
+            campaign = getattr(self.game_engine, "campaign_config", None)
+            source = getattr(campaign, "source_file", None) if campaign else None
+            if source:
+                path = Path(source)
+                if path.exists() and path.suffix == ".json":
+                    data = json.loads(path.read_text())
+                    # Only STRUCTURED encounters are usable: the older format was
+                    # prose only (title/type/description/challenge) with no enemy
+                    # roster, so it cannot drive combat.
+                    encounters = [e for e in (data.get("encounters") or [])
+                                  if isinstance(e, dict) and "enemies" in e]
+        except Exception as e:
+            self.logger.debug(f"   Could not load campaign encounters: {e}")
+
+        self._encounters_cache = encounters
+        if encounters:
+            self.logger.info(f"   📜 {len(encounters)} authored encounter(s) available")
+        return encounters
+
+    def _match_authored_encounter(self, scenario: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Find the authored encounter this scene is describing, if any.
+
+        Scored on three signals, strongest first:
+          - the current location matches the encounter's location
+          - the encounter's quest is still pending
+          - trigger keywords appear in the scene / gm_notes / chosen option
+
+        Requires a keyword hit so an encounter cannot fire merely for being in
+        the right place; returns None when nothing matches, and combat falls back
+        to LLM extraction.
+        """
+        encounters = self._campaign_encounters()
+        if not encounters:
+            return None
+
+        haystack = " ".join(str(scenario.get(key, "")) for key in
+                            ("scene", "gm_notes", "player_choice")).lower()
+        for choice in (scenario.get("choices") or []):
+            if isinstance(choice, dict):
+                haystack += " " + str(choice.get("title", "")).lower()
+                haystack += " " + str(choice.get("description", "")).lower()
+
+        location = ""
+        pending: set = set()
+        try:
+            location = str(self.game_engine.get_location_context().get(
+                "current_location", "")).lower()
+        except Exception:
+            pass
+        try:
+            progress = self.game_engine.get_quest_progress()
+            pending = {str(o).lower() for o in (progress.get("pending") or [])}
+        except Exception:
+            pass
+
+        best, best_score = None, 0
+        for encounter in encounters:
+            trigger = encounter.get("trigger") or {}
+            keywords = [str(k).lower() for k in (trigger.get("keywords") or [])]
+            hits = sum(1 for keyword in keywords if keyword and keyword in haystack)
+            if not hits:
+                continue  # location alone must never fire an encounter
+
+            score = hits
+            wanted_location = str(trigger.get("location", "")).lower()
+            if wanted_location and wanted_location == location:
+                score += 3
+            quest_title = str(encounter.get("victory", {}).get(
+                "quest_objective", "")).lower()
+            if quest_title and quest_title in pending:
+                score += 2
+
+            if score > best_score:
+                best, best_score = encounter, score
+
+        if best is not None:
+            self.logger.debug(
+                f"   📜 matched encounter '{best.get('id')}' (score {best_score})")
+        return best
+
     def _parse_enemies_from_scenario(self, scenario: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract enemy information from scenario using LLM parsing.
@@ -295,6 +387,25 @@ class CombatInitializer:
                 }
             ]
         """
+        # AUTHORED ENCOUNTERS WIN. The campaign may define an encounter with a
+        # fixed roster; prefer it over asking the LLM to invent one from prose.
+        # Extraction produced CR 3 x3 for a level 1 party in a live run, because
+        # it reads "Voidbringers" and guesses. An authored roster cannot drift.
+        authored = self._match_authored_encounter(scenario)
+        if authored is not None:
+            enemies = authored.get("enemies") or []
+            self.logger.info(
+                f"   📜 Using authored encounter '{authored.get('id')}' "
+                f"({len(enemies)} enemy type(s))")
+            if not enemies:
+                # A deliberately non-combat encounter (a social trial). Returning
+                # [] tells initialize_combat there is no fight here, which is the
+                # authored intent rather than a parsing failure.
+                self.logger.info(
+                    f"   📜 '{authored.get('id')}' is authored with NO enemies "
+                    f"— this scene is not a fight")
+            return [dict(enemy) for enemy in enemies]
+
         scene_text = scenario.get('scene', '')
         gm_notes = scenario.get('gm_notes', '')
         player_choice = scenario.get('player_choice', '')

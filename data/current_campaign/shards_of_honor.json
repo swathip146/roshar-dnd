@@ -58,28 +58,161 @@
   ],
   "encounters": [
     {
+      "id": "voidbringer_ambush",
       "title": "The First Oath Awakening",
       "type": "Combat/Mystical",
+      "act": "act1",
+      "quest": "first_oath",
+      "location": "The Shattered Plains",
       "description": "Players defend civilians from Voidbringers while their spren first manifest, requiring them to speak 'Life before death, strength before weakness, journey before destination' to unlock their powers.",
-      "challenge": "Medium - tutorial combat with oath-speaking mechanics"
+      "challenge": "Medium - tutorial combat with oath-speaking mechanics",
+      "difficulty": "easy",
+      "trigger": {
+        "keywords": [
+          "voidbringer",
+          "attack",
+          "ambush",
+          "border town",
+          "civilians"
+        ],
+        "location": "The Shattered Plains",
+        "quest_pending": "first_oath"
+      },
+      "enemies": [
+        {
+          "name": "Voidbringer Scout",
+          "count": 2,
+          "estimated_cr": 0.25,
+          "role": "skirmisher",
+          "description": "A lean, chitinous Voidbringer scout that darts between the rocks, testing the party's defence before the main assault.",
+          "keywords": [
+            "voidbringer",
+            "singer",
+            "skirmisher"
+          ]
+        }
+      ],
+      "victory": {
+        "quest_objective": "Survive the Voidbringer attack on the border town",
+        "xp": 100
+      }
     },
     {
+      "id": "honorspren_trial",
       "title": "Trial of the Honorspren",
       "type": "Social/Mental",
+      "act": "act2",
+      "quest": "artifact_1",
+      "location": "Lasting Integrity",
       "description": "In Shadesmar, players must convince ancient honorspren to trust humans again by proving their dedication to their oaths through tests of character.",
-      "challenge": "Hard - requires deep roleplay and understanding of Radiant ideals"
+      "challenge": "Hard - requires deep roleplay and understanding of Radiant ideals",
+      "difficulty": "hard",
+      "trigger": {
+        "keywords": [
+          "honorspren",
+          "shadesmar",
+          "trial",
+          "lasting integrity"
+        ],
+        "location": "Lasting Integrity"
+      },
+      "enemies": [],
+      "victory": {
+        "quest_objective": "Retrieve the artifact",
+        "xp": 450
+      }
     },
     {
+      "id": "singing_peaks",
       "title": "The Battle of the Singing Peaks",
       "type": "Mass Combat",
+      "act": "act3",
+      "quest": "stop_ritual",
+      "location": "Urithiru",
       "description": "Epic final battle where players lead allied armies of Alethi, Veden forces, honorspren, and reformed singers against waves of Voidbringers, corrupted singers, and Odium's champions across a massive battlefield.",
-      "challenge": "Very Hard - large-scale battle with multiple objectives and ally management"
+      "challenge": "Very Hard - large-scale battle with multiple objectives and ally management",
+      "difficulty": "deadly",
+      "trigger": {
+        "keywords": [
+          "battle",
+          "singing peaks",
+          "champion",
+          "odium",
+          "armies"
+        ],
+        "location": "Urithiru",
+        "quest_pending": "stop_ritual"
+      },
+      "enemies": [
+        {
+          "name": "Fused Champion",
+          "count": 1,
+          "estimated_cr": 5,
+          "role": "boss",
+          "description": "One of Odium's undying champions, armoured in carapace and wielding a Shardblade of its own; it does not fear death because it has already returned from it.",
+          "keywords": [
+            "fused",
+            "champion",
+            "boss",
+            "voidbringer"
+          ]
+        },
+        {
+          "name": "Corrupted Singer",
+          "count": 4,
+          "estimated_cr": 1,
+          "role": "soldier",
+          "description": "A singer bound to a Void spren, fighting with disciplined formation tactics and unnatural stamina.",
+          "keywords": [
+            "singer",
+            "voidbringer",
+            "soldier"
+          ]
+        }
+      ],
+      "victory": {
+        "quest_objective": "Break the ritual",
+        "xp": 2000
+      }
     },
     {
+      "id": "sibling_confrontation",
       "title": "Confronting the Sibling",
       "type": "Mystical/Social",
-      "description": "Players must prove their worth to the tower spren while navigating the dangers of a partially awakened Urithiru and its ancient defenses.",
-      "challenge": "Medium - puzzle-solving combined with moral choices"
+      "act": "act3",
+      "quest": "artifact_3",
+      "location": "Urithiru",
+      "description": "Players must reach the Sibling at the heart of Urithiru and convince it to reawaken, solving the tower's failing fabrial defences while Odium's forces close in.",
+      "challenge": "Medium - puzzle-solving combined with moral persuasion",
+      "difficulty": "medium",
+      "trigger": {
+        "keywords": [
+          "sibling",
+          "urithiru",
+          "tower",
+          "fabrial",
+          "reawaken"
+        ],
+        "location": "Urithiru"
+      },
+      "enemies": [
+        {
+          "name": "Void Spren Manifestation",
+          "count": 2,
+          "estimated_cr": 3,
+          "role": "caster",
+          "description": "A knot of corrupted light guarding the tower's spine, striking at the mind rather than the body.",
+          "keywords": [
+            "spren",
+            "void",
+            "caster"
+          ]
+        }
+      ],
+      "victory": {
+        "quest_objective": "Retrieve the artifact",
+        "xp": 900
+      }
     }
   ],
   "hooks": [
@@ -99,7 +232,7 @@
     "a dnd campgain set in the world of roshar where the players play as knight radiants that need to prevent a take over of a nation by evil forces",
     "to include concepts of spren, oaths. Include 2 heralds as NPCs. Reduce the duration to 5 sessions. Reduce the locations to 3. Include evil voidbringers. Add an exiting treasure at each location that will be useful in subsequent story. Make the final battle to have a large battlefield with many npcs fighting several evil forces along side the players."
   ],
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "acts": [
     {
       "id": "act1",
