@@ -195,3 +195,16 @@ data/rules/srd/*.json
 data/rules/gaps.json
 data/rules/rulings.json
 game_saves/turns.sqlite*
+
+# gateway / gateway-cli credentials — treated exactly like GEMINI_API_KEY.
+# The real token normally lives in ~/.gateway-cli (mode 600, OUTSIDE this repo),
+# but these patterns make sure a local copy or an export script can never be
+# committed by accident.
+.gateway-cli
+.gateway-cli*
+*.gateway-cli
+gateway-cli_token*
+gateway_token*
+.gateway
+.gateway*
+secrets/
