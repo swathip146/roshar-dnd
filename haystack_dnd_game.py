@@ -605,6 +605,31 @@ class HaystackDnDGame:
             return "The magical forces seem disrupted. Please try again."
         return narration
 
+    def _check_campaign_endgame(self) -> str:
+        """
+        Announce the campaign's ending if its condition is now satisfied (D2).
+
+        Returns a banner to append to the turn's narration, or "" if the campaign
+        is still running. Delegates the decision to the orchestrator, which owns
+        the CampaignSchema; the LLM narrates the ending, but code decides IF
+        there is one.
+        """
+        try:
+            orchestrator = getattr(self, "orchestrator", None)
+            check = getattr(orchestrator, "_check_endgame", None)
+            if check is None:
+                return ""
+            if getattr(self, "_endgame_announced", False):
+                return ""
+            if not check():
+                return ""
+            self._endgame_announced = True
+            return ("\n\n🏆 **The campaign is complete.** Every condition of "
+                    "your charge has been met.")
+        except Exception as e:
+            logger.debug(f"   Endgame check skipped: {e}")
+            return ""
+
     def _durable_loop(self):
         """The campaign's DurableTurnLoop, built once (plan 3.5)."""
         existing = getattr(self, "_turn_loop", None)
@@ -719,6 +744,15 @@ class HaystackDnDGame:
             request_dto["_policy_engine_ref"] = self.policy_engine
             request_dto["_dnd_engine_wrapper_ref"] = self.dnd_engine_wrapper  # PHASE 2
 
+            # Test hook: force an encounter on a given turn so a playtest can
+            # exercise combat deterministically instead of hoping the DM starts
+            # a fight. Unset in normal play, where combat_trigger decides.
+            forced_turn = getattr(self, "force_combat_on_turn", None)
+            if forced_turn is not None and self.turn_counter == forced_turn:
+                logger.info(f"⚔️ Forcing combat on turn {self.turn_counter} "
+                            f"(force_combat_on_turn)")
+                request_dto["force_combat"] = True
+
             logger.info(f"🎯 Processing turn {self.turn_counter} with enhanced response system")
 
             # Use existing orchestrator
@@ -742,6 +776,13 @@ class HaystackDnDGame:
 
                 narration = formatted_result.get("formatted_response",
                                                  "The adventure continues...")
+
+                # D2: has the campaign's authored ending been reached? Nothing
+                # called EndgameEvaluator before, so a campaign could never
+                # register as finished however many objectives were completed.
+                ending = self._check_campaign_endgame()
+                if ending:
+                    narration += ending
                 # Plan 3.4: keep the DM's reply in history for continuity.
                 self._remember("assistant", narration)
                 # Plan 3.8: mark any improvised adjudication so the player can

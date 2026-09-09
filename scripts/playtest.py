@@ -361,7 +361,8 @@ def check_persistence(report: Report, game) -> None:
                  restored.character_class)
 
 
-def check_turns(report: Report, game, turns: int, verbose: bool) -> None:
+def check_turns(report: Report, game, turns: int, verbose: bool,
+                force_combat_on_turn: Optional[int] = None) -> None:
     """Play real turns through the live pipeline — the actual Tier-3 gate."""
     print(f"\n🎮 Playing {turns} real turns")
     inputs = [
@@ -373,9 +374,17 @@ def check_turns(report: Report, game, turns: int, verbose: bool) -> None:
         "I ready myself and move on.",
     ]
 
+    # Force an encounter so combat is exercised deterministically. Combat was
+    # UNREACHABLE from gameplay until CombatInitializer was wired to
+    # combat_trigger; before that this whole subsystem went unchecked here.
+    if force_combat_on_turn:
+        game.force_combat_on_turn = force_combat_on_turn
+        print(f"   (forcing an encounter on turn {force_combat_on_turn})")
+
     errors, empties = 0, 0
     placeholder_hits = []
     responses: List[str] = []
+    combat_outcomes: List[str] = []
     # Every hardcoded fallback that can reach the player verbatim. Each of these
     # is a real string in the source, not a guess: when one appears, the LLM call
     # failed and a canned scene was substituted, which is precisely the silent
@@ -443,6 +452,58 @@ def check_turns(report: Report, game, turns: int, verbose: bool) -> None:
     report.check("Narrative beats recorded", len(beats) > 1,
                  f"{len(beats)} beats (1 = only a one-turn memory)")
 
+    _check_combat_and_quests(report, game, bool(force_combat_on_turn))
+
+
+def _check_combat_and_quests(report: Report, game, combat_was_forced: bool) -> None:
+    """
+    Did combat actually run during play, and did the world change because of it?
+
+    Asserts on ENGINE STATE, not on narration text. CombatInitializer had zero
+    production callers until it was wired to combat_trigger, so this whole
+    subsystem previously went unexercised by the playtest — the combat checks
+    above only drive the engine directly, never through a turn.
+    """
+    print("\n⚔️  Combat through gameplay")
+    combat_state = game.game_engine.game_state.combat_state or {}
+    resolved = combat_state.get("encounters_resolved", 0)
+
+    if not combat_was_forced:
+        report.skip("Combat ran during play", "--force-combat 0")
+    else:
+        report.check("Combat ran during play", resolved > 0,
+                     f"{resolved} encounter(s) resolved "
+                     f"(0 = combat never started from a turn)")
+
+    if resolved:
+        outcome = combat_state.get("last_outcome")
+        report.check("Combat reached an outcome",
+                     outcome in ("victory", "defeat", "fled"),
+                     f"outcome={outcome!r}")
+        report.check("Combat is not left running",
+                     combat_state.get("in_combat") is False,
+                     f"in_combat={combat_state.get('in_combat')!r}")
+        report.check("Combat was recorded in history",
+                     len(combat_state.get("history") or []) == resolved,
+                     f"{len(combat_state.get('history') or [])} entries")
+
+    print("\n🎯 Quest completion")
+    progress = game.game_engine.get_quest_progress()
+    report.check("Quest tracker has objectives", progress["total"] > 0,
+                 f"{progress['completed_count']}/{progress['total']} complete "
+                 f"({progress['percent_complete']}%)")
+
+    # The endgame evaluator must at least be REACHABLE from a turn: it had no
+    # production callers, so a campaign could never register as finished.
+    reachable = hasattr(game, "_check_campaign_endgame")
+    report.check("Endgame check is wired into the turn loop", reachable,
+                 "nothing evaluated the campaign's ending condition before")
+    if reachable:
+        flags = game.game_engine.game_state.campaign_flags or {}
+        complete = bool(flags.get("campaign_complete"))
+        print(f"      campaign_complete flag: {complete} "
+              f"(False is expected unless the endgame was reached)")
+
 
 def check_logs(report: Report) -> None:
     """The run's own log should be clean."""
@@ -497,6 +558,9 @@ def main() -> int:
                         help="check mechanisms only; skip the live turns")
     parser.add_argument("--verbose", action="store_true",
                         help="print the DM narration for each turn")
+    parser.add_argument("--force-combat", type=int, metavar="TURN", default=2,
+                        help="force an encounter on this turn so combat is "
+                             "exercised deterministically (0 disables)")
     args = parser.parse_args()
 
     print("=" * 66)
@@ -606,7 +670,8 @@ def main() -> int:
     if args.no_llm:
         report.skip("Live turns", "--no-llm")
     else:
-        check_turns(report, game, args.turns, args.verbose)
+        check_turns(report, game, args.turns, args.verbose,
+                    force_combat_on_turn=args.force_combat or None)
 
     check_logs(report)
     return report.summary()

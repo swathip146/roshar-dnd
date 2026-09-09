@@ -306,13 +306,39 @@ class CombatAgent:
         if not self.game_engine:
             return
 
+        outcome = combat_result.get("outcome")
+
         # Update narrative context
-        if combat_result["outcome"] == "victory":
+        if outcome == "victory":
             self.game_engine.game_state.narrative_context["last_event"] = "Won combat"
-        elif combat_result["outcome"] == "defeat":
+        elif outcome == "defeat":
             self.game_engine.game_state.narrative_context["last_event"] = "Lost combat"
 
-        self.logger.info("Updated GameEngine with combat results")
+        # Record the encounter as OBSERVABLE STATE, so a test (or a quest
+        # predicate, or a save file) can tell that combat actually happened and
+        # how it ended. Previously the only trace was a narrative string and the
+        # returned DTO, both of which vanish once the turn is rendered.
+        try:
+            combat_state = self.game_engine.game_state.combat_state
+            history = combat_state.setdefault("history", [])
+            history.append({
+                "outcome": outcome,
+                "rounds": combat_result.get("rounds"),
+                "enemies_defeated": combat_result.get("enemies_defeated", []),
+            })
+            combat_state["last_outcome"] = outcome
+            combat_state["encounters_resolved"] = len(history)
+            combat_state["in_combat"] = False
+        except Exception as e:
+            self.logger.debug(f"Could not record combat history: {e}")
+
+        if outcome == "victory":
+            try:
+                self.game_engine.set_campaign_flag("last_combat_victory", True)
+            except Exception:
+                pass
+
+        self.logger.info(f"Updated GameEngine with combat results (outcome={outcome})")
 
     def _generate_end_narrative(self, combat_result: Dict) -> str:
         """Generate combat end narrative"""
