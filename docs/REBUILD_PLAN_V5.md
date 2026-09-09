@@ -305,7 +305,7 @@ Revised for decisions D1-D6 (§13). **v1 = `Shards of Honor` playable start to a
 | 0 — Stop the bleeding | 4-5 days | ~4 days (3 tracks) | Saves work (party-wide, D3); lore reaches the DM *and* includes the Cosmere ruleset; two collections (D1); chunking fixed; dice stop lying |
 | 1 — Combat works | 5-7 days | overlaps Phase 0 | Attacks land; party-aware turn order; combat resumable and testable |
 | 2 — Make it a game | 3-4 weeks | ~2-2.5 weeks | Oaths, XP/levels 1-10, rests, death saves, travel, quests, structured campaign schema + endgame (D2), party roster (D3), Lightweaver surges |
-| 3 — Make it agentic | ✅ **DONE** | — | 13 DM tools; grounded rules-judge with binding precedent (D5); LangGraph durable turns **wired into `play_turn()`** and surviving process exit; UI-agnostic `begin_turn()`/`resume_turn()` (D4); retry-with-reasoning; persistent history |
+| 3 — Make it agentic | ⚠️ **mostly** | ~0.5 day | 13 DM tools; LangGraph durable turns **wired into `play_turn()`** and surviving process exit; UI-agnostic `begin_turn()`/`resume_turn()` (D4); retry-with-reasoning; persistent history. **OPEN: `RulesJudge` (D5 Tier 3) is built and tested but never instantiated in production** — when `query_rules` finds nothing the DM is told to improvise with no grounded ruling and no binding precedent |
 | 4 — Hygiene | ✅ **DONE** | — | 10,934 lines of dead code deleted; **ported to the current `google-genai` SDK**; pytest marks + global timeout; `dnd_engine` pinned; three false claims removed from CLAUDE.md |
 | **v1 total** | **~8-11 weeks** | **~6-8 weeks** | vs. ~3-4 months to rewrite and re-earn the lore index and engine integration |
 | *5 — Web app (D4)* | *3-5 days+* | *after v1* | *Streamlit over the D4 turn API — **not in v1*** |
@@ -1018,6 +1018,31 @@ silently broken.
   never get engine entities. Verified in isolation that the real code path works;
   this is test-harness wiring. **Left failing rather than papered over.**
 - **Phase 5** (Streamlit UI) and D6's v2 backlog remain by design.
+
+### Unwired-component audit *(2026-09-09)*
+
+After `durable_turns.py`, `CombatInitializer` and `EndgameEvaluator` each turned
+out to be built-but-unreachable, the codebase was swept systematically rather
+than one bug at a time: for every public class/function defined in production
+code, count references from production files OTHER than the defining file, and
+flag anything referenced only by tests.
+
+That produced 28 candidates, of which most were false positives — factories and
+entry points reached indirectly (`get_conversation_memory()`, `create_*`), or
+tools registered in a list. **One real finding survived:**
+
+- **`RulesJudge` / `RulingStore` (D5 Tier 3) are never instantiated in
+  production.** `RulesGapTracker` IS wired (`dm_tools.py:424` records the gap),
+  so a missing rule is *counted* — but nothing rules on it. When `query_rules`
+  returns `found: false` the DM is told "you may improvise, but say so openly",
+  with no grounded judgment and no precedent lookup. `judge()` and
+  `find_precedent()` exist precisely so an improvised ruling is consistent
+  across turns, and neither runs. The plan's Phase 3 row claimed "grounded
+  rules-judge with binding precedent (D5)" — that claim was false and is now
+  corrected.
+
+The lesson generalises: a passing unit test proves a component WORKS, never that
+the product REACHES it. Worth re-running this sweep before marking any phase done.
 
 ### The 12th missed bug: a component built but never adopted *(2026-09-09)*
 
