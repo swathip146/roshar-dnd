@@ -334,3 +334,107 @@ class TestSwitchIsWiredIntoTheConfigManager:
         from config.llm_utils import FloodgateChatGenerator
 
         assert "GeminiAPIError" in inspect.getsource(FloodgateChatGenerator.run)
+
+
+# The real token from a live run: issued 2026-03-06, expiry claim in the past.
+# hwtgenie tokens carry x-oidc-id-exp, NOT a standard exp claim.
+def _make_token(exp_epoch=None, claim="x-oidc-id-exp") -> str:
+    import base64
+    import json
+
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').decode().rstrip("=")
+    claims = {"x-oidc-email": "someone@example.com"}
+    if exp_epoch is not None:
+        claims[claim] = exp_epoch
+    payload = base64.urlsafe_b64encode(
+        json.dumps(claims).encode()).decode().rstrip("=")
+    return f"{header}.{payload}.signature"
+
+
+class TestExpiredTokensAreDetected:
+    """
+    A live run failed on EVERY turn with "Connection error" and quietly served
+    canned scenes. The token was 187 days old and its x-oidc-id-exp claim had
+    passed — but nothing checked, so the credential was never named as the cause.
+    """
+
+    def test_expired_token_is_reported(self):
+        import time
+        from config.floodgate import token_is_expired
+
+        assert token_is_expired(_make_token(time.time() - 86400)) is True
+
+    def test_valid_token_is_not_reported_as_expired(self):
+        import time
+        from config.floodgate import token_is_expired
+
+        assert token_is_expired(_make_token(time.time() + 86400)) is False
+
+    def test_standard_exp_claim_also_works(self):
+        import time
+        from config.floodgate import token_is_expired
+
+        assert token_is_expired(_make_token(time.time() - 10, claim="exp")) is True
+
+    def test_millisecond_expiry_is_handled(self):
+        import time
+        from config.floodgate import token_expiry
+
+        expiry = token_expiry(_make_token(int((time.time() + 60) * 1000)))
+        assert expiry is not None and abs(expiry - (time.time() + 60)) < 5
+
+    def test_a_token_without_an_expiry_is_not_assumed_dead(self):
+        """An unparseable expiry might still be a working token."""
+        from config.floodgate import token_is_expired
+
+        assert token_is_expired(_make_token(None)) is False
+
+    def test_a_malformed_token_does_not_raise(self):
+        from config.floodgate import token_expiry, token_is_expired
+
+        assert token_expiry("not-a-jwt") is None
+        assert token_is_expired("not-a-jwt") is False
+
+    def test_expired_token_makes_floodgate_unavailable(self, monkeypatch):
+        """Otherwise auto routes every call to a credential that cannot work."""
+        import time
+        import config.floodgate as floodgate
+
+        monkeypatch.setenv("FLOODGATE_TOKEN", _make_token(time.time() - 86400))
+        assert floodgate.floodgate_available() is False
+
+    def test_auto_falls_back_when_the_token_is_expired(self, monkeypatch):
+        import time
+        import config.floodgate as floodgate
+
+        monkeypatch.setenv("LLM_PROVIDER", "auto")
+        monkeypatch.setenv("FLOODGATE_TOKEN", _make_token(time.time() - 86400))
+        assert floodgate.resolve_provider() == "gemini"
+
+    def test_explicit_floodgate_still_honoured_but_logs_why(self, monkeypatch, caplog):
+        """
+        The user asked for floodgate; do not silently override them — but the
+        reason every call is about to fail must appear in the log.
+        """
+        import logging
+        import time
+        import config.floodgate as floodgate
+
+        monkeypatch.setenv("LLM_PROVIDER", "floodgate")
+        monkeypatch.setenv("FLOODGATE_TOKEN", _make_token(time.time() - 86400))
+        with caplog.at_level(logging.ERROR):
+            assert floodgate.resolve_provider() == "floodgate"
+        assert "EXPIRED" in caplog.text
+        assert "hwtgenie login" in caplog.text
+
+    def test_missing_token_with_explicit_choice_also_logs(self, monkeypatch, tmp_path, caplog):
+        import logging
+        import config.floodgate as floodgate
+
+        monkeypatch.setenv("LLM_PROVIDER", "floodgate")
+        monkeypatch.delenv("FLOODGATE_TOKEN", raising=False)
+        monkeypatch.delenv("HWTGENIE_API_KEY", raising=False)
+        monkeypatch.setattr(floodgate, "TOKEN_FILE", tmp_path / "absent")
+        with caplog.at_level(logging.ERROR):
+            floodgate.resolve_provider()
+        assert "no token was found" in caplog.text

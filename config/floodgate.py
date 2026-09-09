@@ -104,12 +104,79 @@ def get_floodgate_token(required: bool = True) -> Optional[str]:
     return None
 
 
-def floodgate_available() -> bool:
-    """Whether a Floodgate token can be resolved right now."""
+def token_expiry(token: str) -> Optional[float]:
+    """
+    Read the expiry out of an hwtgenie JWT without verifying it.
+
+    The token has no standard `exp`; it carries `x-oidc-id-exp` (epoch seconds).
+    Returns None when it cannot be determined — never raises, since a token we
+    cannot parse might still be perfectly valid.
+    """
+    import base64
+    import json
+
     try:
-        return bool(get_floodgate_token(required=False))
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except Exception:
+        return None
+
+    for key in ("exp", "x-oidc-id-exp"):
+        raw = claims.get(key)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        # Some claims are milliseconds.
+        return value / 1000 if value > 1e11 else value
+    return None
+
+
+def token_is_expired(token: str) -> bool:
+    """True only when the token's expiry is known AND in the past."""
+    import time
+
+    expiry = token_expiry(token)
+    return expiry is not None and expiry < time.time()
+
+
+def floodgate_available() -> bool:
+    """
+    Whether a USABLE Floodgate token can be resolved right now.
+
+    An expired token counts as unavailable. Otherwise LLM_PROVIDER=auto would
+    happily route every call to a credential that cannot work — which is what
+    happened in a live run: a token 187 days stale produced a connection-level
+    failure on every turn and the game fell back to canned scenes without ever
+    saying the credential was the problem.
+    """
+    try:
+        token = get_floodgate_token(required=False)
+        if not token:
+            return False
+        if token_is_expired(token):
+            logger.warning(
+                "⚠️ The Floodgate token has EXPIRED "
+                f"({TOKEN_FILE} was written "
+                f"{_days_old(TOKEN_FILE)}). Run 'hwtgenie login' to refresh it."
+            )
+            return False
+        return True
     except Exception:
         return False
+
+
+def _days_old(path: Path) -> str:
+    """Human-readable file age, for the expiry warning."""
+    import time
+
+    try:
+        return f"{(time.time() - path.stat().st_mtime) / 86400:.0f} days ago"
+    except Exception:
+        return "at an unknown time"
 
 
 def to_floodgate_model(model_name: str) -> str:
@@ -137,6 +204,20 @@ def resolve_provider(requested: Optional[str] = None) -> str:
     choice = (requested or os.getenv("LLM_PROVIDER") or "gemini").strip().lower()
 
     if choice == "floodgate":
+        # Explicit choice: honour it, but say plainly if the credential is dead.
+        # A live run with a 187-day-old token failed on every turn with
+        # "Connection error" and the game quietly served canned scenes — the
+        # credential was never named as the cause.
+        token = get_floodgate_token(required=False)
+        if not token:
+            logger.error(
+                "❌ LLM_PROVIDER=floodgate but no token was found. Run "
+                "'hwtgenie login', or set LLM_PROVIDER=gemini.")
+        elif token_is_expired(token):
+            logger.error(
+                "❌ LLM_PROVIDER=floodgate but the token is EXPIRED "
+                f"({TOKEN_FILE}, {_days_old(TOKEN_FILE)}). Every call will "
+                "fail. Run 'hwtgenie login' to refresh it.")
         return "floodgate"
     if choice == "auto":
         if floodgate_available():
