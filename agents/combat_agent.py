@@ -66,6 +66,10 @@ class CombatAgent:
         self.action_resolver = combat_action_resolver
         self.narrative_gen = combat_narrative_generator
         self.npc_ai = npc_combat_ai
+        # Optional: how to ask the player to choose in combat. None means the
+        # CLI's real input(). A headless caller supplies its own so combat
+        # cannot block (plan 1.8/D4).
+        self.input_provider = None
         self.logger = get_logger(__name__)
 
     @component.output_types(response=Dict[str, Any])
@@ -214,6 +218,10 @@ class CombatAgent:
             # state before the loop starts.
             self.action_resolver.combat_state = combat_state
 
+            # input_provider: plan 1.8/D4. Without it CombatSessionManager falls
+            # back to real input(), so an unattended run (the playtest, CI, or any
+            # non-CLI front end) BLOCKS FOREVER on "Choose action type (1-2):".
+            # A live playtest hung exactly there.
             session_manager = CombatSessionManager(
                 combat_state=combat_state,
                 game_engine=self.game_engine,
@@ -221,7 +229,9 @@ class CombatAgent:
                 dnd_engine_wrapper=self.dnd_wrapper,
                 combat_action_resolver=self.action_resolver,
                 combat_narrative_generator=self.narrative_gen,
-                npc_ai_agent=self.npc_ai
+                npc_ai_agent=self.npc_ai,
+                input_provider=(dto.get("_input_provider")
+                                or self.input_provider),
             )
 
             combat_result = session_manager.run_combat_loop()

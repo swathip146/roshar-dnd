@@ -381,6 +381,17 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
         game.force_combat_on_turn = force_combat_on_turn
         print(f"   (forcing an encounter on turn {force_combat_on_turn})")
 
+    # Combat asks the player to choose an action. Without an injected provider
+    # CombatSessionManager falls back to real input() and an unattended run
+    # BLOCKS FOREVER on "Choose action type (1-2):" — a live playtest hung there.
+    # Always attack: it is the one choice guaranteed to advance the fight.
+    combat_agent = (getattr(game.orchestrator, "agents", {}) or {}).get("combat")
+    if combat_agent is not None:
+        def _auto_choose(prompt: str = "") -> str:
+            return "1"
+        combat_agent.input_provider = _auto_choose
+        print("   (combat choices auto-answered: always attack)")
+
     errors, empties = 0, 0
     placeholder_hits = []
     responses: List[str] = []

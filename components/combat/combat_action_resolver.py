@@ -119,14 +119,65 @@ class CombatActionResolver:
 
         # Dispatch based on type
         if metadata["type"] in ["dnd_action", "roshar_action", "roshar_equipment"]:
-            return self._execute_action(action, metadata)
+            result = self._execute_action(action, metadata)
+            self._consume_action_cost(actor_id, metadata)
+            return result
         elif metadata["type"] in ["dnd_condition", "roshar_condition"]:
-            return self._apply_condition(action, metadata)
+            result = self._apply_condition(action, metadata)
+            self._consume_action_cost(actor_id, metadata)
+            return result
         else:
             return {
                 "success": False,
                 "error": f"Invalid action type metadata: {metadata['type']}"
             }
+
+    def _consume_action_cost(self, actor_id: str, metadata: Dict) -> None:
+        """
+        Spend the actor's action economy for the action just taken.
+
+        NOTHING did this before, so `has_actions` stayed True forever: in a live
+        combat every actor took four actions and was then cut off by the session
+        manager's stall-breaker ("still has actions after 4 attempts and its
+        economy is not decreasing — forcing turn advance"). Three enemies each
+        attacked four times per round instead of once.
+
+        The cost is declared per action in ACTION_REGISTRY (cost_type/cost), so
+        this reads it rather than assuming one action per turn — bonus actions and
+        movement-cost actions stay correct.
+        """
+        cost = metadata.get("cost")
+        cost_type = metadata.get("cost_type")
+        if not cost or not cost_type:
+            return
+
+        entity = self.dnd_wrapper.entities.get(actor_id)
+        economy = getattr(entity, "action_economy", None)
+        if economy is None:
+            return
+
+        # Some dnd_engine actions (Attack among them) already debit the economy
+        # themselves. Only pay it here if the pool still has the cost available,
+        # otherwise a second consume raises "Not enough actions to consume".
+        try:
+            pool = getattr(economy, cost_type, None)
+            available = getattr(pool, "normalized_score", None)
+            if available is not None and available < int(cost):
+                self.logger.debug(
+                    f"   ⏳ {actor_id}: {cost_type} already spent by the action")
+                return
+        except Exception:
+            pass
+
+        try:
+            economy.consume(cost_type, int(cost),
+                            cost_name=metadata.get("description", "action"))
+            self.logger.debug(f"   ⏳ {actor_id} spent {cost} {cost_type}")
+        except Exception as e:
+            # Never let accounting break a resolved action; the stall-breaker
+            # remains as a backstop.
+            self.logger.warning(f"⚠️ Could not consume {cost_type} for "
+                                f"{actor_id}: {e}")
 
     def _execute_action(self, action: Dict, metadata: Dict) -> Dict:
         """

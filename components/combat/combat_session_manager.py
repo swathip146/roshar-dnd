@@ -23,6 +23,16 @@ from config.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+# Actions that help their target, so they must be aimed at allies (including
+# self) rather than at enemies. Kept as a module constant so action_registry
+# entries can also opt in with "beneficial": True.
+_BENEFICIAL_ACTIONS = {
+    "progression_healing",
+    "regrowth",
+    "stormlight_infusion",
+}
+
+
 class CombatSessionManager:
     """
     Manages internal combat turn loop.
@@ -576,7 +586,16 @@ class CombatSessionManager:
         if requires_target:
             # Generate option for each valid target
             options = []
-            targets = self._get_valid_targets(char_id)
+            # Beneficial actions target ALLIES; everything else targets enemies.
+            # _get_valid_targets returns only opposite-hostility combatants, so
+            # a live combat offered "Heal wounds with Progression → Shadow-Fused
+            # Soldier" three times and no option to heal the wounded player at
+            # 13/32 HP. The action was unusable as written.
+            if metadata.get("beneficial") or action_type in _BENEFICIAL_ACTIONS:
+                targets = [char_id] + self._get_allies(char_id)
+                targets = [t for t in targets if not self._is_combatant_dead(t)]
+            else:
+                targets = self._get_valid_targets(char_id)
 
             for target_id in targets:
                 target_char = self.character_manager.characters[target_id]

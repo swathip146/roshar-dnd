@@ -303,6 +303,13 @@ class ProgressionHealing(BaseAction):
     name: str = "Progression Healing"
     description: str = "Heal wounds with Progression Surge"
     stormlight_cost: int = 2
+    # Declared HERE, not only on ProgressionHealingEvent. _apply() reads
+    # `self.healing_amount` to decide whether to roll 2d8 or use a fixed value,
+    # but the field existed only on the Event class — so a live combat crashed
+    # with "'ProgressionHealing' object has no attribute 'healing_amount'" the
+    # first time a player chose Progression healing. Pydantic raises on unknown
+    # attribute access, so the None default is what makes the roll path work.
+    healing_amount: Optional[int] = None
 
     # NOTE: no custom __init__.
     # The original hand-wrote one that assigned fields directly and never
