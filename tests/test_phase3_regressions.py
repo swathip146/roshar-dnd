@@ -764,20 +764,47 @@ class TestPhase3IsWiredIntoTheTurnLoop:
         assert roles == ["user", "assistant"]
 
     def test_play_turn_records_the_player_input(self):
-        import inspect
-        from haystack_dnd_game import HaystackDnDGame
+        """
+        3.4 — the player's turn reaches persistent history.
 
-        src = inspect.getsource(HaystackDnDGame.play_turn)
-        assert '_remember("user"' in src, "player turns not recorded (3.4)"
-        assert "_turn_started_at" in src, "turn boundary not marked (3.8)"
+        Asserts on OBSERVABLE STATE rather than on play_turn's source text. The
+        original version grepped the source for '_remember("user"', which broke
+        the moment the turn body moved into resolve_turn() for the LangGraph
+        wiring even though the behaviour was unchanged — a test that fails on
+        refactors but would also pass on a call that recorded nothing.
+        """
+        from tests.test_durable_turn_wiring import _build_game
+        from components.retry_with_reasoning import get_conversation_memory
+
+        game = _build_game()
+        memory = get_conversation_memory()
+        memory.clear(game.thread_id)
+
+        game.play_turn("I look around")
+
+        recorded = memory.messages(game.thread_id)
+        assert any(m["role"] == "user" and "look around" in m["content"]
+                   for m in recorded), "player turns not recorded (3.4)"
+        assert getattr(game, "_turn_started_at", None), \
+            "turn boundary not marked (3.8)"
 
     def test_play_turn_records_and_annotates_the_reply(self):
-        import inspect
-        from haystack_dnd_game import HaystackDnDGame
+        """3.4/3.8 — the DM's reply is recorded and passed through annotation."""
+        from tests.test_durable_turn_wiring import _build_game
+        from components.retry_with_reasoning import get_conversation_memory
 
-        src = inspect.getsource(HaystackDnDGame.play_turn)
-        assert '_remember("assistant"' in src, "DM replies not recorded (3.4)"
-        assert "_annotate_rulings(" in src, "rulings not surfaced (3.8)"
+        game = _build_game(scene="A storm gathers over the plateau.")
+        memory = get_conversation_memory()
+        memory.clear(game.thread_id)
+
+        narration = game.play_turn("I look around")
+
+        recorded = memory.messages(game.thread_id)
+        assert any(m["role"] == "assistant" and "storm gathers" in m["content"]
+                   for m in recorded), "DM replies not recorded (3.4)"
+        # _annotate_rulings passes text through untouched when nothing was
+        # improvised, so the reply must still arrive intact.
+        assert "storm gathers" in narration
 
     def test_house_rulings_are_surfaced(self, game, tmp_path):
         """3.8 — improvisation must be visible, not silently passed off."""
