@@ -449,13 +449,14 @@ def check_logs(report: Report) -> None:
         return
     lines = logs[-1].read_text(errors="ignore").splitlines()
     errors = [l for l in lines if " - ERROR - " in l]
-    # These are known-benign in a sandbox without network access.
-    benign = ("ProxyError", "403 Forbidden", "Gemini API error")
-    real = [l for l in errors if not any(b in l for b in benign)]
-    report.check("No unexpected errors logged", not real,
-                 f"{len(real)} unexpected ({len(errors)} total) in {logs[-1].name}")
-    for line in real[:3]:
-        print(f"      {line[-150:]}")
+    # No whitelist. An earlier version treated "Gemini API error" and
+    # "403 Forbidden" as benign, which suppressed exactly the failures that
+    # mattered: the run that found the tools+JSON-mode 400 reported a clean log
+    # while every scenario turn was falling back to a canned scene.
+    report.check("No errors logged", not errors,
+                 f"{len(errors)} in {logs[-1].name}")
+    for line in errors[:5]:
+        print(f"      {line[-160:]}")
 
 
 # ------------------------------------------------------------- scripted input

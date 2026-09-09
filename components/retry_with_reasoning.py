@@ -127,6 +127,17 @@ def generate_with_retry(
         except Exception as e:
             errors.append(f"generator error: {e}")
             logger.warning(f"⚠️ {label} attempt {attempt}: generator failed: {e}")
+            # A permanent API fault (400 bad request, 403 bad key) will fail
+            # identically on every retry, so stop rather than burning the budget.
+            # Rate limits and 5xx are retried. This became reachable once
+            # GeminiChatGenerator started RAISING instead of returning the error
+            # as reply text, which the validator saw as a successful generation.
+            if getattr(e, "status_code", None) and not getattr(e, "retryable", True):
+                logger.error(
+                    f"❌ {label}: permanent API error (HTTP {e.status_code}), "
+                    f"not retrying"
+                )
+                break
             continue
 
         try:
