@@ -409,13 +409,70 @@ class CharacterManager:
         npc_pattern = re.compile(r'.*_\d{3}$')
         return [cid for cid in self.characters.keys() if npc_pattern.match(cid)]
     
+    def resolve_character_id(self, identifier: str) -> Optional[str]:
+        """
+        Map a loose identifier onto a real character id.
+
+        The DM tools are driven by an LLM, so the "actor" it supplies is whatever
+        the narration used: "aggi", "Aggi", "Aggi the Lightweaver". An exact dict
+        lookup missed all but the stored spelling, and the resulting unknown-actor
+        path then raised KeyError: 'breakdown' — four skill checks were lost to
+        this in one live playtest.
+
+        Returns the canonical id, or None if nothing matches confidently.
+        """
+        if not identifier or not isinstance(identifier, str):
+            return None
+
+        needle = identifier.strip()
+        if needle in self.characters:
+            return needle
+
+        lowered = needle.lower()
+
+        # Case-insensitive id match.
+        for char_id in self.characters:
+            if char_id.lower() == lowered:
+                return char_id
+
+        # Exact name match.
+        for char_id, character in self.characters.items():
+            if (getattr(character, "name", "") or "").lower() == lowered:
+                return char_id
+
+        # The id or name appears as a whole word in the identifier
+        # ("Aggi the Lightweaver" -> "Aggi"). Whole words only: a substring test
+        # matches "A" inside almost anything.
+        words = set(lowered.replace(",", " ").replace(".", " ").split())
+        for char_id, character in self.characters.items():
+            candidates = {char_id.lower(),
+                          (getattr(character, "name", "") or "").lower()}
+            for candidate in candidates:
+                if candidate and candidate in words:
+                    return char_id
+
+        return None
+
     def get_skill_data(self, character_id: str, skill: str) -> Dict[str, Any]:
         """
         Get complete skill data for character - Step 2 of 7-step pipeline
         From Original Plan: "Character Manager → skill/ability mod, conditions"
         """
         if character_id not in self.characters:
-            # Return default data for unknown characters
+            # Resolve by name or case-insensitive id before giving up: the DM
+            # tools are driven by an LLM, which says "aggi" or "Aggi" for the
+            # character stored as "Aggi". A live playtest lost four skill checks
+            # to this.
+            resolved = self.resolve_character_id(character_id)
+            if resolved:
+                character_id = resolved
+
+        if character_id not in self.characters:
+            # Return default data for unknown characters.
+            # NOTE: "breakdown" MUST be present. game_engine's 7-step pipeline
+            # reads char_data["breakdown"] by direct subscript, so omitting it
+            # here raised KeyError: 'breakdown' and killed the whole skill check
+            # instead of degrading to a modifier of 0.
             return {
                 "character_id": character_id,
                 "skill": skill,
@@ -425,6 +482,7 @@ class CharacterManager:
                 "expertise": False,
                 "other_bonuses": {},
                 "modifier": 0,
+                "breakdown": {"unknown_character": 0},
                 "conditions": [],
                 "error": f"Character {character_id} not found"
             }
