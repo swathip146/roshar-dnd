@@ -149,179 +149,6 @@ class TestCredentialsAreGitIgnored:
         assert result.returncode == 0, f"{path} would be committable"
 
 
-class TestModelNameTranslation:
-    """Floodgate namespaces models by cloud; the direct API does not."""
-
-    def test_gemini_gets_the_gcp_prefix(self):
-        from config.floodgate import to_floodgate_model
-        assert to_floodgate_model("gemini-2.5-flash") == "gcp:gemini-2.5-flash"
-
-    def test_already_prefixed_names_pass_through(self):
-        from config.floodgate import to_floodgate_model
-        assert to_floodgate_model("gcp:gemini-2.5-pro") == "gcp:gemini-2.5-pro"
-        assert to_floodgate_model("aws:anthropic.claude-opus-4-5-20251101-v1:0") \
-            == "aws:anthropic.claude-opus-4-5-20251101-v1:0"
-
-    def test_non_gemini_names_are_untouched(self):
-        from config.floodgate import to_floodgate_model
-        assert to_floodgate_model("gpt-4o-mini") == "gpt-4o-mini"
-
-
-class TestFloodgatePayload:
-    """The generator must speak OpenAI while behaving like the Gemini one."""
-
-    def _generator(self, response_schema=None):
-        from config.llm_utils import FloodgateChatGenerator
-
-        generator = FloodgateChatGenerator.__new__(FloodgateChatGenerator)
-        generator.model_name = "gcp:gemini-2.5-flash"
-        generator.generation_config = {"temperature": 0.5,
-                                       "max_output_tokens": 2000}
-        generator.response_schema = response_schema
-        return generator
-
-    def test_token_cap_is_translated(self):
-        """Gemini says max_output_tokens; OpenAI says max_tokens."""
-        payload = self._generator()._build_payload(
-            [ChatMessage.from_user("hi")], None)
-        assert payload["max_tokens"] == 2000
-        assert "max_output_tokens" not in payload
-
-    def test_system_role_is_preserved(self):
-        payload = self._generator()._build_payload(
-            [ChatMessage.from_system("You are the DM."),
-             ChatMessage.from_user("Look around.")], None)
-        assert [m["role"] for m in payload["messages"]] == ["system", "user"]
-
-    def test_schema_becomes_response_format_when_no_tools(self):
-        payload = self._generator({"type": "object"})._build_payload(
-            [ChatMessage.from_user("hi")], None)
-        assert payload["response_format"]["type"] == "json_schema"
-
-    def test_tools_suppress_the_schema(self):
-        """Matches the direct route, where the two genuinely conflict."""
-        from agents.dm_tools import DM_TOOLS
-
-        payload = self._generator({"type": "object"})._build_payload(
-            [ChatMessage.from_user("hi")], DM_TOOLS)
-        assert len(payload["tools"]) == 13
-        assert "response_format" not in payload
-
-    def test_tool_schemas_are_sanitised(self):
-        """Reuse the same cleaner; anyOf/additionalProperties break providers."""
-        from agents.npc_controller_agent import generate_npc_response
-
-        payload = self._generator()._build_payload(
-            [ChatMessage.from_user("hi")], [generate_npc_response])
-        blob = json.dumps(payload["tools"])
-        assert "additionalProperties" not in blob
-        assert "anyOf" not in blob
-
-    def test_empty_message_list_still_produces_a_payload(self):
-        payload = self._generator()._build_payload([], None)
-        assert payload["messages"], "the API rejects an empty message list"
-
-
-class TestFloodgateResponseParsing:
-
-    def _parse(self, completion):
-        from config.llm_utils import FloodgateChatGenerator
-        return FloodgateChatGenerator._to_chat_message(completion)
-
-    def test_text_response(self):
-        class _Message:
-            content = "The wind cuts across the ridge."
-            tool_calls = None
-
-        class _Choice:
-            message = _Message()
-            finish_reason = "stop"
-
-        class _Completion:
-            choices = [_Choice()]
-
-        assert self._parse(_Completion()).text == "The wind cuts across the ridge."
-
-    def test_tool_calls_become_haystack_toolcalls(self):
-        class _Function:
-            name = "roll_skill_check"
-            arguments = '{"skill": "stealth", "dc": 13}'
-
-        class _Call:
-            id = "call_0"
-            function = _Function()
-
-        class _Message:
-            content = None
-            tool_calls = [_Call()]
-
-        class _Choice:
-            message = _Message()
-            finish_reason = "tool_calls"
-
-        class _Completion:
-            choices = [_Choice()]
-
-        calls = self._parse(_Completion()).tool_calls
-        assert len(calls) == 1
-        assert calls[0].tool_name == "roll_skill_check"
-        assert calls[0].arguments == {"skill": "stealth", "dc": 13}
-
-    def test_malformed_tool_arguments_do_not_raise(self):
-        class _Function:
-            name = "roll_dice"
-            arguments = "{not json"
-
-        class _Call:
-            id = "c0"
-            function = _Function()
-
-        class _Message:
-            content = None
-            tool_calls = [_Call()]
-
-        class _Choice:
-            message = _Message()
-            finish_reason = "tool_calls"
-
-        class _Completion:
-            choices = [_Choice()]
-
-        assert self._parse(_Completion()).tool_calls[0].arguments == {}
-
-    def test_empty_text_with_a_normal_stop_is_allowed(self):
-        """Same rule as the direct route: STOP is success."""
-        class _Message:
-            content = ""
-            tool_calls = None
-
-        class _Choice:
-            message = _Message()
-            finish_reason = "stop"
-
-        class _Completion:
-            choices = [_Choice()]
-
-        assert self._parse(_Completion()).text == ""
-
-    def test_truncated_response_raises(self):
-        from config.llm_utils import GeminiAPIError
-
-        class _Message:
-            content = ""
-            tool_calls = None
-
-        class _Choice:
-            message = _Message()
-            finish_reason = "length"
-
-        class _Completion:
-            choices = [_Choice()]
-
-        with pytest.raises(GeminiAPIError, match="length"):
-            self._parse(_Completion())
-
-
 class TestSwitchIsWiredIntoTheConfigManager:
 
     def test_create_generator_consults_the_switch(self):
@@ -567,3 +394,78 @@ class TestAppleconnectIsThePrimarySource:
 
         monkeypatch.setenv("FLOODGATE_TOKEN", "explicit-token")
         assert get_floodgate_token() == "explicit-token"
+
+class TestNativeGeminiTransport:
+    """
+    Floodgate speaks the NATIVE Gemini API, so the generator subclasses
+    GeminiChatGenerator instead of reimplementing the request shape.
+
+    An earlier version pointed at hwtgenie-dev.csg.apple.com through the OpenAI
+    client and reimplemented tool conversion, schema handling and parsing. It
+    also never connected: every call failed with "Connection error" even with a
+    freshly minted token, because the HOST was wrong. pkg-wiki-cli reaches
+    floodgate.g.apple.com successfully.
+    """
+
+    def test_uses_the_host_that_works(self):
+        from config.floodgate import FLOODGATE_BASE_URL
+
+        assert "floodgate.g.apple.com" in FLOODGATE_BASE_URL
+        assert "hwtgenie" not in FLOODGATE_BASE_URL, (
+            "that host refused every connection even with a valid token")
+
+    def test_subclasses_the_gemini_generator(self):
+        """Inheritance is what keeps tools, schemas and retries consistent."""
+        from config.llm_utils import FloodgateChatGenerator, GeminiChatGenerator
+
+        assert issubclass(FloodgateChatGenerator, GeminiChatGenerator)
+        assert FloodgateChatGenerator.run is GeminiChatGenerator.run
+
+    def test_model_name_is_not_prefixed_on_the_native_path(self):
+        """"gcp:" belongs to the OpenAI gateway; here it would 404."""
+        from config.floodgate import to_floodgate_model
+
+        assert to_floodgate_model("gemini-2.5-flash") == "gemini-2.5-flash"
+        assert to_floodgate_model("gcp:gemini-2.5-flash") == "gemini-2.5-flash"
+
+    def test_client_carries_a_bearer_token(self):
+        """The gateway authenticates from the header, not an API key."""
+        from config.llm_utils import FloodgateChatGenerator
+
+        generator = FloodgateChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        headers = generator.client._api_client._http_options.headers or {}
+        assert headers.get("Authorization", "").startswith("Bearer ")
+
+    def test_client_points_at_the_gateway(self):
+        from config.llm_utils import FloodgateChatGenerator
+        from config.floodgate import FLOODGATE_BASE_URL
+
+        generator = FloodgateChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        assert str(generator.client._api_client._http_options.base_url).rstrip("/") \
+            == FLOODGATE_BASE_URL.rstrip("/")
+
+    def test_schema_enables_json_mode_like_the_parent(self):
+        from config.llm_utils import FloodgateChatGenerator
+
+        generator = FloodgateChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={},
+            response_schema={"type": "object"})
+        assert generator.generation_config["response_mime_type"] == "application/json"
+
+    def test_project_token_header_is_sent_when_set(self, monkeypatch):
+        from config.llm_utils import FloodgateChatGenerator
+
+        monkeypatch.setenv("FLOODGATE_PROJECT_TOKEN", "proj-123")
+        generator = FloodgateChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        headers = generator.client._api_client._http_options.headers or {}
+        assert headers.get("X-Floodgate-Project-Token") == "proj-123"
+
+    def test_inherits_the_transient_retry_policy(self):
+        """The parent's 408/429/5xx backoff must apply here too."""
+        from config.llm_utils import FloodgateChatGenerator
+
+        assert FloodgateChatGenerator.MAX_TRANSIENT_RETRIES >= 1
+        assert hasattr(FloodgateChatGenerator, "_generate_with_backoff")

@@ -332,7 +332,7 @@ silently reduced every NPC to "attack the nearest player".
 # Direct Gemini API (default) — needs GEMINI_API_KEY
 export LLM_PROVIDER=gemini
 
-# Via Floodgate/hwtgenie (OpenAI-compatible proxy, model "gcp:gemini-2.5-flash")
+# Via Apple Floodgate (native Gemini API at floodgate.g.apple.com)
 export LLM_PROVIDER=floodgate
 
 # Prefer Floodgate when a token resolves, else fall back to the direct API

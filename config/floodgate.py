@@ -42,10 +42,21 @@ from config.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+# The host that actually works. pkg-wiki-cli posts to
+# floodgate.g.apple.com/api/gemini/... and succeeds; hwtgenie-dev.csg.apple.com
+# (my first guess, taken from a different project) refused every connection even
+# with a freshly minted token — the failure was TRANSPORT, not auth.
+#
+# This endpoint speaks the NATIVE Gemini API (":generateContent"), not the
+# OpenAI-compatible shape, so requests go through google-genai with a custom
+# base_url rather than through the OpenAI client.
 FLOODGATE_BASE_URL = os.getenv(
     "FLOODGATE_BASE_URL",
-    "https://hwtgenie-dev.csg.apple.com/api/floodgate/openai/v1",
+    "https://floodgate.g.apple.com/api/gemini",
 )
+
+# Optional per-project quota header, honoured by the gateway when present.
+FLOODGATE_PROJECT_TOKEN_ENV = "FLOODGATE_PROJECT_TOKEN"
 
 # Floodgate namespaces its models by cloud. The direct API takes a bare name, so
 # the same logical model has two spellings and the switch must translate.
@@ -269,15 +280,16 @@ def _days_old(path: Path) -> str:
 
 def to_floodgate_model(model_name: str) -> str:
     """
-    Translate a direct-API model name into its Floodgate spelling.
+    Model name for the Floodgate *native Gemini* path: unchanged.
 
-    "gemini-2.5-flash" -> "gcp:gemini-2.5-flash". Already-prefixed names and
-    non-Gemini models (Anthropic via "aws:") pass through untouched.
+    The "gcp:" prefix belongs to the OPENAI-COMPATIBLE gateway
+    (hwtgenie-dev/.../openai/v1), which lists models as "gcp:gemini-2.5-flash".
+    The native path this code uses takes a bare name, so prefixing it would 404.
+    Kept as a function because the prefix is still stripped from a name that
+    already carries one, e.g. from a config copied off the model list.
     """
-    if ":" in model_name:
-        return model_name
-    if model_name.startswith("gemini"):
-        return f"{_FLOODGATE_MODEL_PREFIX}{model_name}"
+    if model_name.startswith(_FLOODGATE_MODEL_PREFIX):
+        return model_name[len(_FLOODGATE_MODEL_PREFIX):]
     return model_name
 
 
