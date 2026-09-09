@@ -347,6 +347,15 @@ Credential resolution (`config/floodgate.py`), all **outside** the repo:
 3. `hwtgenielib.perform_login()` (SSO, if installed)
 4. `~/.hwtgenie` — may be stale; an expired token is detected and reported
 
+**Corporate TLS**: the network terminates TLS with an internal root that is in
+the macOS keychain but not in `certifi`'s bundle, so requests fail with
+`CERTIFICATE_VERIFY_FAILED ... self-signed certificate in certificate chain`.
+`config/floodgate.py` assembles a bundle from the system keychains (cached at
+`~/.cache/roshar-dnd/floodgate-ca.pem`) and passes a real `SSLContext`.
+Verification is never disabled. Override with `FLOODGATE_CA_BUNDLE=/path.pem`,
+or `pip install apple-certifi` and it will be preferred. Set `GEMINI_CA_BUNDLE=1`
+to apply the same trust to the direct API.
+
 `hwtgenie` is **not** a command on this machine — don't run `hwtgenie login`.
 The appleconnect mechanism is borrowed from `pkg-wiki-cli`
 (`src/pkgwiki/core/auth.py`), which reaches the same gateway. Floodgate rejects

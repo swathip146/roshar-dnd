@@ -278,6 +278,116 @@ def _days_old(path: Path) -> str:
         return "at an unknown time"
 
 
+# Where the generated CA bundle is cached. Not in the repo: it is machine
+# state, and it is rebuilt whenever it is missing.
+_CA_BUNDLE_PATH = Path(os.getenv(
+    "FLOODGATE_CA_BUNDLE",
+    str(Path.home() / ".cache" / "roshar-dnd" / "floodgate-ca.pem")))
+
+
+def ca_bundle() -> Optional[str]:
+    """
+    Path to a CA bundle that trusts Apple's corporate TLS chain.
+
+    WHY: with the correct host, requests failed with
+
+        [SSL: CERTIFICATE_VERIFY_FAILED] ... self-signed certificate in
+        certificate chain
+
+    The corporate network terminates TLS with an internal root that ships in the
+    macOS keychain but NOT in certifi's bundle, which is what Python uses.
+    pkg-wiki-cli solves this by depending on `apple-certifi`; that package is not
+    installed here, so the same trust is assembled from the system keychains
+    instead — no new dependency, and no verification disabled.
+
+    Honours FLOODGATE_CA_BUNDLE if you would rather point at your own file (e.g.
+    the one apple-certifi installs). Returns None if no bundle could be built, in
+    which case the caller leaves TLS configuration alone rather than weakening it.
+    """
+    override = os.getenv("FLOODGATE_CA_BUNDLE")
+    if override and Path(override).exists():
+        return override
+
+    if _CA_BUNDLE_PATH.exists() and _CA_BUNDLE_PATH.stat().st_size > 0:
+        return str(_CA_BUNDLE_PATH)
+
+    # Prefer apple-certifi when it is available — it is the supported source.
+    try:
+        import apple_certifi  # type: ignore
+
+        path = apple_certifi.where()
+        if path and Path(path).exists():
+            logger.debug("🔐 Using apple-certifi CA bundle")
+            return path
+    except Exception:
+        pass
+
+    import subprocess
+
+    try:
+        import certifi
+
+        chunks = [Path(certifi.where()).read_text()]
+    except Exception:
+        chunks = []
+
+    # System.keychain carries the corporate roots; SystemRootCertificates the
+    # public ones. Export both so the bundle is complete on its own.
+    for command in (
+        ["security", "export", "-t", "certs", "-f", "pemseq",
+         "-k", "/Library/Keychains/System.keychain"],
+        ["security", "find-certificate", "-a", "-p",
+         "/System/Library/Keychains/SystemRootCertificates.keychain"],
+    ):
+        try:
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=60)
+            if result.returncode == 0 and "BEGIN CERTIFICATE" in result.stdout:
+                chunks.append(result.stdout)
+        except Exception as e:
+            logger.debug(f"   keychain export failed ({command[1]}): {e}")
+
+    combined = "\n".join(c for c in chunks if c)
+    if "BEGIN CERTIFICATE" not in combined:
+        logger.warning(
+            "⚠️ Could not assemble a CA bundle for Floodgate. If TLS "
+            "verification fails, install apple-certifi or set "
+            "FLOODGATE_CA_BUNDLE to a bundle that trusts the corporate root.")
+        return None
+
+    try:
+        _CA_BUNDLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CA_BUNDLE_PATH.write_text(combined)
+        count = combined.count("BEGIN CERTIFICATE")
+        logger.info(f"🔐 Built Floodgate CA bundle ({count} certs) at "
+                    f"{_CA_BUNDLE_PATH}")
+        return str(_CA_BUNDLE_PATH)
+    except Exception as e:
+        logger.warning(f"⚠️ Could not write the CA bundle: {e}")
+        return None
+
+
+def ssl_context():
+    """
+    An SSLContext trusting the corporate root, for httpx's `verify`.
+
+    httpx deprecated `verify="<path>"` in favour of a real context, so build one
+    here rather than leave a DeprecationWarning that becomes a breakage on the
+    next upgrade. Returns None when no bundle is available, so the caller leaves
+    TLS alone instead of weakening it.
+    """
+    import ssl
+
+    bundle = ca_bundle()
+    if not bundle:
+        return None
+    try:
+        return ssl.create_default_context(cafile=bundle)
+    except Exception as e:
+        logger.warning(f"⚠️ Could not build an SSL context from {bundle}: {e}")
+        return None
+
+
 def to_floodgate_model(model_name: str) -> str:
     """
     Model name for the Floodgate *native Gemini* path: unchanged.

@@ -469,3 +469,85 @@ class TestNativeGeminiTransport:
 
         assert FloodgateChatGenerator.MAX_TRANSIENT_RETRIES >= 1
         assert hasattr(FloodgateChatGenerator, "_generate_with_backoff")
+
+
+class TestCorporateTLSTrust:
+    """
+    With the correct host, requests failed at the TLS layer:
+
+        [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed:
+        self-signed certificate in certificate chain
+
+    The corporate network terminates TLS with an internal root that ships in the
+    macOS keychain but NOT in certifi's bundle, which is what Python trusts.
+    pkg-wiki-cli depends on `apple-certifi`; that is absent here, so the trust is
+    assembled from the system keychains instead.
+
+    The important property: verification stays ON. The missing root is ADDED
+    rather than the check being skipped.
+    """
+
+    def test_a_bundle_can_be_built(self):
+        from config.floodgate import ca_bundle
+        from pathlib import Path
+
+        path = ca_bundle()
+        assert path, "no CA bundle could be assembled"
+        assert Path(path).exists()
+
+    def test_the_bundle_contains_many_roots(self):
+        """certifi's ~150 plus the keychain's corporate roots."""
+        from config.floodgate import ca_bundle
+        from pathlib import Path
+
+        text = Path(ca_bundle()).read_text()
+        assert text.count("BEGIN CERTIFICATE") > 100
+
+    def test_the_bundle_is_cached_outside_the_repo(self):
+        """It is machine state, not source; it must never be committable."""
+        from config.floodgate import ca_bundle
+        from pathlib import Path
+
+        path = Path(ca_bundle()).resolve()
+        repo = Path(__file__).resolve().parent.parent
+        assert repo not in path.parents, f"{path} is inside the repo"
+
+    def test_an_explicit_override_is_honoured(self, monkeypatch, tmp_path):
+        """So a user can point at apple-certifi's bundle instead."""
+        import config.floodgate as floodgate
+
+        custom = tmp_path / "mine.pem"
+        custom.write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
+        monkeypatch.setenv("FLOODGATE_CA_BUNDLE", str(custom))
+        assert floodgate.ca_bundle() == str(custom)
+
+    def test_the_generator_passes_an_sslcontext_to_httpx(self):
+        """httpx deprecated verify=<path>; pass a real context."""
+        import ssl
+        from config.llm_utils import FloodgateChatGenerator
+
+        generator = FloodgateChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        client_args = generator.client._api_client._http_options.client_args or {}
+        assert isinstance(client_args.get("verify"), ssl.SSLContext), \
+            "TLS trust was not configured, or used the deprecated path form"
+
+    def test_verification_is_never_disabled(self):
+        """`verify=False` would accept ANY certificate — never acceptable."""
+        import inspect
+        from config import floodgate, llm_utils
+
+        for module in (floodgate, llm_utils):
+            source = inspect.getsource(module)
+            assert "verify=False" not in source
+            assert "verify\": False" not in source
+
+    def test_direct_gemini_trust_is_opt_in(self, monkeypatch):
+        """The public API verifies fine normally; do not change it by default."""
+        from config.llm_utils import GeminiChatGenerator
+
+        monkeypatch.delenv("GEMINI_CA_BUNDLE", raising=False)
+        generator = GeminiChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        options = generator.client._api_client._http_options
+        assert not (getattr(options, "client_args", None) or {}).get("verify")

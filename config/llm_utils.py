@@ -369,7 +369,27 @@ class GeminiChatGenerator:
             # The client reads GEMINI_API_KEY / GOOGLE_API_KEY from the
             # environment, which is how run_game.sh already supplies it.
             api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            self.client = genai.Client(api_key=api_key) if api_key else genai.Client()
+            # Optional corporate TLS trust. Off unless GEMINI_CA_BUNDLE is set:
+            # the public API normally verifies fine, but on a network that
+            # terminates TLS with an internal root it would otherwise fail the
+            # same way Floodgate did. Verification is never disabled.
+            client_args = {}
+            if os.getenv("GEMINI_CA_BUNDLE"):
+                from config.floodgate import ssl_context
+
+                context = ssl_context()
+                if context is not None:
+                    client_args["verify"] = context
+                    logger.debug("🔐 Direct Gemini using the corporate CA bundle")
+
+            if client_args:
+                self.client = genai.Client(
+                    api_key=api_key,
+                    http_options=genai_types.HttpOptions(client_args=client_args),
+                )
+            else:
+                self.client = (genai.Client(api_key=api_key) if api_key
+                               else genai.Client())
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Gemini client: {e}")
     
@@ -895,6 +915,20 @@ class FloodgateChatGenerator(GeminiChatGenerator):
         if project_token:
             headers["X-Floodgate-Project-Token"] = project_token
 
+        # TLS: the corporate network terminates with an internal root that is in
+        # the macOS keychain but NOT in certifi's bundle, so the first request to
+        # the correct host failed with "CERTIFICATE_VERIFY_FAILED ... self-signed
+        # certificate in certificate chain". ca_bundle() assembles the trust from
+        # the system keychains (or apple-certifi, if installed). Verification
+        # stays ON — we add the missing root rather than skipping the check.
+        from config.floodgate import ssl_context
+
+        client_args: Dict[str, Any] = {}
+        context = ssl_context()
+        if context is not None:
+            # A real SSLContext, not a path: httpx deprecated verify=<str>.
+            client_args["verify"] = context
+
         self.client = genai.Client(
             # A key is required by the constructor but unused: the gateway
             # authenticates from the Authorization header.
@@ -902,6 +936,7 @@ class FloodgateChatGenerator(GeminiChatGenerator):
             http_options=genai_types.HttpOptions(
                 base_url=FLOODGATE_BASE_URL,
                 headers=headers,
+                client_args=client_args or None,
             ),
         )
         logger.info(
