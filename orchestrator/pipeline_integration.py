@@ -397,6 +397,8 @@ class PipelineOrchestrator:
             # the same context block Phase A adjudicated against.
             scenario_pipeline.connect("prompt_builder.prompt_context",
                                       "validator.prompt_context")
+            scenario_pipeline.connect("prompt_builder.recent_scenes",
+                                      "validator.recent_scenes")
             self.pipelines["scenario_generation"] = scenario_pipeline
             debug_print("PIPELINES", "✅ Created connected Scenario pipeline")
             
