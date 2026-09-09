@@ -342,8 +342,15 @@ export LLM_PROVIDER=auto
 Credential resolution (`config/gateway.py`), all **outside** the repo:
 
 1. `GATEWAY_TOKEN` or `GATEWAY_API_KEY`
-2. `gateway-lib.perform_login()` (SSO, if installed)
-3. `~/.gateway-cli` — written by `gateway-cli login`, mode 600
+2. **`the-sso-helper getToken`** — the path that works here; mints a fresh
+   OAuth **ID** token (not the access token) via PKCE, cached 25 minutes
+3. `gateway-lib.perform_login()` (SSO, if installed)
+4. `~/.gateway-cli` — may be stale; an expired token is detected and reported
+
+`gateway-cli` is **not** a command on this machine — don't run `gateway-cli login`.
+The the-sso-helper mechanism is borrowed from `pkg-wiki-cli`
+(`src/pkgwiki/core/auth.py`), which reaches the same gateway. gateway rejects
+the access token, so the ID token is required.
 
 `.env`, `.gateway-cli*`, `gateway_token*` and `secrets/` are gitignored. Check the
 active transport without printing any secret:
