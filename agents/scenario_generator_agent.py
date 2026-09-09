@@ -414,7 +414,8 @@ class PromptBuilderComponent:
     # can see the same location/quest/lore/policy block the adjudication phase
     # saw. Without it the narration call would be told what happened but not
     # where, and would invent the setting.
-    @component.output_types(messages=List[ChatMessage], prompt_context=str)
+    @component.output_types(messages=List[ChatMessage], prompt_context=str,
+                            recent_scenes=List[str])
     def run(self, dto: Dict[str, Any]) -> Dict[str, Any]:
         """
         Build comprehensive scenario generation prompt with RAGBlock TypedDict input.
@@ -433,7 +434,21 @@ class PromptBuilderComponent:
         prompt = create_scenario_from_dto(dto)
         # Convert string prompt to ChatMessage list
         messages = [ChatMessage.from_user(prompt)]
-        return {"messages": messages, "prompt_context": prompt}
+
+        # Scenes the player has already been shown. Phase B rejects a reply that
+        # repeats one: turns 8 and 9 of a 12-turn playtest returned a
+        # byte-identical scene despite different player actions and fresh rolls.
+        recent_scenes: List[str] = []
+        engine = dto.get("_game_engine_ref")
+        if engine is not None and hasattr(engine, "get_narrative_beats"):
+            try:
+                recent_scenes = list(engine.get_narrative_beats(4) or [])
+            except Exception as e:
+                debug_scenario_print("COMPONENT",
+                                     f"could not read narrative beats: {e}")
+
+        return {"messages": messages, "prompt_context": prompt,
+                "recent_scenes": recent_scenes}
 
 
 @component
@@ -445,7 +460,8 @@ class ScenarioValidatorComponent:
     
     @component.output_types(validated_scenario=dict)
     def run(self, messages: List[ChatMessage],
-            prompt_context: str = "") -> Dict[str, Dict[str, Any]]:
+            prompt_context: str = "",
+            recent_scenes: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
         """
         Turn the adjudication phase's output into a validated scenario.
 
@@ -604,7 +620,10 @@ class ScenarioValidatorComponent:
                             break
                 findings = "\n".join(parts[-3:])
 
-            narrated = narrate_scene(findings, prompt_context)
+            # recent_scenes lets Phase B reject a scene the player has already
+            # been shown (turns 8 and 9 of a 12-turn playtest were identical).
+            narrated = narrate_scene(findings, prompt_context,
+                                     recent_scenes=recent_scenes)
             if str(narrated.get("scene", "")).strip():
                 debug_scenario_print("COMPONENT", "✅ Phase B produced the scene")
                 scenario_data = narrated
@@ -775,6 +794,18 @@ SCENE WRITING:
 - End at a genuine decision point.
 - 2-5 paragraphs. Vivid, not florid.
 
+THIS SCENE MUST BE NEW. You are shown recent scenes for CONTINUITY — to know what
+has already happened, what the party learned, and what is still unresolved. They
+are context, NOT a template:
+- NEVER repeat a previous scene's wording. Do not restate its opening sentence.
+- The player has just done something specific. Describe THAT action's outcome,
+  which by definition has not been narrated before.
+- If the action closely resembles an earlier one, show what is DIFFERENT this
+  time: what the party now knows, what has changed, what the repetition costs
+  them. Time has passed; the world has moved.
+- Advance the situation. A scene that leaves the party exactly where it started
+  has failed, even if the prose is good.
+
 CHOICES:
 - Offer 3-4 choices that emerge from THIS scene, not a template.
 - Vary the approach: bold vs cautious, direct vs indirect, patient vs immediate.
@@ -788,8 +819,40 @@ Return ONLY the JSON object required by the schema.
 """
 
 
+def _scenes_are_duplicates(scene: str, earlier: str) -> bool:
+    """
+    True if `scene` is a repeat of `earlier`.
+
+    Not just an exact match: the observed failure was byte-identical, but a model
+    told "don't repeat" will happily change three words and re-send the same
+    scene. Two independent signals, either of which is damning:
+
+      - the opening 120 characters match (a scene that starts identically reads
+        as identical to the player, whatever happens later)
+      - overall similarity is very high
+
+    The 0.90 threshold is deliberately high. Consecutive scenes in one location
+    legitimately share vocabulary — wind, rockbuds, the smell of ozone — so a
+    lower bar would reject good, genuinely new prose.
+    """
+    from difflib import SequenceMatcher
+
+    def _normalise(text: str) -> str:
+        return " ".join(text.lower().split())
+
+    left, right = _normalise(scene), _normalise(earlier)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if len(left) >= 120 and len(right) >= 120 and left[:120] == right[:120]:
+        return True
+    return SequenceMatcher(None, left, right).ratio() >= 0.90
+
+
 def narrate_scene(findings: str, prompt_context: str,
-                  chat_generator: Optional[Any] = None) -> Dict[str, Any]:
+                  chat_generator: Optional[Any] = None,
+                  recent_scenes: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Turn Phase A's adjudicated findings into scene JSON (Phase B).
 
@@ -802,6 +865,8 @@ def narrate_scene(findings: str, prompt_context: str,
         findings: Phase A's factual summary of what actually happened
         prompt_context: The original context block (location, quest, lore, policy)
         chat_generator: Optional override, for tests
+        recent_scenes: Scenes already shown to the player. A reply that repeats
+            one is REJECTED and retried — see below.
 
     Returns:
         Parsed scenario dict, or {} if the call could not produce one.
@@ -826,15 +891,39 @@ def narrate_scene(findings: str, prompt_context: str,
     ]
 
     def _validate(text: str) -> Dict[str, Any]:
-        from components.retry_with_reasoning import extract_json, require_keys
+        from components.retry_with_reasoning import (
+            extract_json, require_keys, ValidationFailure)
 
         payload = extract_json(text)
         require_keys(payload, ["scene", "choices"])
-        if not str(payload.get("scene", "")).strip():
-            from components.retry_with_reasoning import ValidationFailure
+        scene = str(payload.get("scene", "")).strip()
+        if not scene:
             raise ValidationFailure(
                 "Your 'scene' was empty.",
                 hint="Write 2-5 paragraphs of scene prose in the 'scene' field.")
+
+        # REJECT A REPEAT. In a 12-turn playtest turns 8 and 9 returned a
+        # byte-identical 2339-char scene, even though turn 9 had a different
+        # player action ("listen carefully" vs "search the area") and rolled two
+        # fresh skill checks. The prompt shows recent scenes for continuity and
+        # says "maintain continuity with these", so the model had the previous
+        # scene in front of it and echoed it.
+        #
+        # Prompt wording alone is not enough (that lesson has been learned
+        # repeatedly here), so a duplicate is rejected and fed back with the
+        # reason, which is exactly what the 3.3 retry path is for.
+        for previous in (recent_scenes or []):
+            earlier = str(previous or "").strip()
+            if not earlier:
+                continue
+            if _scenes_are_duplicates(scene, earlier):
+                raise ValidationFailure(
+                    "That scene repeats one the player has already been shown.",
+                    hint=("Write a NEW scene describing the outcome of the "
+                          "player's CURRENT action. Recent scenes are context for "
+                          "continuity, not text to reuse. Show what is different "
+                          "this time and move the situation forward."),
+                )
         return payload
 
     try:
