@@ -685,6 +685,133 @@ Return your analysis in the required JSON format.
             error_dto["error"] = f"Interface pipeline failed: {e}"
             return error_dto
 
+    def _maybe_run_combat(self, scenario_data: Dict[str, Any],
+                          dto: RequestDTO) -> Optional[GameResponseDTO]:
+        """
+        Run combat if the DM's scenario calls for it.
+
+        THE GAP THIS CLOSES: CombatInitializer, CombatAgent and the whole combat
+        engine were built and tested, and `CombatInitializer` had ZERO production
+        callers — only tests. The scenario prompt even instructs the model to set
+        `combat_trigger: true`, and nothing read it, so combat was unreachable
+        from normal play no matter what the DM narrated.
+
+        Returns a combat GameResponseDTO when combat ran, or None to let the
+        caller return the scenario unchanged.
+        """
+        combat_agent = (self.agents or {}).get("combat")
+        if combat_agent is None:
+            return None
+
+        forced = bool(dto.get("force_combat"))
+        if not forced:
+            initializer = getattr(combat_agent, "initializer", None)
+            check = getattr(initializer, "_should_trigger_combat", None)
+            if check is None or not check(scenario_data):
+                return None
+
+        debug_print("COMBAT", f"⚔️ Scenario triggers combat (forced={forced})")
+
+        combat_dto = dict(dto)
+        combat_dto["scenario_context"] = scenario_data
+        combat_dto["force_combat"] = forced
+        self._ensure_party_ids(combat_dto)
+
+        try:
+            result = combat_agent.run(combat_dto)
+        except Exception as e:
+            logger.error(f"❌ Combat failed to run: {e}")
+            return None
+
+        if not result:
+            return None
+
+        outcome = result.get("outcome")
+        logger.info(f"⚔️ Combat resolved: outcome={outcome}, "
+                    f"rounds={result.get('rounds')}")
+
+        # A resolved encounter can satisfy the campaign's endgame.
+        self._check_endgame()
+        return result
+
+    def _ensure_party_ids(self, dto: Dict[str, Any]) -> None:
+        """Populate player_character_ids from the live roster (D3: the party)."""
+        if dto.get("player_character_ids"):
+            return
+        engine = dto.get("_game_engine_ref") or self.game_engine
+        manager = getattr(engine, "character_manager", None) if engine else None
+        if manager is None:
+            dto["player_character_ids"] = []
+            return
+        try:
+            npcs = set(manager.get_npcs() or [])
+        except Exception:
+            npcs = set()
+        party = [cid for cid in manager.characters if cid not in npcs]
+        dto["player_character_ids"] = party
+        dto["player_character_id"] = party[0] if party else "unknown_player"
+
+    def _campaign_schema(self):
+        """The current campaign's CampaignSchema, loaded once."""
+        cached = getattr(self, "_schema_cache", "unset")
+        if cached != "unset":
+            return cached
+
+        schema = None
+        try:
+            from pathlib import Path
+            from components.campaign_schema import CampaignSchema
+
+            source = None
+            campaign = getattr(self.game_engine, "campaign_config", None)
+            for attribute in ("source_path", "source_file", "path"):
+                value = getattr(campaign, attribute, None) if campaign else None
+                if value:
+                    source = Path(value)
+                    break
+            if source and source.exists():
+                schema = CampaignSchema(source, game_engine=self.game_engine)
+                schema.load()
+        except Exception as e:
+            logger.debug(f"   Could not load campaign schema: {e}")
+            schema = None
+
+        self._schema_cache = schema
+        return schema
+
+    def _check_endgame(self) -> Optional[Dict[str, Any]]:
+        """
+        Evaluate the campaign's endgame condition (D2).
+
+        EndgameEvaluator also had ZERO production callers, so a campaign could
+        never register as finished however many objectives were completed. This
+        is called after each turn and after combat resolves.
+        """
+        engine = self.game_engine
+        if engine is None:
+            return None
+
+        # CampaignSchema owns this: is_complete() resolves quest IDs to titles
+        # and evaluates the authored condition tree. Re-implementing it here
+        # would duplicate the ID->title mapping that D2 exists to get right.
+        schema = self._campaign_schema()
+        if schema is None or not schema.has_structure():
+            return None
+        try:
+            if not schema.is_complete():
+                return None
+        except Exception as e:
+            logger.debug(f"   Endgame evaluation skipped: {e}")
+            return None
+
+        # Record it on the engine so save/load and the UI can both see it.
+        try:
+            engine.set_campaign_flag("campaign_complete", True)
+        except Exception:
+            pass
+        logger.info("🏆 Campaign endgame condition met — the campaign is complete")
+        return {"campaign_complete": True, "condition": condition}
+
     def _run_scenario_pipeline(self, dto: RequestDTO) -> GameResponseDTO:
         """Run connected scenario pipeline with standardized response format"""
         
@@ -720,7 +847,15 @@ Return your analysis in the required JSON format.
             # Process validated scenario
             if validated_scenario and "scenario" in validated_scenario:
                 scenario_data = validated_scenario["scenario"]
-                
+
+                # Combat handoff. The DM's scenario can mark a choice
+                # combat_trigger: true, and CombatInitializer knows how to build
+                # the encounter — but until now NOTHING connected the two, so
+                # combat was unreachable from gameplay.
+                combat_response = self._maybe_run_combat(scenario_data, dto)
+                if combat_response is not None:
+                    return combat_response
+
                 # # BREAKING CHANGE: Update GameEngine directly (SessionManager is persistence-only)
                 # if self.game_engine and scenario_data.get("state_changes"):
                 #     try:
@@ -806,7 +941,15 @@ Return your analysis in the required JSON format.
             # Process validated scenario
             if validated_scenario and "scenario" in validated_scenario:
                 scenario_data = validated_scenario["scenario"]
-                
+
+                # Combat handoff. The DM's scenario can mark a choice
+                # combat_trigger: true, and CombatInitializer knows how to build
+                # the encounter — but until now NOTHING connected the two, so
+                # combat was unreachable from gameplay.
+                combat_response = self._maybe_run_combat(scenario_data, dto)
+                if combat_response is not None:
+                    return combat_response
+
                 # # BREAKING CHANGE: Update GameEngine directly (SessionManager is persistence-only)
                 # if self.game_engine and scenario_data.get("state_changes"):
                 #     try:
