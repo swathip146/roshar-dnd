@@ -305,7 +305,7 @@ Revised for decisions D1-D6 (§13). **v1 = `Shards of Honor` playable start to a
 | 0 — Stop the bleeding | 4-5 days | ~4 days (3 tracks) | Saves work (party-wide, D3); lore reaches the DM *and* includes the Cosmere ruleset; two collections (D1); chunking fixed; dice stop lying |
 | 1 — Combat works | 5-7 days | overlaps Phase 0 | Attacks land; party-aware turn order; combat resumable and testable |
 | 2 — Make it a game | 3-4 weeks | ~2-2.5 weeks | Oaths, XP/levels 1-10, rests, death saves, travel, quests, structured campaign schema + endgame (D2), party roster (D3), Lightweaver surges |
-| 3 — Make it agentic | ✅ **DONE** | — | 13 DM tools; grounded rules-judge with binding precedent (D5); LangGraph durable turns surviving process exit; retry-with-reasoning; persistent history |
+| 3 — Make it agentic | ✅ **DONE** | — | 13 DM tools; grounded rules-judge with binding precedent (D5); LangGraph durable turns **wired into `play_turn()`** and surviving process exit; UI-agnostic `begin_turn()`/`resume_turn()` (D4); retry-with-reasoning; persistent history |
 | 4 — Hygiene | ✅ **DONE** | — | 10,934 lines of dead code deleted; **ported to the current `google-genai` SDK**; pytest marks + global timeout; `dnd_engine` pinned; three false claims removed from CLAUDE.md |
 | **v1 total** | **~8-11 weeks** | **~6-8 weeks** | vs. ~3-4 months to rewrite and re-earn the lore index and engine integration |
 | *5 — Web app (D4)* | *3-5 days+* | *after v1* | *Streamlit over the D4 turn API — **not in v1*** |
@@ -1017,7 +1017,48 @@ silently broken.
 - `test_combat_integration.py::test_full_combat_session` — its generated NPCs
   never get engine entities. Verified in isolation that the real code path works;
   this is test-harness wiring. **Left failing rather than papered over.**
-- Live LLM calls are blocked by the sandbox proxy (403 on
-  `generativelanguage.googleapis.com`), verified identical with the raw SDK. The
-  §12 Tier-3 automated playtest therefore has not been run end-to-end.
 - **Phase 5** (Streamlit UI) and D6's v2 backlog remain by design.
+
+### The 12th missed bug: a component built but never adopted *(2026-09-09)*
+
+`components/durable_turns.py` was delivered with passing tests that genuinely
+prove cross-process resume — and **nothing imported it**. `play_turn()` called
+the orchestrator directly, so the running game had no durable turns at all;
+`grep -rn DurableTurnLoop` outside the module matched only its own tests. Phase 3
+was nevertheless marked ✅ DONE on the strength of those tests.
+
+This is the same failure mode as the other eleven, one level up: *the component
+worked and was not connected*. A unit test proving a component works says nothing
+about whether the product uses it. The fix (wiring `play_turn()` through the loop
+via `resolve_turn()`, plus `begin_turn()`/`resume_turn()` for D4) is covered by
+`tests/test_durable_turn_wiring.py`, which asserts on the WIRING — including a
+test that spawns two interpreters against one checkpoint file, because that is
+the only way to prove a turn survives process exit.
+
+Corollary for §12: two Phase-3 tests asserted on `inspect.getsource(play_turn)`
+containing `_remember("user"`. They broke on this refactor while the behaviour
+was intact, and would equally have passed on a call that recorded nothing. Both
+now assert on the conversation history itself.
+
+### Live-API findings *(2026-09-09)*
+
+Once `scripts/playtest.py` ran against the real API, six further defects surfaced
+that no offline test could reach — every one of them a 200 OK or a config value
+that never applied:
+
+1. `tools` + `response_mime_type="application/json"` → 400. The scenario agent
+   had both, so **every** scenario turn fell back to a canned scene.
+2. Tool schemas carried `additionalProperties`/`anyOf` (from `Dict[str, Any]` and
+   `Optional[...]`), which Gemini's dialect rejects — killed the NPC pipeline.
+3. `content.parts` present but `None` on a 200 OK → `TypeError`, reported as
+   "Gemini API error", blaming the API for a parsing bug.
+4. Reasoning tokens counted against `max_output_tokens`: `thoughts_token_count`
+   of 802 and 956 against a 1000-token cap truncated the intent JSON mid-string.
+5. **The tuned per-agent LLM settings were dead code.** `load_config_from_environment()`
+   — the path `get_global_config_manager()` actually takes — rebuilt every config
+   from scratch, so with env vars unset `max_tokens` and `temperature` were `None`
+   for every agent. The scenario agent never received its 8000-token cap.
+6. `get_skill_data()`'s unknown-actor branch omitted `"breakdown"`, which the
+   7-step pipeline subscripts directly → `KeyError` destroyed four skill checks,
+   because the LLM wrote `"aggi"` for the character stored as `"Aggi"`.
+

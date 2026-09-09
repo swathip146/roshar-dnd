@@ -567,11 +567,118 @@ class HaystackDnDGame:
             return text
 
     def play_turn(self, player_input: str) -> str:
-        """Enhanced turn processing following state hierarchy"""
-        
+        """
+        Enhanced turn processing following state hierarchy.
+
+        Plan 3.5 / D4: the turn is resolved THROUGH the LangGraph durable loop
+        (components/durable_turns.py) so a turn is checkpointed and can resume in
+        a different process. This method keeps its original str-returning
+        signature — the CLI and every existing caller are unaffected — while
+        `resolve_turn()` below holds the actual work as the graph's resolve node.
+
+        Use `begin_turn()` / `resume_turn()` for the UI-agnostic API (D4) that a
+        web front-end needs; those return the pending action as DATA instead of
+        blocking a live process.
+        """
+
         if not player_input or not isinstance(player_input, str) or not player_input.strip():
             return "The world waits for your action..."
-        
+
+        loop = self._durable_loop()
+        if loop is None or not loop.available:
+            # LangGraph unavailable: resolve directly rather than refuse to play.
+            return self._play_turn_direct(player_input)
+
+        try:
+            result = loop.start(
+                self.thread_id,
+                player_input=player_input,
+                active_character=self._active_character_id() or "",
+                turn_number=self.turn_counter + 1,
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Durable turn failed ({e}); resolving directly")
+            return self._play_turn_direct(player_input)
+
+        narration = result.get("narration") or ""
+        if not narration:
+            return "The magical forces seem disrupted. Please try again."
+        return narration
+
+    def _durable_loop(self):
+        """The campaign's DurableTurnLoop, built once (plan 3.5)."""
+        existing = getattr(self, "_turn_loop", None)
+        if existing is not None:
+            return existing
+        try:
+            from components.durable_turns import DurableTurnLoop
+
+            self._turn_loop = DurableTurnLoop(on_resolve=self._resolve_turn_state)
+        except Exception as e:
+            logger.warning(f"⚠️ Durable turn loop unavailable: {e}")
+            self._turn_loop = None
+        return self._turn_loop
+
+    def _resolve_turn_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        The graph's resolve node: turn player input into narration (plan 3.5).
+
+        Everything expensive or random lives HERE rather than in the interrupt
+        node, because LangGraph re-executes a node from the top on resume — a
+        resumed turn would otherwise re-roll its dice and re-bill its tokens.
+        """
+        narration = self.resolve_turn(state.get("player_input", ""))
+        return {
+            "narration": narration,
+            "choices": list(self.current_choices or []),
+            "state_delta": {
+                "location": self.game_engine.get_location_context().get(
+                    "current_location", ""),
+                "turn": self.turn_counter,
+            },
+            "status": "ok",
+        }
+
+    def begin_turn(self, player_input: str = "") -> Dict[str, Any]:
+        """
+        Start a turn and return its result AS DATA (D4).
+
+        With no input, the graph interrupts and reports what it is waiting for,
+        so a web UI can render the prompt and choices without a live process
+        blocking on stdin. Resume later with `resume_turn()`.
+        """
+        loop = self._durable_loop()
+        if loop is None or not loop.available:
+            return {"status": "unavailable",
+                    "error": "LangGraph not installed; durable turns disabled"}
+        return loop.start(
+            self.thread_id,
+            player_input=player_input,
+            active_character=self._active_character_id() or "",
+            turn_number=self.turn_counter + 1,
+        )
+
+    def resume_turn(self, player_input: str) -> Dict[str, Any]:
+        """
+        Resume a paused turn — possibly in a DIFFERENT PROCESS (D4).
+
+        Keyed only by thread_id, so nothing in memory needs to have survived.
+        """
+        loop = self._durable_loop()
+        if loop is None or not loop.available:
+            return {"status": "unavailable"}
+        return loop.resume(self.thread_id, player_input)
+
+    def resolve_turn(self, player_input: str) -> str:
+        """
+        Resolve one turn: player input in, narration out.
+
+        Extracted from play_turn() so the LangGraph resolve node and the direct
+        fallback share ONE implementation — the turn logic must not fork.
+        """
+        if not player_input or not isinstance(player_input, str) or not player_input.strip():
+            return "The world waits for your action..."
+
         self.turn_counter += 1
 
         # Plan 3.8: mark the turn boundary so only THIS turn's rulings are
@@ -584,14 +691,14 @@ class HaystackDnDGame:
             session_metadata = self.session_manager.get_session_metadata()
             if not session_metadata.get("session_active"):
                 return "No active session to process."
-            
+
             # Plan 3.4: record the player's turn in persistent history, so the
             # DM sees the conversation rather than a fresh context each turn.
             self._remember("user", player_input)
 
             # Process input (UI logic only)
             processed_input = self._process_input(player_input)
-            
+
             # Create DTO using existing pattern - use processed input
             input_text = processed_input.get("processed_input", player_input)
             logger.debug(f"input_text = '{input_text}'")
@@ -602,26 +709,26 @@ class HaystackDnDGame:
             request_dto["_dnd_engine_wrapper_ref"] = self.dnd_engine_wrapper  # PHASE 2
 
             logger.info(f"🎯 Processing turn {self.turn_counter} with enhanced response system")
-            
+
             # Use existing orchestrator
             response_dict = self.orchestrator.process_request(request_dto)
-            
+
             # Handle None response from failed orchestrator
             if response_dict is None:
                 logger.error("Orchestrator returned None - pipeline failure")
                 return "The magical forces seem disrupted. Please try again."
-            
+
             # Handle dict response from orchestrator
             if response_dict.get("success", False):
                 # Format response using new response handlers
                 formatted_result = self._handle_response(response_dict)
-                
+
                 # Update UI state for choice management
                 self._update_ui_state(response_dict)
-                
+
                 # COMPLIANCE: Delegate state updates to authoritative components
                 self._update_state_via_authorities(processed_input, response_dict)
-                
+
                 narration = formatted_result.get("formatted_response",
                                                  "The adventure continues...")
                 # Plan 3.4: keep the DM's reply in history for continuity.
@@ -633,10 +740,14 @@ class HaystackDnDGame:
                 error_msg = response_dict.get("error", "Unknown error")
                 logger.warning(f"Processing failed: {error_msg}")
                 return "The world seems momentarily confused by your action. Try something else..."
-                
+
         except Exception as e:
             logger.error(f"Error processing turn: {e}")
             return "Something unexpected happened. The adventure continues nonetheless..."
+
+    # Kept as an explicit alias: the no-LangGraph path is the same code, so the
+    # two routes can never drift.
+    _play_turn_direct = resolve_turn
 
     def _update_ui_state(self, response_data: Dict[str, Any]):
         """Update UI state for choice management - UI state only"""
