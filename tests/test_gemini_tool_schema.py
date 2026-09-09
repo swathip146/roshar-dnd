@@ -348,3 +348,125 @@ class TestRetryStopsOnPermanentErrors:
                             label="test")
 
         assert attempts["n"] == 3, "a rate limit should be retried"
+
+
+class TestNoneParts:
+    """
+    A 200 OK response whose candidate has content.parts = None.
+
+    Live turns 2-4 of the playtest crashed here with "'NoneType' object is not
+    iterable", which the outer handler then reported as "Gemini API error" —
+    blaming the API for a parsing bug on a successful response. The old guard
+    was `hasattr(candidate.content, "parts")`, which passes when parts is None.
+    """
+
+    def _generator_returning(self, monkeypatch, response):
+        from config.llm_utils import GeminiChatGenerator
+
+        generator = GeminiChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+
+        class _FakeModels:
+            def generate_content(self, model, contents, config):
+                return response
+
+        class _FakeClient:
+            models = _FakeModels()
+
+        monkeypatch.setattr(generator, "client", _FakeClient())
+        return generator
+
+    def test_none_parts_does_not_raise_typeerror(self, monkeypatch):
+        from config.llm_utils import GeminiAPIError
+        from haystack.dataclasses import ChatMessage
+
+        class _Content:
+            parts = None            # present, but None — the exact live shape
+
+        class _Candidate:
+            content = _Content()
+            finish_reason = type("R", (), {"name": "MAX_TOKENS"})()
+
+        class _Response:
+            candidates = [_Candidate()]
+            prompt_feedback = None
+            text = ""
+
+        generator = self._generator_returning(monkeypatch, _Response())
+
+        # It should report the real reason, not a TypeError about NoneType.
+        with pytest.raises(GeminiAPIError) as caught:
+            generator.run(messages=[ChatMessage.from_user("hi")])
+        assert "not iterable" not in str(caught.value)
+        assert "MAX_TOKENS" in str(caught.value)
+
+    def test_missing_content_attribute_is_tolerated(self, monkeypatch):
+        from config.llm_utils import GeminiAPIError
+        from haystack.dataclasses import ChatMessage
+
+        class _Candidate:
+            content = None
+            finish_reason = None
+
+        class _Response:
+            candidates = [_Candidate()]
+            prompt_feedback = None
+            text = ""
+
+        generator = self._generator_returning(monkeypatch, _Response())
+        with pytest.raises(GeminiAPIError) as caught:
+            generator.run(messages=[ChatMessage.from_user("hi")])
+        assert "not iterable" not in str(caught.value)
+
+    def test_normal_text_response_still_works(self, monkeypatch):
+        from haystack.dataclasses import ChatMessage
+
+        class _Part:
+            text = "The wind cuts across the ridge."
+            function_call = None
+
+        class _Content:
+            parts = [_Part()]
+
+        class _Candidate:
+            content = _Content()
+            finish_reason = None
+
+        class _Response:
+            candidates = [_Candidate()]
+            prompt_feedback = None
+            text = _Part.text
+
+        generator = self._generator_returning(monkeypatch, _Response())
+        result = generator.run(messages=[ChatMessage.from_user("hi")])
+        assert result["replies"][0].text == "The wind cuts across the ridge."
+
+    def test_function_call_response_still_works(self, monkeypatch):
+        from haystack.dataclasses import ChatMessage
+
+        class _FunctionCall:
+            name = "roll_skill_check"
+            args = {"skill": "perception", "dc": 12}
+
+        class _Part:
+            text = None
+            function_call = _FunctionCall()
+
+        class _Content:
+            parts = [_Part()]
+
+        class _Candidate:
+            content = _Content()
+            finish_reason = None
+
+        class _Response:
+            candidates = [_Candidate()]
+            prompt_feedback = None
+            text = ""
+
+        generator = self._generator_returning(monkeypatch, _Response())
+        result = generator.run(messages=[ChatMessage.from_user("hi")])
+        calls = result["replies"][0].tool_calls
+        assert len(calls) == 1
+        assert calls[0].tool_name == "roll_skill_check"
+        assert calls[0].arguments == {"skill": "perception", "dc": 12}
