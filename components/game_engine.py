@@ -1432,6 +1432,89 @@ class GameEngine:
         except Exception as e:
             logger.warning(f"⚠️ Could not record narrative beat: {e}")
 
+    def _apply_location_change(self, raw_location: Any) -> bool:
+        """
+        Apply the model's `state_changes.location`, rejecting narration.
+
+        The scenario prompt lists "location" directly beneath "narrative", so the
+        model wrote sentences into it and set_location() took them verbatim:
+
+            🏔️ Moved to location: Playtest Ridge is now understood as a site of
+               recent and significant conflict, a gateway to the wider devastation.
+
+        That corrupts the location graph, because `known_locations` is keyed by
+        name and travel_to() matches against those keys — every exit stops
+        resolving once a key is a paragraph. A place NAME is short; anything
+        sentence-shaped is narration that belongs in the beat log.
+
+        Returns True if the location was changed.
+        """
+        if not isinstance(raw_location, str):
+            return False
+
+        # Strip wrapping punctuation in any order: '"Kholinar".' shows up as
+        # often as 'Kholinar.' or '"Kholinar"'.
+        candidate = raw_location.strip().strip('\'" .\t\n')
+        if not candidate:
+            return False
+
+        current = self.game_state.location_context.get("current_location", "")
+        if candidate == current:
+            return False
+
+        graph = self.game_state.location_context.setdefault("known_locations", {})
+
+        # An exact (case-insensitive) hit on a known place is always safe, even
+        # if it were long, so check that before any shape heuristics.
+        for name in graph:
+            if name.lower() == candidate.lower():
+                if name != current:
+                    self.set_location(name)
+                    return True
+                return False
+
+        # Shape check. Real Rosharan place names are short ("Kholinar", "Urithiru",
+        # "The Shattered Plains"); prose is not.
+        words = candidate.split()
+        looks_like_prose = (
+            len(words) > 6
+            or len(candidate) > 60
+            or any(marker in candidate.lower() for marker in
+                   (" is ", " are ", " was ", " now ", " remains ", " becomes ",
+                    " has ", " the player ", " you ", ", but ", " which "))
+        )
+
+        if looks_like_prose:
+            # Salvage a known location mentioned inside the sentence rather than
+            # discarding the update outright — the model often names the right
+            # place and merely wraps it in narration.
+            salvaged = self._known_location_named_in(candidate)
+            if salvaged and salvaged != current:
+                logger.warning(
+                    f"⚠️ Rejected narrative location text; matched known "
+                    f"location '{salvaged}' instead of: {candidate[:80]!r}"
+                )
+                self.set_location(salvaged)
+                return True
+            logger.warning(
+                f"⚠️ Ignored narrative text in state_changes.location "
+                f"(expected a place name): {candidate[:80]!r}"
+            )
+            return False
+
+        self.set_location(candidate)
+        return True
+
+    def _known_location_named_in(self, text: str) -> Optional[str]:
+        """The known location mentioned in `text`, if exactly one is."""
+        graph = self.game_state.location_context.get("known_locations", {}) or {}
+        lowered = text.lower()
+        matches = [name for name in graph if name.lower() in lowered]
+        if not matches:
+            return None
+        # Prefer the longest match: "Shattered Plains" over "Plains".
+        return max(matches, key=len)
+
     def get_narrative_beats(self, limit: int = 6) -> List[str]:
         """The most recent narrative beats, oldest first (plan 2.2)."""
         beats = self.game_state.narrative_context.get("narrative_beats", []) or []
@@ -1479,7 +1562,7 @@ class GameEngine:
         state_changes = scenario_data.get("state_changes", {})
         if state_changes:
             if "location" in state_changes:
-                self.set_location(state_changes["location"])
+                self._apply_location_change(state_changes["location"])
 
             if "flags" in state_changes:
                 for flag_name, flag_value in state_changes["flags"].items():
