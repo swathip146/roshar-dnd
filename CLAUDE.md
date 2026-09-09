@@ -332,7 +332,7 @@ silently reduced every NPC to "attack the nearest player".
 # Direct Gemini API (default) — needs GEMINI_API_KEY
 export LLM_PROVIDER=gemini
 
-# Via gateway/gateway-cli (OpenAI-compatible proxy, model "gcp:gemini-2.5-flash")
+# Via the organisation gateway (native Gemini API at the-optional-gateway)
 export LLM_PROVIDER=gateway
 
 # Prefer gateway when a token resolves, else fall back to the direct API

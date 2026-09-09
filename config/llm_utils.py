@@ -848,169 +848,62 @@ if __name__ == "__main__":
     print("\n✅ All utility components working correctly!")
 
 @component
-class GatewayChatGenerator:
+class GatewayChatGenerator(GeminiChatGenerator):
     """
-    Gemini via the gateway (gateway-cli) OpenAI-compatible proxy — see
-    config/gateway.py for why and for how credentials are resolved.
+    Gemini via the organisation's gateway gateway — see config/gateway.py.
 
-    Deliberately mirrors GeminiChatGenerator's interface: same constructor
-    arguments, same run(messages, tools) -> {"replies": [ChatMessage]} contract,
-    same GeminiAPIError on failure. That makes the provider a TRANSPORT choice —
-    nothing downstream (agents, schemas, the retry path) needs to know which
-    route a call took.
+    SUBCLASSES GeminiChatGenerator on purpose. gateway at
+    the-optional-gateway/api/gemini speaks the NATIVE Gemini API, so everything
+    the parent already gets right applies unchanged: tool conversion and schema
+    sanitising, the tools-vs-JSON-mode rule, AFC disabling, empty-response
+    diagnosis, and transient-fault retry. Only the transport differs.
 
-    Structured output maps to OpenAI's response_format; tools map to OpenAI
-    function-calling. The tools+JSON-mode conflict that plagues the direct Gemini
-    API does not exist here, but tools still win for consistency of behaviour.
+    An earlier version pointed at the-internal-host through the OpenAI
+    client and reimplemented all of that. It also never connected: every call
+    failed with "Connection error" even with a freshly minted token, because the
+    host was wrong. pkg-wiki-cli reaches the-optional-gateway successfully, and
+    that is the endpoint used here.
+
+    Auth is a Bearer ID token in a header rather than an API key, which is why
+    the client is rebuilt instead of inherited.
     """
 
     def __init__(self, model_name: str, generation_config: Optional[Dict[str, Any]] = None,
                  response_schema: Optional[Dict[str, Any]] = None):
-        from config.gateway import (GATEWAY_BASE_URL, get_gateway_token,
-                                      to_gateway_model)
+        import os
 
-        try:
-            from openai import OpenAI
-        except ImportError as e:
+        from config.gateway import (GATEWAY_BASE_URL,
+                                      GATEWAY_PROJECT_TOKEN_ENV,
+                                      get_gateway_token)
+
+        if not GEMINI_AVAILABLE:
             raise ImportError(
-                "The gateway provider needs the openai package "
-                "(pip install openai)") from e
+                "google-genai package not available (pip install google-genai)")
 
-        self.model_name = to_gateway_model(model_name)
+        # gateway takes a bare model name on this path; the "gcp:" prefix
+        # belongs to the OpenAI-compatible gateway, not this one.
+        self.model_name = model_name
         self.generation_config = dict(generation_config or {})
         self.response_schema = response_schema
-        self.client = OpenAI(base_url=GATEWAY_BASE_URL,
-                             api_key=get_gateway_token())
-        logger.info(f"🔀 GatewayChatGenerator ready ({self.model_name})")
 
-    # Same retry policy as the direct route: transient faults only.
-    MAX_TRANSIENT_RETRIES = 2
-    RETRY_BASE_DELAY_SECONDS = 0.6
+        if response_schema:
+            self.generation_config["response_mime_type"] = "application/json"
+            self.generation_config["response_schema"] = response_schema
 
-    @component.output_types(replies=List[ChatMessage])
-    def run(self, messages: List[ChatMessage],
-            tools: Optional[List[Any]] = None) -> Dict[str, Any]:
-        import time as _time
+        headers = {"Authorization": f"Bearer {get_gateway_token()}"}
+        project_token = (os.getenv(GATEWAY_PROJECT_TOKEN_ENV) or "").strip()
+        if project_token:
+            headers["X-gateway-Project-Token"] = project_token
 
-        payload = self._build_payload(messages, tools)
-        attempts = self.MAX_TRANSIENT_RETRIES + 1
-
-        for attempt in range(1, attempts + 1):
-            try:
-                completion = self.client.chat.completions.create(**payload)
-                return {"replies": [self._to_chat_message(completion)]}
-            except Exception as e:
-                status = _status_code_of(e)
-                transient = status in (408, 429, 500, 502, 503, 504)
-                if not transient or attempt == attempts:
-                    message = f"gateway API error: {e}"
-                    logger.error(
-                        f"❌ GATEWAY ERROR"
-                        f"{f' (HTTP {status})' if status else ''}: {message}")
-                    raise GeminiAPIError(message, status_code=status,
-                                         cause=e) from e
-                delay = self.RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
-                logger.warning(
-                    f"⚠️ gateway HTTP {status} (attempt {attempt}/{attempts}); "
-                    f"retrying in {delay:.1f}s")
-                _time.sleep(delay)
-
-    # ------------------------------------------------------------------ payload
-
-    def _build_payload(self, messages, tools) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
-            "model": self.model_name,
-            "messages": self._to_openai_messages(messages),
-        }
-
-        config = self.generation_config
-        if config.get("temperature") is not None:
-            payload["temperature"] = config["temperature"]
-        if config.get("max_output_tokens"):
-            # OpenAI's spelling of the same cap.
-            payload["max_tokens"] = config["max_output_tokens"]
-
-        if tools:
-            payload["tools"] = self._to_openai_tools(tools)
-        elif self.response_schema:
-            # Only when there are no tools, matching the direct route's
-            # behaviour so a schema never silently competes with tool calling.
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "response", "strict": False,
-                                "schema": self.response_schema},
-            }
-        return payload
-
-    @staticmethod
-    def _to_openai_messages(messages) -> List[Dict[str, str]]:
-        out = []
-        for message in messages or []:
-            role = getattr(message, "role", "user")
-            role = str(getattr(role, "value", role)).lower()
-            if role not in ("system", "user", "assistant"):
-                role = "user"
-            text = (getattr(message, "text", None)
-                    or getattr(message, "content", None) or "")
-            if isinstance(text, list):  # TextContent list
-                text = " ".join(getattr(part, "text", str(part)) for part in text)
-            if text:
-                out.append({"role": role, "content": str(text)})
-        return out or [{"role": "user", "content": ""}]
-
-    @staticmethod
-    def _to_openai_tools(tools) -> List[Dict[str, Any]]:
-        """Haystack Tools -> OpenAI function specs, sanitised like the Gemini path."""
-        specs = []
-        for tool in tools:
-            parameters = getattr(tool, "parameters", None) or {}
-            properties = {
-                name: _sanitize_schema_for_gemini(schema)
-                for name, schema in (parameters.get("properties") or {}).items()
-            }
-            specs.append({
-                "type": "function",
-                "function": {
-                    "name": getattr(tool, "name", "tool"),
-                    "description": getattr(tool, "description", ""),
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": parameters.get("required", []),
-                    },
-                },
-            })
-        return specs
-
-    @staticmethod
-    def _to_chat_message(completion) -> ChatMessage:
-        choice = (getattr(completion, "choices", None) or [None])[0]
-        message = getattr(choice, "message", None)
-        text = (getattr(message, "content", None) or "") if message else ""
-
-        calls = getattr(message, "tool_calls", None) if message else None
-        if calls:
-            import json as _json
-            from haystack.dataclasses import ToolCall
-
-            tool_calls = []
-            for index, call in enumerate(calls):
-                function = getattr(call, "function", None)
-                raw = getattr(function, "arguments", "") or "{}"
-                try:
-                    arguments = _json.loads(raw)
-                except Exception:
-                    arguments = {}
-                tool_calls.append(ToolCall(
-                    id=getattr(call, "id", f"call_{index}"),
-                    tool_name=getattr(function, "name", "tool"),
-                    arguments=arguments,
-                ))
-            return ChatMessage.from_assistant(text="", tool_calls=tool_calls)
-
-        if not text:
-            reason = getattr(choice, "finish_reason", None)
-            if reason and str(reason).lower() not in ("stop", "none"):
-                raise GeminiAPIError(
-                    f"gateway returned no text (finish_reason={reason})")
-        return ChatMessage.from_assistant(text or "")
+        self.client = genai.Client(
+            # A key is required by the constructor but unused: the gateway
+            # authenticates from the Authorization header.
+            api_key="gateway",
+            http_options=genai_types.HttpOptions(
+                base_url=GATEWAY_BASE_URL,
+                headers=headers,
+            ),
+        )
+        logger.info(
+            f"🔀 GatewayChatGenerator ready ({self.model_name} via "
+            f"{GATEWAY_BASE_URL})")
