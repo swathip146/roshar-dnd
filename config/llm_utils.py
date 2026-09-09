@@ -181,6 +181,70 @@ def create_message_conversion_pipeline():
     return pipeline
 
 
+# Keys that are valid JSON Schema but that Gemini's function-calling dialect
+# rejects outright with 400 INVALID_ARGUMENT "Unknown name ...: Cannot find
+# field". `default` was already stripped; the rest were not, and only surfaced
+# on the NPC pipeline, whose tools take Dict[str, Any] and Optional[...] params.
+_GEMINI_UNSUPPORTED_SCHEMA_KEYS = (
+    "default",
+    "additionalProperties",  # produced by Dict[str, Any]
+    "title",
+    "$schema",
+    "examples",
+)
+
+
+def _sanitize_schema_for_gemini(schema: Any) -> Any:
+    """
+    Recursively strip JSON-Schema keys Gemini's tool dialect cannot parse.
+
+    Two shapes broke real calls, and neither was caught by the previous cleaner
+    because it only looked at the top level of each property:
+
+      Dict[str, Any]  -> {"additionalProperties": true, "type": "object"}
+      Optional[Dict]  -> {"anyOf": [{...,"type":"object"}, {"type":"null"}]}
+
+    Gemini has no null type and no anyOf here, so an Optional collapses to its
+    first non-null branch — the parameter is simply treated as optional, which is
+    what `required` already conveys.
+    """
+    if isinstance(schema, list):
+        return [_sanitize_schema_for_gemini(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    # Collapse anyOf/oneOf to the first non-null branch.
+    for union_key in ("anyOf", "oneOf"):
+        if union_key in schema:
+            branches = [b for b in schema[union_key]
+                        if not (isinstance(b, dict) and b.get("type") == "null")]
+            chosen = branches[0] if branches else {"type": "string"}
+            merged = {k: v for k, v in schema.items()
+                      if k not in (union_key, "anyOf", "oneOf")}
+            merged.update(chosen if isinstance(chosen, dict) else {})
+            return _sanitize_schema_for_gemini(merged)
+
+    cleaned = {}
+    for key, value in schema.items():
+        if key in _GEMINI_UNSUPPORTED_SCHEMA_KEYS:
+            continue
+        if key == "properties" and isinstance(value, dict):
+            cleaned[key] = {k: _sanitize_schema_for_gemini(v)
+                            for k, v in value.items()}
+        elif key == "items":
+            cleaned[key] = _sanitize_schema_for_gemini(value)
+        else:
+            cleaned[key] = _sanitize_schema_for_gemini(value)
+
+    # An object with no usable properties is rejected too; give it a free-form
+    # string field so the declaration stays valid.
+    if cleaned.get("type") == "object" and not cleaned.get("properties"):
+        cleaned["properties"] = {
+            "value": {"type": "string", "description": "JSON-encoded payload"}
+        }
+    return cleaned
+
+
 @component
 class GeminiChatGenerator:
     """
@@ -275,6 +339,24 @@ class GeminiChatGenerator:
                 config_kwargs["system_instruction"] = system_text
             if gemini_tools:
                 config_kwargs["tools"] = gemini_tools
+                # Gemini rejects tools combined with JSON mode:
+                #   400 INVALID_ARGUMENT "Function calling with a response mime
+                #   type: 'application/json' is unsupported"
+                # The scenario agent is configured with BOTH (a response_schema
+                # for parseable output, plus the 13 DM tools added in 3.1/3.2),
+                # so every scenario turn 400'd and fell back to a canned scene.
+                #
+                # Tools win: they let the model read real state and roll real
+                # dice, which is the whole point of the agentic loop, whereas the
+                # schema only guaranteed shape — and the retry path in
+                # retry_with_reasoning already recovers malformed JSON.
+                dropped = [k for k in ("response_mime_type", "response_schema")
+                           if config_kwargs.pop(k, None) is not None]
+                if dropped:
+                    logger.debug(
+                        f"🔧 Tools present: dropped {dropped} for this call "
+                        f"(Gemini forbids function calling with JSON mode)"
+                    )
 
             response = self.client.models.generate_content(
                 model=self.model_name,
@@ -407,14 +489,13 @@ class GeminiChatGenerator:
                     "required": []
                 }
 
-                # Copy properties, but strip out "default" fields (not supported by Gemini)
+                # Copy properties, sanitising each one for Gemini's schema
+                # dialect (see _sanitize_schema_for_gemini).
                 if "properties" in parameters:
-                    cleaned_properties = {}
-                    for prop_name, prop_schema in parameters["properties"].items():
-                        # Create a copy without the "default" field
-                        cleaned_schema = {k: v for k, v in prop_schema.items() if k != "default"}
-                        cleaned_properties[prop_name] = cleaned_schema
-                    gemini_parameters["properties"] = cleaned_properties
+                    gemini_parameters["properties"] = {
+                        prop_name: _sanitize_schema_for_gemini(prop_schema)
+                        for prop_name, prop_schema in parameters["properties"].items()
+                    }
 
                 # Copy required fields
                 if "required" in parameters:
