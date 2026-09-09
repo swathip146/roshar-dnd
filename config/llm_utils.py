@@ -436,6 +436,23 @@ class GeminiChatGenerator:
                     **thinking)
             if gemini_tools:
                 config_kwargs["tools"] = gemini_tools
+                # Disable the SDK's Automatic Function Calling.
+                #
+                # AFC defaults to ENABLED ("Default to enable AFC if not
+                # specified" — google/genai/_extra_utils.should_disable_afc), so
+                # the SDK was preparing to execute tool calls itself and warned
+                # "Direct use of automatic function calling (AFC) in
+                # Models.generate_content is not recommended".
+                #
+                # We do not want AFC at all: Haystack's Agent owns the tool loop
+                # (it invokes the tool, appends the result, and re-prompts), and
+                # our tools are Haystack Tool objects converted to bare
+                # FunctionDeclarations, not Python callables the SDK could run.
+                # Two loops competing over one conversation is the bug this
+                # prevents; the warning was only the symptom.
+                config_kwargs["automatic_function_calling"] = (
+                    genai_types.AutomaticFunctionCallingConfig(disable=True)
+                )
                 # Gemini rejects tools combined with JSON mode:
                 #   400 INVALID_ARGUMENT "Function calling with a response mime
                 #   type: 'application/json' is unsupported"

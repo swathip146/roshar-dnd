@@ -393,6 +393,10 @@ class PipelineOrchestrator:
             # Connect: DTO → Prompt Builder → Agent → Validator
             scenario_pipeline.connect("prompt_builder.messages", "scenario_agent.messages")
             scenario_pipeline.connect("scenario_agent.messages", "validator.messages")
+            # Two-phase turn: the validator runs Phase B (narrate_scene) and needs
+            # the same context block Phase A adjudicated against.
+            scenario_pipeline.connect("prompt_builder.prompt_context",
+                                      "validator.prompt_context")
             self.pipelines["scenario_generation"] = scenario_pipeline
             debug_print("PIPELINES", "✅ Created connected Scenario pipeline")
             

@@ -1,0 +1,239 @@
+"""
+The scenario turn is TWO calls: adjudicate, then narrate.
+
+THE DESIGN ERROR THIS FIXES. One call tried to be both agentic (13 DM tools) and
+structured-output (a JSON schema). Gemini rejects that combination:
+
+    400 INVALID_ARGUMENT "Function calling with a response mime type:
+    'application/json' is unsupported"
+
+An earlier patch hid the 400 by silently DROPPING the schema whenever tools were
+present. The model was then told by prompt to emit schema-shaped JSON with
+nothing enforcing it, so it kept calling tools hunting for certainty and never
+wrote the plain-text message that satisfies exit_conditions=["text"]. Live turns
+burned all 10 steps; the player got "A mysterious pause settles over the scene."
+
+Note this is a GEMINI constraint, not a Haystack one — the same request from
+LangGraph or the raw SDK returns the same 400. Splitting the phases is required
+regardless of framework.
+
+  Phase A  create_scenario_generator_agent()  tools, NO schema  -> facts
+  Phase B  narrate_scene()                    schema, NO tools  -> scene JSON
+"""
+
+import json
+
+import pytest
+from haystack.dataclasses import ChatMessage
+
+
+pytestmark = pytest.mark.unit
+
+
+VALID_SCENE = {
+    "scene": "The ridge wind claws at your cloak; rockbud shells crack underfoot.",
+    "choices": [
+        {"id": "c1", "title": "Press on", "description": "Follow the tracks",
+         "skill_hints": ["survival"], "suggested_dc": 12, "combat_trigger": False},
+    ],
+    "gm_notes": "nothing hidden",
+}
+
+# The canned strings that used to reach the player when the single call failed.
+CANNED = ("A mysterious pause settles over the scene",
+          "You find yourself in a moment of decision",
+          "Wait and Observe",
+          "Continue Forward")
+
+
+class _Generator:
+    """Returns fixed JSON and records how it was called."""
+
+    def __init__(self, payload=None):
+        self.payload = payload if payload is not None else VALID_SCENE
+        self.calls = 0
+
+    def run(self, messages):
+        self.calls += 1
+        self.last_messages = messages
+        body = (self.payload if isinstance(self.payload, str)
+                else json.dumps(self.payload))
+        return {"replies": [ChatMessage.from_assistant(body)]}
+
+
+class TestPhasesAreSeparated:
+
+    def test_adjudication_phase_has_tools_and_no_schema(self):
+        """Tools + schema is the 400. This phase must carry tools only."""
+        from agents.scenario_generator_agent import create_scenario_generator_agent
+
+        agent = create_scenario_generator_agent()
+        assert len(agent.tools) == 13, "adjudication needs the DM tools"
+        config = agent.chat_generator.generation_config
+        assert "response_schema" not in config, \
+            "a schema here makes every tool call 400"
+        assert "response_mime_type" not in config
+
+    def test_narration_phase_has_schema_and_no_tools(self):
+        """The schema is now genuinely enforced, not silently dropped."""
+        from config.llm_config import get_global_config_manager
+        from agents.scenario_generator_agent import SCENARIO_RESPONSE_SCHEMA
+
+        generator = get_global_config_manager().create_generator(
+            "scenario_generator", response_schema=SCENARIO_RESPONSE_SCHEMA)
+        assert generator.generation_config["response_mime_type"] == "application/json"
+        assert generator.generation_config["response_schema"]
+
+    def test_adjudication_prompt_forbids_prose(self):
+        """Phase A must summarise facts, not write the scene."""
+        import inspect
+        from agents import scenario_generator_agent
+
+        source = inspect.getsource(
+            scenario_generator_agent.create_scenario_generator_agent)
+        assert "NOT PLAYER-FACING" in source
+        assert "do NOT emit JSON" in source
+
+    def test_narration_prompt_forbids_changing_outcomes(self):
+        from agents.scenario_generator_agent import NARRATION_SYSTEM_PROMPT
+
+        assert "MAY NOT CHANGE WHAT HAPPENED" in NARRATION_SYSTEM_PROMPT
+        assert "roll failed" in NARRATION_SYSTEM_PROMPT
+
+
+class TestNarrateScene:
+
+    def test_produces_a_scene_from_findings(self):
+        from agents.scenario_generator_agent import narrate_scene
+
+        generator = _Generator()
+        result = narrate_scene("Stealth 14 vs DC 13 -> success. No damage.",
+                               "LOCATION: Playtest Ridge",
+                               chat_generator=generator)
+        assert result["scene"] == VALID_SCENE["scene"]
+        assert generator.calls == 1
+
+    def test_findings_are_sent_to_the_model(self):
+        """Otherwise the narration would invent what happened."""
+        from agents.scenario_generator_agent import narrate_scene
+
+        generator = _Generator()
+        narrate_scene("Stealth 14 vs DC 13 -> FAILED.", "LOCATION: Ridge",
+                      chat_generator=generator)
+        sent = " ".join(getattr(m, "text", "") or "" for m in generator.last_messages)
+        assert "Stealth 14 vs DC 13 -> FAILED." in sent
+        assert "LOCATION: Ridge" in sent
+
+    def test_empty_scene_is_rejected(self):
+        from agents.scenario_generator_agent import narrate_scene
+
+        generator = _Generator({"scene": "   ", "choices": [], "gm_notes": ""})
+        assert narrate_scene("f", "c", chat_generator=generator) == {}
+        assert generator.calls == 2, "should retry before giving up"
+
+    def test_unparseable_output_gives_up_cleanly(self):
+        from agents.scenario_generator_agent import narrate_scene
+
+        generator = _Generator("this is not json at all")
+        assert narrate_scene("f", "c", chat_generator=generator) == {}
+
+
+class TestValidatorRunsPhaseB:
+
+    def _scene_of(self, result):
+        payload = result["validated_scenario"]
+        return (payload.get("scenario") or payload).get("scene", "")
+
+    def test_findings_text_is_narrated_not_shown(self, monkeypatch):
+        """
+        Phase A returns "Stealth 14 vs DC 13: success" — mechanical notes.
+
+        The old code lifted the first long line straight into "scene", so the
+        player could be shown the DM's working. It must go through Phase B.
+        """
+        import agents.scenario_generator_agent as module
+
+        monkeypatch.setattr(module, "narrate_scene",
+                            lambda findings, context: dict(VALID_SCENE))
+        validator = module.ScenarioValidatorComponent()
+        result = validator.run(
+            messages=[ChatMessage.from_assistant(
+                "Stealth check 14 vs DC 13: success. Nothing was damaged.")],
+            prompt_context="LOCATION: Playtest Ridge")
+
+        scene = self._scene_of(result)
+        assert scene == VALID_SCENE["scene"]
+        assert "DC 13" not in scene, "mechanical notes leaked to the player"
+
+    def test_phase_b_receives_the_findings_and_context(self, monkeypatch):
+        import agents.scenario_generator_agent as module
+
+        seen = {}
+
+        def spy(findings, context):
+            seen["findings"], seen["context"] = findings, context
+            return dict(VALID_SCENE)
+
+        monkeypatch.setattr(module, "narrate_scene", spy)
+        module.ScenarioValidatorComponent().run(
+            messages=[ChatMessage.from_assistant("Rolled 14, succeeded.")],
+            prompt_context="LOCATION: Ridge | QUEST: find the spren")
+
+        assert "Rolled 14" in seen["findings"]
+        assert "find the spren" in seen["context"]
+
+    def test_json_from_the_agent_is_still_honoured(self, monkeypatch):
+        """A caller that does emit scene JSON must not be second-guessed."""
+        import agents.scenario_generator_agent as module
+
+        called = {"n": 0}
+
+        def spy(findings, context):
+            called["n"] += 1
+            return {}
+
+        monkeypatch.setattr(module, "narrate_scene", spy)
+        result = module.ScenarioValidatorComponent().run(
+            messages=[ChatMessage.from_assistant(json.dumps(VALID_SCENE))],
+            prompt_context="")
+
+        assert self._scene_of(result) == VALID_SCENE["scene"]
+        assert called["n"] == 0, "Phase B should not run when JSON already exists"
+
+    def test_no_canned_text_when_narration_fails(self, monkeypatch):
+        """
+        The last-resort fallback must be honest, and must not be one of the
+        strings that made two live turns identical.
+        """
+        import agents.scenario_generator_agent as module
+
+        monkeypatch.setattr(module, "narrate_scene",
+                            lambda findings, context: {})
+        result = module.ScenarioValidatorComponent().run(
+            messages=[ChatMessage.from_assistant("some findings")],
+            prompt_context="")
+
+        scene = self._scene_of(result)
+        assert scene, "a turn must never return an empty scene"
+        for phrase in CANNED:
+            assert phrase not in scene, f"canned text {phrase!r} still reachable"
+
+
+class TestPromptContextIsWired:
+    """Phase B needs the same context block Phase A adjudicated against."""
+
+    def test_prompt_builder_emits_prompt_context(self):
+        from agents.scenario_generator_agent import PromptBuilderComponent
+
+        output = PromptBuilderComponent().run(dto={"player_input": "look around"})
+        assert output.get("prompt_context"), \
+            "without this the narration call does not know where the party is"
+        assert output["messages"]
+
+    def test_pipeline_connects_it_to_the_validator(self):
+        import inspect
+        from orchestrator import pipeline_integration
+
+        source = inspect.getsource(pipeline_integration)
+        assert 'prompt_builder.prompt_context' in source
+        assert 'validator.prompt_context' in source

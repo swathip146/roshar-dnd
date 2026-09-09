@@ -71,8 +71,9 @@ _READ_CACHE: Dict[str, Any] = {}
 
 
 def begin_dm_tool_turn() -> None:
-    """Drop the per-turn read cache. Called at the start of each turn."""
+    """Drop the per-turn read cache and repeat counters. Called each turn."""
     _READ_CACHE.clear()
+    _READ_COUNTS.clear()
 
 
 def invalidate_dm_tool_reads() -> None:
@@ -82,12 +83,56 @@ def invalidate_dm_tool_reads() -> None:
     Without this the cache would be actively wrong, not merely stale: a model
     that calls apply_damage and then get_character_state must see the new HP, or
     it will narrate the character as unharmed.
+
+    The repeat COUNTS are deliberately kept: state changing does not license the
+    model to resume polling, and a mutation must not reset the loop-breaker.
     """
     _READ_CACHE.clear()
 
 
+# How many times a read may return data before the tool starts answering with an
+# instruction instead. One re-read is a reasonable double-check; beyond that the
+# model is looping.
+_MAX_READS_PER_TURN = 2
+
+_READ_COUNTS: Dict[str, int] = {}
+
+
 def _cached_read(key: str, compute):
-    """Return a cached read for this turn, computing it at most once."""
+    """
+    Return a cached read, and BREAK THE LOOP if the model keeps re-asking.
+
+    Caching alone was not enough. A live turn showed the model requesting
+    get_world_state and get_party_state TOGETHER on every single step, ten steps
+    running, until it hit max_agent_steps with no scene written — the player got
+    "A mysterious pause settles over the scene." Making the repeats free (the
+    first fix) only made it loop faster: 46 cache hits, still no scene.
+
+    The model will not break out on its own, so the tool has to. After
+    _MAX_READS_PER_TURN the payload is replaced by a directive telling it the
+    data is unchanged and it must now narrate. That reaches the model as a tool
+    RESULT, which is the one channel it is guaranteed to read.
+    """
+    _READ_COUNTS[key] = _READ_COUNTS.get(key, 0) + 1
+    count = _READ_COUNTS[key]
+
+    if count > _MAX_READS_PER_TURN:
+        logger.warning(
+            f"⚠️ {key} requested {count}× this turn — returning a "
+            f"stop-polling directive instead of the payload"
+        )
+        return {
+            "unchanged": True,
+            "note": (
+                f"You have already called this tool {count - 1} times this turn "
+                f"and NOTHING HAS CHANGED. Calling it again cannot give you new "
+                f"information. Stop gathering information and WRITE THE SCENE "
+                f"NOW using what you already have. If you keep calling tools you "
+                f"will run out of steps and the player will receive a generic "
+                f"fallback instead of your scene."
+            ),
+        }
+
     if key not in _READ_CACHE:
         _READ_CACHE[key] = compute()
         return _READ_CACHE[key]

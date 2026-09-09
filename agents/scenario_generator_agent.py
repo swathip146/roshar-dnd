@@ -410,8 +410,12 @@ class PromptBuilderComponent:
     DTO COMPLIANCE: Uses direct engine access and RAGBlock parameter instead of DTO RAG access.
     """
     
-    @component.output_types(messages=List[ChatMessage])
-    def run(self, dto: Dict[str, Any]) -> Dict[str, List[ChatMessage]]:
+    # `prompt_context` is emitted alongside the messages so Phase B (narration)
+    # can see the same location/quest/lore/policy block the adjudication phase
+    # saw. Without it the narration call would be told what happened but not
+    # where, and would invent the setting.
+    @component.output_types(messages=List[ChatMessage], prompt_context=str)
+    def run(self, dto: Dict[str, Any]) -> Dict[str, Any]:
         """
         Build comprehensive scenario generation prompt with RAGBlock TypedDict input.
         DTO COMPLIANCE: Uses engine references and separate RAG input.
@@ -429,7 +433,7 @@ class PromptBuilderComponent:
         prompt = create_scenario_from_dto(dto)
         # Convert string prompt to ChatMessage list
         messages = [ChatMessage.from_user(prompt)]
-        return {"messages": messages}
+        return {"messages": messages, "prompt_context": prompt}
 
 
 @component
@@ -440,29 +444,58 @@ class ScenarioValidatorComponent:
     """
     
     @component.output_types(validated_scenario=dict)
-    def run(self, messages: List[ChatMessage]) -> Dict[str, Dict[str, Any]]:
+    def run(self, messages: List[ChatMessage],
+            prompt_context: str = "") -> Dict[str, Dict[str, Any]]:
         """
-        Validate and format scenario response from agent messages according to JSON schema.
-        
+        Turn the adjudication phase's output into a validated scenario.
+
+        Two-phase turn (see create_scenario_generator_agent): `messages` now
+        carries Phase A's FACTUAL SUMMARY, not scene JSON. If it already contains
+        JSON we use it (covers a caller that still does it in one call, and any
+        test that feeds JSON directly); otherwise we run Phase B — narrate_scene,
+        which has the schema enforced and no tools — to produce the scene.
+
         Args:
-            messages: List of ChatMessage objects from scenario agent
-            
+            messages: ChatMessages from the adjudication agent
+            prompt_context: The original context block, passed to Phase B
+
         Returns:
             Dictionary with validated_scenario
         """
         debug_scenario_print("COMPONENT", "🎯 ScenarioValidatorComponent processing messages")
         
-        # Extract scenario data from the last message
+        # Extract scenario data from the messages.
         scenario_data = {}
         if messages:
-            last_message = messages[-1]
+            # Scan BACKWARDS for the last message that actually carries text.
+            #
+            # This used to read messages[-1] only. When the agent exhausts
+            # max_agent_steps mid-loop the final message is a TOOL RESULT with no
+            # text, so a scene the model had already written in an earlier message
+            # was thrown away and the player got "A mysterious pause settles over
+            # the scene." Two turns of a six-turn playtest ended that way.
+            def _text_of(message) -> str:
+                for attribute in ("text", "content"):
+                    value = getattr(message, attribute, None)
+                    if isinstance(value, str) and value.strip():
+                        return value
+                return ""
+
             response_text = ""
-            if hasattr(last_message, 'content'):
-                response_text = last_message.content
-            elif hasattr(last_message, 'text'):
-                response_text = last_message.text
-            else:
-                response_text = str(last_message)
+            for message in reversed(messages):
+                # Skip tool-call/result messages; only assistant prose can hold
+                # the scene JSON.
+                if getattr(message, "tool_calls", None):
+                    continue
+                candidate = _text_of(message)
+                if candidate:
+                    response_text = candidate
+                    break
+
+            if not response_text:
+                # Nothing anywhere: fall back to the plain last-message read so
+                # behaviour is unchanged for the ordinary single-message case.
+                response_text = _text_of(messages[-1]) or str(messages[-1])
             
             # DEBUG: Print the actual LLM response
             # debug_scenario_print("COMPONENT", "📝 LLM Response Text:")
@@ -535,201 +568,146 @@ class ScenarioValidatorComponent:
                         
                 except Exception as e:
                     debug_scenario_print("COMPONENT", f"⚠️ Failed to parse scenario JSON: {e}")
-                    
-                    # Enhanced fallback: create structured scenario from text patterns
-                    scene_text = "You find yourself in a moment of decision."
-                    if response_text:
-                        # Try to extract scene-like content
-                        lines = response_text.split('\n')
-                        for line in lines:
-                            line = line.strip()
-                            if len(line) > 50 and not line.startswith('"') and not line.startswith('{'):
-                                scene_text = line[:300]  # Use first substantial line as scene
-                                break
-                    
-                    scenario_data = {
-                        "scene": scene_text,
-                        "choices": [
-                            {
-                                "id": "c1",
-                                "title": "Continue Forward",
-                                "description": "Proceed with your original intention",
-                                "skill_hints": ["general"],
-                                "suggested_dc": 12,
-                                "combat_trigger": False
-                            },
-                            {
-                                "id": "c2",
-                                "title": "Reassess the Situation",
-                                "description": "Take time to carefully consider your options",
-                                "skill_hints": ["insight"],
-                                "suggested_dc": 10,
-                                "combat_trigger": False
-                            }
-                        ],
-                        "effects": {"immediate": "Your choice shapes what happens next"},
-                        "hooks": ["The situation continues to develop"],
-                        "gm_notes": "Fallback scenario - JSON parsing failed",
-                        "state_changes": {},
-                        "difficulty_used": {},
-                        "fallback": True
-                    }
-                    debug_scenario_print("COMPONENT", "🔧 Created fallback scenario data")
+
+                    # Do NOT fabricate a scene from this text. In the two-phase
+                    # turn this branch is the EXPECTED path: Phase A returns a
+                    # terse factual summary ("Stealth 14 vs DC 13, success"), not
+                    # JSON. The old code lifted the first long line into "scene",
+                    # which meant the player could be shown the DM's mechanical
+                    # notes verbatim, dressed up with two canned choices.
+                    #
+                    # Leave it empty and let Phase B narrate properly below.
+                    scenario_data = {}
             else:
                 debug_scenario_print("COMPONENT", "❌ No response text from LLM")
+                scenario_data = {}
+
+        # PHASE B. If we do not have a usable scene yet, the adjudication phase
+        # gave us findings (or nothing) rather than scene JSON — that is the
+        # NORMAL path now, not an error. Run the narration call, which has the
+        # schema enforced and no tools.
+        #
+        # This replaces "A mysterious pause settles over the scene.", which two
+        # turns of a six-turn playtest received because the single combined call
+        # exhausted its steps without ever emitting JSON.
+        if not str(scenario_data.get("scene", "")).strip():
+            findings = ""
+            if messages:
+                parts = []
+                for message in messages:
+                    if getattr(message, "tool_calls", None):
+                        continue
+                    for attribute in ("text", "content"):
+                        value = getattr(message, attribute, None)
+                        if isinstance(value, str) and value.strip():
+                            parts.append(value.strip())
+                            break
+                findings = "\n".join(parts[-3:])
+
+            narrated = narrate_scene(findings, prompt_context)
+            if str(narrated.get("scene", "")).strip():
+                debug_scenario_print("COMPONENT", "✅ Phase B produced the scene")
+                scenario_data = narrated
+            else:
+                # Genuinely nothing worked. Keep a fallback so a turn never
+                # returns empty, but make it honest rather than mysterious.
+                logger.error("❌ Both adjudication and narration failed to "
+                             "produce a scene")
                 scenario_data = {
-                    "scene": "A mysterious pause settles over the scene.",
+                    "scene": ("The storm's noise swallows the moment; the "
+                              "world seems to hold its breath."),
                     "choices": [
                         {
                             "id": "c1",
-                            "title": "Wait and Observe",
-                            "description": "Take time to see what develops",
-                            "skill_hints": ["perception"],
-                            "suggested_dc": 10,
-                            "combat_trigger": False
+                            "title": "Try again",
+                            "description": "Restate what you want to do",
+                            "skill_hints": [],
+                            "suggested_dc": 0,
+                            "combat_trigger": False,
                         }
                     ],
                     "effects": {},
                     "hooks": [],
-                    "gm_notes": "Empty response fallback",
-                    "fallback": True
+                    "gm_notes": "Both turn phases failed to produce a scene",
+                    "fallback": True,
                 }
-        
+
         formatted_result = format_scenario_response(scenario_data)  # Reuse existing logic
         return {"validated_scenario": formatted_result}
 
 def create_scenario_generator_agent(chat_generator: Optional[Any] = None) -> Agent:
     """
-    Create a simplified scenario agent that focuses only on LLM creativity.
-    Designed for pipeline integration with PromptBuilderComponent and ScenarioValidatorComponent.
-    Uses structured output with JSON schema to guarantee valid JSON responses.
+    Phase A of the turn: ADJUDICATE. Tools, no response schema.
+
+    THE DESIGN ERROR THIS FIXES — this one call used to try to be two things at
+    once: agentic (13 DM tools) and structured-output (a JSON schema). Gemini
+    rejects that combination outright:
+
+        400 INVALID_ARGUMENT "Function calling with a response mime type:
+        'application/json' is unsupported"
+
+    An earlier patch of mine papered over the 400 by silently DROPPING the schema
+    whenever tools were present. That left the model told-by-prompt to emit
+    schema-shaped JSON with nothing enforcing it, so it kept calling tools hunting
+    for certainty and never wrote the plain-text message that satisfies
+    exit_conditions=["text"]. Live turns burned all 10 steps and the player got
+    "A mysterious pause settles over the scene." Caching the reads and raising the
+    ceiling 6->10 treated symptoms; the two modes were fighting.
+
+    Now each call does ONE job:
+      Phase A (this agent)      tools, NO schema   -> gather facts, roll, mutate
+      Phase B (narrate_scene)   schema, NO tools   -> write the scene JSON
+
+    Note this is a Gemini API constraint, not a Haystack one: the same request
+    from LangGraph or the raw SDK returns the same 400.
 
     Args:
         chat_generator: Optional chat generator (uses LLM config if None)
 
     Returns:
-        Simplified Haystack Agent focused on creative generation only
+        A Haystack Agent that adjudicates and then summarises what it did.
     """
 
-    # Use LLM config manager to get appropriate generator with structured output schema
+    # NO response_schema here: this phase must be free to call tools, and the
+    # schema would make every call 400.
     if chat_generator is None:
         config_manager = get_global_config_manager()
-        # Pass the JSON schema to the generator for structured output
-        generator = config_manager.create_generator("scenario_generator", response_schema=SCENARIO_RESPONSE_SCHEMA)
-        logger.info("🎯 Scenario generator created with structured output schema for guaranteed valid JSON")
+        generator = config_manager.create_generator("scenario_generator")
+        logger.info("🎯 Scenario adjudication generator created (tools, no schema)")
     else:
         generator = chat_generator
-    
+
     simplified_system_prompt = """
-You are an expert D&D Dungeon Master creating engaging, immersive scenarios that respond naturally to player actions.
+You are the adjudication half of a D&D Dungeon Master. Your job is to establish
+FACTS, not to write prose. Another call will write the scene from your findings.
 
-CORE MISSION:
-Generate scenarios where choices emerge organically from the narrative situation, using comprehensive context to create meaningful player agency.
-
-CONTEXT INTEGRATION APPROACH:
-You'll receive prompts with 6 categories of context (A-F). Use ALL categories to inform your scenario creation:
-A. **Narrative Context** - Advance story momentum based on player action and current state
-B. **Location Context** - Use environmental features and atmosphere meaningfully in scene and choices
-C. **Quest Context** - Progress objectives, respect time constraints and consequences
-D. **Policy Context** - Apply appropriate DC scaling and encounter budgets based on difficulty target
-E. **RAG Context** - Integrate retrieved lore and world information authentically into scenarios
-F. **Output Requirements** - Follow exact formatting specifications and choice count targets. Make sure output is valid a JSON object.
-
-KEY PRINCIPLES:
-1. **Narrative Logic First**: Choices should emerge naturally from the scene, not follow artificial formulas
-2. **Comprehensive Integration**: Weave all provided context meaningfully into the scenario
-3. **Player Agency**: Each choice should lead to meaningfully different outcomes
-4. **Atmospheric Immersion**: Use vivid sensory details to bring scenes to life
-5. **Appropriate Challenge**: Match difficulty and DCs to specified levels and policy profiles
-
-CHOICE GENERATION PHILOSOPHY:
-- Ask: "Given this scene and all the context, what would players naturally want to do?"
-- Don't force skill checks if the situation doesn't call for them
-- Don't mandate combat if no threats are present
-- Don't require social interaction if no NPCs are available
-- Let environmental factors, quest objectives, and retrieved lore suggest authentic options
-- Consider different player approaches: bold vs cautious, direct vs indirect, immediate vs patient
-
-CRITICAL OUTPUT FORMAT:
-Respond with ONLY a valid JSON object. No explanations, no markdown, no extra text.
-
-JSON STRUCTURE:
-{
-  "scene": "Rich scene description incorporating action results and ALL context categories",
-  "choices": [
-    {
-      "id": "c1",
-      "title": "Clear action name (add **Skill Check** or **Combat** only when naturally applicable)",
-      "description": "Specific explanation of what this choice involves",
-      "skill_hints": ["relevant_d20_skills"],
-      "suggested_dc": 12,
-      "combat_trigger": false
-    }
-  ],
-  "effects": {"immediate": "...", "long_term": "..."},
-  "hooks": ["Future story possibilities based on context"],
-  "gm_notes": "Hidden information for DM",
-  "state_changes": {
-    "narrative": "...",
-    "location": "Bare place NAME only, e.g. 'Kholinar' — omit this key entirely unless the party actually MOVED. Never a sentence or a description.",
-    "quests": {"add": ["new objective the scene created"],
-               "complete": ["objective the player just accomplished"]}
-  },
-  "difficulty_used": {"dcs": {}, "encounter_budget": "", "policy_profile": ""}
-}
-
-DC SCALING GUIDELINES:
-- Easy: 8-11, Medium: 12-15, Hard: 16-19, Very Hard: 20+
-- Adjust based on policy profile: "raw" = stricter, "house" = more forgiving
-- Consider environmental factors that might modify checks
-- Match the specified difficulty target in the prompt
-
-SCENE WRITING REQUIREMENTS:
-- Show immediate consequences of the player's specific action
-- Use multiple senses to create immersion (sight, sound, smell, touch)
-- Integrate location atmosphere and environmental factors
-- Weave in retrieved lore and quest context naturally
-- End at a natural decision point
-
-TOOLS — YOU NARRATE, THE CODE ADJUDICATES (plan 3.1):
-You have tools that return REAL results from REAL game state. Use them; do not
-guess at mechanics or state.
-
-  Before describing anyone's condition   -> get_character_state / get_party_state
-  Before describing the situation        -> get_world_state
-  To resolve an attempt                  -> roll_skill_check(skill, dc)
-  To roll anything                       -> roll_dice("2d6+3")
-  For any RULE                           -> query_rules("Goblin" / "Full Lashing")
-  For Roshar flavour only                -> search_lore(...)
-  When someone is hurt or healed         -> apply_damage / apply_healing
-  When a Surge is used                   -> spend_stormlight(n)
-  When the story moves                   -> advance_quest / award_experience
-  When the party travels                 -> travel_to_location
+WHAT TO DO, IN ORDER:
+1. Read the state you need — get_world_state, get_party_state,
+   get_character_state. Call each AT MOST ONCE; they cannot change while you work.
+2. Look up any rule the action depends on — query_rules. Never invent a rule,
+   cost or DC.
+3. Resolve the player's attempt — roll_skill_check for anything uncertain. You do
+   not decide outcomes; the dice do.
+4. Apply real consequences — apply_damage / apply_healing / spend_stormlight /
+   advance_quest / award_experience / travel_to_location.
+5. THEN STOP CALLING TOOLS and write a short plain-text summary of what actually
+   happened: the rolls and their results, what changed, what is now true.
 
 Hard rules:
 - NEVER state that an attempt succeeded or failed without calling
-  roll_skill_check. You do not decide outcomes; the dice do.
-- NEVER invent a rule, cost or DC. Call query_rules. If it returns found:false,
-  say openly that you are improvising rather than presenting it as official.
+  roll_skill_check.
 - NEVER describe damage or healing you did not apply with a tool, or the fiction
   and the character sheets will drift apart.
-- spend_stormlight can REFUSE. If affordable is false, narrate the Surge failing
-  for want of Stormlight.
+- spend_stormlight can REFUSE. If affordable is false, say the Surge failed for
+  want of Stormlight.
 - search_lore is flavour only. Never derive a mechanic from lore prose.
+- If a tool reports "unchanged": true, you have already called it. Stop gathering
+  and write your summary.
 
-STEP BUDGET — you have a limited number of tool-calling steps per turn, and if
-you spend them all the player gets a generic fallback scene instead of your work.
-- Call each READ-ONLY tool AT MOST ONCE per turn: get_world_state,
-  get_party_state, get_character_state. They return the same answer every time
-  within a turn, so calling one twice wastes a step and tells you nothing new.
-- Batch your information gathering: decide everything you need, call those tools
-  once each, then write the scene.
-- Prefer writing the scene over one more lookup. An excellent scene using what
-  you already know beats a perfect lookup with no scene at all.
-
-Then write the scene describing what the tools actually returned.
-
-Remember: Create scenarios that feel like authentic story progression using ALL the rich context provided!
+YOUR OUTPUT IS NOT PLAYER-FACING. Write a terse factual summary — a few
+sentences. Do NOT write scene prose, do NOT offer choices, do NOT emit JSON.
+Writing that summary is how you end your turn; if you keep calling tools you will
+run out of steps and the player will get a generic fallback instead of a scene.
 """
 
 
@@ -755,12 +733,14 @@ Remember: Create scenarios that feel like authentic story progression using ALL 
         chat_generator=generator,
         tools=dm_tools,
         system_prompt=simplified_system_prompt,
-        exit_conditions=["text"],  # finish when the model writes the scene
-        # Enough steps to inspect state, look up a rule, roll, THEN NARRATE.
-        # Was 6, which a live playtest exhausted on tool calls alone: two turns
-        # spent every step querying state and the player got a generic fallback
-        # instead of a scene. Raised to 10, and the read tools are now cached
-        # per turn so repeats cost nothing.
+        # Exit as soon as the model writes text instead of calling a tool. That
+        # text is now a short FACTUAL SUMMARY, not the scene — which is why this
+        # phase can actually reach an exit: summarising is a much easier target
+        # than producing schema-shaped JSON with no schema to guide it.
+        exit_conditions=["text"],
+        # Adjudication only: read state, look up a rule, roll, apply, summarise.
+        # 6 was too tight when this call also had to write the scene; that job
+        # now belongs to narrate_scene(), so the budget is for tools alone.
         max_agent_steps=10 if dm_tools else 1,
         raise_on_tool_invocation_failure=False,
         state_schema={}
@@ -769,8 +749,111 @@ Remember: Create scenarios that feel like authentic story progression using ALL 
         f"🎯 Scenario agent created with {len(dm_tools)} DM tools, "
         f"max_agent_steps={10 if dm_tools else 1}"
     )
-    
+
     return agent
+
+
+# ---------------------------------------------------------------------------
+# Phase B of the turn: NARRATE. Schema enforced, no tools.
+# ---------------------------------------------------------------------------
+
+NARRATION_SYSTEM_PROMPT = """
+You are an expert D&D Dungeon Master writing the player-facing scene for one turn
+on Roshar. The mechanics have ALREADY been resolved by another call; you are given
+its findings. Your only job is to turn them into vivid prose and real choices.
+
+YOU MAY NOT CHANGE WHAT HAPPENED. The findings are authoritative:
+- If a roll failed, narrate the failure. Do not soften or reverse it.
+- If damage was applied, the character is hurt by exactly that much.
+- If a Surge was refused for want of Stormlight, it did not happen.
+- Never invent a roll, a rule, a DC or a state change that is not in the findings.
+
+SCENE WRITING:
+- Open with the immediate consequence of the player's specific action.
+- Use several senses; make the highstorm-scarred world feel physical.
+- Weave in the location, the quest, and any retrieved lore naturally.
+- End at a genuine decision point.
+- 2-5 paragraphs. Vivid, not florid.
+
+CHOICES:
+- Offer 3-4 choices that emerge from THIS scene, not a template.
+- Vary the approach: bold vs cautious, direct vs indirect, patient vs immediate.
+- Mark a choice **Skill Check (DC X)** or **Combat** only when it genuinely is one.
+- DC guidance: Easy 8-11, Medium 12-15, Hard 16-19, Very Hard 20+.
+
+state_changes.location must be a bare place NAME (e.g. "Kholinar") and must be
+omitted entirely unless the party actually MOVED. Never a sentence.
+
+Return ONLY the JSON object required by the schema.
+"""
+
+
+def narrate_scene(findings: str, prompt_context: str,
+                  chat_generator: Optional[Any] = None) -> Dict[str, Any]:
+    """
+    Turn Phase A's adjudicated findings into scene JSON (Phase B).
+
+    This call has the response schema ENFORCED and NO tools, which is the whole
+    point of the split: Gemini rejects tools+schema together, so the previous
+    single call had its schema silently dropped and never converged on an output.
+    Here the schema is real, there is no tool loop, and therefore no way to spin.
+
+    Args:
+        findings: Phase A's factual summary of what actually happened
+        prompt_context: The original context block (location, quest, lore, policy)
+        chat_generator: Optional override, for tests
+
+    Returns:
+        Parsed scenario dict, or {} if the call could not produce one.
+    """
+    if chat_generator is None:
+        config_manager = get_global_config_manager()
+        generator = config_manager.create_generator(
+            "scenario_generator", response_schema=SCENARIO_RESPONSE_SCHEMA)
+    else:
+        generator = chat_generator
+
+    user_message = (
+        f"{prompt_context}\n\n"
+        f"=== WHAT ACTUALLY HAPPENED (authoritative, do not contradict) ===\n"
+        f"{findings or '(no mechanical resolution was needed this turn)'}\n\n"
+        f"Write the scene and choices as JSON."
+    )
+
+    messages = [
+        ChatMessage.from_system(NARRATION_SYSTEM_PROMPT),
+        ChatMessage.from_user(user_message),
+    ]
+
+    def _validate(text: str) -> Dict[str, Any]:
+        from components.retry_with_reasoning import extract_json, require_keys
+
+        payload = extract_json(text)
+        require_keys(payload, ["scene", "choices"])
+        if not str(payload.get("scene", "")).strip():
+            from components.retry_with_reasoning import ValidationFailure
+            raise ValidationFailure(
+                "Your 'scene' was empty.",
+                hint="Write 2-5 paragraphs of scene prose in the 'scene' field.")
+        return payload
+
+    try:
+        # Reuse the 3.3 retry path: a rejected response is fed back with the
+        # specific reason rather than replaced by a canned scene.
+        from components.retry_with_reasoning import generate_with_retry
+
+        scenario, info = generate_with_retry(
+            generator, messages, validate=_validate,
+            max_attempts=2, fallback=lambda: {}, label="scene narration")
+        if info.get("used_fallback"):
+            logger.error("❌ Narration failed after retries; no scene produced")
+            return {}
+        if info.get("recovered"):
+            logger.info(f"✅ Narration recovered on attempt {info['attempts']}")
+        return scenario
+    except Exception as e:
+        logger.error(f"❌ Narration call failed: {e}")
+        return {}
 
 
 # Factory function for integration with existing orchestrator
