@@ -138,13 +138,22 @@ class TestStepBudgetHeadroom:
         agent = create_scenario_generator_agent()
         assert agent.max_agent_steps >= 10
 
-    def test_prompt_warns_about_the_budget(self):
+    def test_prompt_tells_the_model_to_stop_polling(self):
+        """
+        The adjudication prompt must say reads are one-shot and that it has to
+        stop calling tools. Wording moved when the turn was split into two
+        phases, so assert on the INSTRUCTIONS, not on one exact heading.
+        """
         import inspect
         from agents import scenario_generator_agent
 
-        source = inspect.getsource(scenario_generator_agent)
-        assert "STEP BUDGET" in source
-        assert "AT MOST ONCE" in source
+        source = inspect.getsource(
+            scenario_generator_agent.create_scenario_generator_agent)
+        assert "AT MOST ONCE" in source, "reads must be declared one-shot"
+        assert "STOP CALLING TOOLS" in source, \
+            "the model must be told explicitly to stop and summarise"
+        assert "run out of steps" in source, \
+            "it must know the cost of not stopping"
 
 
 class TestTurnBoundaryIsWired:
