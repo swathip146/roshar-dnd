@@ -671,7 +671,7 @@ JSON STRUCTURE:
   "gm_notes": "Hidden information for DM",
   "state_changes": {
     "narrative": "...",
-    "location": "...",
+    "location": "Bare place NAME only, e.g. 'Kholinar' — omit this key entirely unless the party actually MOVED. Never a sentence or a description.",
     "quests": {"add": ["new objective the scene created"],
                "complete": ["objective the player just accomplished"]}
   },
