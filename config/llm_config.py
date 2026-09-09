@@ -376,6 +376,25 @@ class LLMConfigManager:
         if not UTILS_AVAILABLE:
             raise ImportError("config.llm_utils not available for Gemini generator")
 
+        # PROVIDER SWITCH (config/floodgate.py). Floodgate is an
+        # OpenAI-compatible proxy that fronts the same Gemini models, so this is
+        # a transport choice: identical prompts, schemas and tools either way.
+        # It exists because the direct API returned HTTP 500 on every
+        # npc_combat_ai call in a live run, which hollowed out the tactical AI.
+        # Default remains the direct API; set LLM_PROVIDER=floodgate or auto.
+        from config.floodgate import resolve_provider
+
+        if resolve_provider() == "floodgate":
+            from config.llm_utils import FloodgateChatGenerator
+
+            generator = FloodgateChatGenerator(
+                model_name=config.model,
+                generation_config=generation_config,
+                response_schema=response_schema,
+            )
+            logger.info(f"🔀 Using Floodgate transport for {config.model}")
+            return generator
+
         from config.llm_utils import GeminiChatGenerator
 
         logger.debug(f"🔧 Using custom GeminiChatGenerator for model: {config.model}")

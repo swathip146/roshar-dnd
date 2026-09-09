@@ -195,3 +195,16 @@ data/rules/srd/*.json
 data/rules/gaps.json
 data/rules/rulings.json
 game_saves/turns.sqlite*
+
+# Floodgate / hwtgenie credentials — treated exactly like GEMINI_API_KEY.
+# The real token normally lives in ~/.hwtgenie (mode 600, OUTSIDE this repo),
+# but these patterns make sure a local copy or an export script can never be
+# committed by accident.
+.hwtgenie
+.hwtgenie*
+*.hwtgenie
+hwtgenie_token*
+floodgate_token*
+.floodgate
+.floodgate*
+secrets/

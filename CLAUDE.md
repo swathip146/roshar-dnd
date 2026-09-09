@@ -322,6 +322,43 @@ downtime, multiclassing, tactical depth, full spellcasting, Phase 5 web UI).
 
 ---
 
+## LLM provider switch (Gemini direct vs Floodgate)
+
+Two transports reach the same Gemini models. Floodgate exists because the direct
+API returned HTTP 500 on every combat-AI call during a live playtest, which
+silently reduced every NPC to "attack the nearest player".
+
+```bash
+# Direct Gemini API (default) — needs GEMINI_API_KEY
+export LLM_PROVIDER=gemini
+
+# Via Floodgate/hwtgenie (OpenAI-compatible proxy, model "gcp:gemini-2.5-flash")
+export LLM_PROVIDER=floodgate
+
+# Prefer Floodgate when a token resolves, else fall back to the direct API
+export LLM_PROVIDER=auto
+```
+
+Credential resolution (`config/floodgate.py`), all **outside** the repo:
+
+1. `FLOODGATE_TOKEN` or `HWTGENIE_API_KEY`
+2. `hwtgenielib.perform_login()` (SSO, if installed)
+3. `~/.hwtgenie` — written by `hwtgenie login`, mode 600
+
+`.env`, `.hwtgenie*`, `floodgate_token*` and `secrets/` are gitignored. Check the
+active transport without printing any secret:
+
+```bash
+python -c "from config.floodgate import describe; print(describe())"
+```
+
+`FloodgateChatGenerator` mirrors `GeminiChatGenerator`'s constructor, `run()`
+contract and `GeminiAPIError` failures, so switching transports needs no changes
+to agents, schemas or the retry path. Both retry 408/429/5xx with backoff and
+deliberately do NOT retry 400/403.
+
+---
+
 ## Models & Dependencies
 
 **LLM**: gemini-2.5-flash (via google-genai SDK)
