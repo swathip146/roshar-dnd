@@ -342,8 +342,15 @@ export LLM_PROVIDER=auto
 Credential resolution (`config/floodgate.py`), all **outside** the repo:
 
 1. `FLOODGATE_TOKEN` or `HWTGENIE_API_KEY`
-2. `hwtgenielib.perform_login()` (SSO, if installed)
-3. `~/.hwtgenie` — written by `hwtgenie login`, mode 600
+2. **`appleconnect getToken`** — the path that works here; mints a fresh
+   OAuth **ID** token (not the access token) via PKCE, cached 25 minutes
+3. `hwtgenielib.perform_login()` (SSO, if installed)
+4. `~/.hwtgenie` — may be stale; an expired token is detected and reported
+
+`hwtgenie` is **not** a command on this machine — don't run `hwtgenie login`.
+The appleconnect mechanism is borrowed from `pkg-wiki-cli`
+(`src/pkgwiki/core/auth.py`), which reaches the same gateway. Floodgate rejects
+the access token, so the ID token is required.
 
 `.env`, `.hwtgenie*`, `floodgate_token*` and `secrets/` are gitignored. Check the
 active transport without printing any secret:

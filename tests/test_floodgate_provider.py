@@ -65,6 +65,22 @@ class TestProviderSwitch:
         assert resolve_provider("gemini") == "gemini"
 
 
+@pytest.fixture
+def no_appleconnect(monkeypatch):
+    """
+    Disable the appleconnect source.
+
+    It genuinely works on this machine, so without this the later fallbacks are
+    unreachable and any test of them would be vacuous.
+    """
+    import config.floodgate as floodgate
+
+    monkeypatch.setattr(floodgate, "APPLECONNECT_BIN", "/nonexistent/appleconnect")
+    monkeypatch.setattr(floodgate, "_token_cache",
+                        {"value": "", "obtained_at": 0.0})
+    return floodgate
+
+
 class TestTokenResolution:
 
     def test_environment_variables_win(self, monkeypatch):
@@ -81,7 +97,7 @@ class TestTokenResolution:
         monkeypatch.setenv("HWTGENIE_API_KEY", "tok-legacy")
         assert get_floodgate_token() == "tok-legacy"
 
-    def test_token_file_is_the_last_resort(self, monkeypatch, tmp_path):
+    def test_token_file_is_the_last_resort(self, monkeypatch, tmp_path, no_appleconnect):
         import config.floodgate as floodgate
 
         monkeypatch.delenv("FLOODGATE_TOKEN", raising=False)
@@ -91,7 +107,7 @@ class TestTokenResolution:
         monkeypatch.setattr(floodgate, "TOKEN_FILE", token_file)
         assert floodgate.get_floodgate_token() == "tok-from-file"
 
-    def test_missing_credential_raises_an_actionable_error(self, monkeypatch, tmp_path):
+    def test_missing_credential_raises_an_actionable_error(self, monkeypatch, tmp_path, no_appleconnect):
         import config.floodgate as floodgate
 
         monkeypatch.delenv("FLOODGATE_TOKEN", raising=False)
@@ -100,7 +116,7 @@ class TestTokenResolution:
         with pytest.raises(floodgate.FloodgateUnavailable, match="hwtgenie login"):
             floodgate.get_floodgate_token()
 
-    def test_optional_lookup_returns_none(self, monkeypatch, tmp_path):
+    def test_optional_lookup_returns_none(self, monkeypatch, tmp_path, no_appleconnect):
         import config.floodgate as floodgate
 
         monkeypatch.delenv("FLOODGATE_TOKEN", raising=False)
@@ -427,7 +443,7 @@ class TestExpiredTokensAreDetected:
         assert "EXPIRED" in caplog.text
         assert "hwtgenie login" in caplog.text
 
-    def test_missing_token_with_explicit_choice_also_logs(self, monkeypatch, tmp_path, caplog):
+    def test_missing_token_with_explicit_choice_also_logs(self, monkeypatch, tmp_path, caplog, no_appleconnect):
         import logging
         import config.floodgate as floodgate
 
@@ -438,3 +454,116 @@ class TestExpiredTokensAreDetected:
         with caplog.at_level(logging.ERROR):
             floodgate.resolve_provider()
         assert "no token was found" in caplog.text
+
+
+class TestAppleconnectIsThePrimarySource:
+    """
+    `hwtgenie` is not installed on this machine and ~/.hwtgenie held a token that
+    expired 187 days earlier, which is why a live LLM_PROVIDER=floodgate run
+    failed on every turn. The credential path that actually works is
+    `appleconnect getToken` — taken from pkg-wiki-cli's src/pkgwiki/core/auth.py,
+    which reaches the same gateway.
+
+    Two details matter and are easy to get wrong:
+      - Floodgate authenticates with the ID token, NOT the access token.
+      - appleconnect must run non-interactively, or it can block a turn on a UI.
+    """
+
+    def test_requests_the_id_token_not_the_access_token(self):
+        import inspect
+        import config.floodgate as floodgate
+
+        source = inspect.getsource(floodgate._appleconnect_token)
+        assert "oauth-id-token" in source
+        assert "oauth-access-token" not in source
+
+    def test_runs_non_interactively(self):
+        """A UI prompt mid-turn would hang an unattended run."""
+        import inspect
+        import config.floodgate as floodgate
+
+        source = inspect.getsource(floodgate._appleconnect_token)
+        assert "--interactivity-type" in source
+        assert '"none"' in source
+
+    def test_uses_the_pkce_grant(self):
+        import inspect
+        import config.floodgate as floodgate
+
+        assert '"pkce"' in inspect.getsource(floodgate._appleconnect_token)
+
+    def test_tried_before_the_possibly_stale_file(self):
+        """appleconnect mints fresh; the file may be months old."""
+        import inspect
+        import config.floodgate as floodgate
+
+        source = inspect.getsource(floodgate.get_floodgate_token)
+        assert source.index("_appleconnect_token") < source.index("TOKEN_FILE")
+
+    def test_a_missing_binary_does_not_raise(self, monkeypatch):
+        import config.floodgate as floodgate
+
+        monkeypatch.setattr(floodgate, "APPLECONNECT_BIN", "/nonexistent/binary")
+        floodgate._token_cache.update({"value": "", "obtained_at": 0.0})
+        assert floodgate._appleconnect_token() is None
+
+    def test_a_nonzero_exit_does_not_raise(self, monkeypatch):
+        import subprocess
+        import config.floodgate as floodgate
+
+        class _Result:
+            returncode = 1
+            stdout = ""
+            stderr = "not logged in"
+
+        monkeypatch.setattr(floodgate, "APPLECONNECT_BIN", __file__)  # exists
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Result())
+        floodgate._token_cache.update({"value": "", "obtained_at": 0.0})
+        assert floodgate._appleconnect_token() is None
+
+    def test_token_is_parsed_from_keyed_output(self, monkeypatch):
+        import subprocess
+        import config.floodgate as floodgate
+
+        class _Result:
+            returncode = 0
+            stdout = ("oauth-access-token  aaaaaaaaaaaaaaaaaaaaaaaa\n"
+                      "oauth-id-token  bbbbbbbbbbbbbbbbbbbbbbbbbb\n")
+            stderr = ""
+
+        monkeypatch.setattr(floodgate, "APPLECONNECT_BIN", __file__)
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Result())
+        floodgate._token_cache.update({"value": "", "obtained_at": 0.0})
+        assert floodgate._appleconnect_token() == "bbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+    def test_the_token_is_cached(self, monkeypatch):
+        """A six-turn playtest must not shell out on every LLM call."""
+        import subprocess
+        import config.floodgate as floodgate
+
+        calls = {"n": 0}
+
+        class _Result:
+            returncode = 0
+            stdout = "oauth-id-token  " + "c" * 40
+            stderr = ""
+
+        def _run(*args, **kwargs):
+            calls["n"] += 1
+            return _Result()
+
+        monkeypatch.setattr(floodgate, "APPLECONNECT_BIN", __file__)
+        monkeypatch.setattr(subprocess, "run", _run)
+        floodgate._token_cache.update({"value": "", "obtained_at": 0.0})
+
+        first = floodgate._appleconnect_token()
+        second = floodgate._appleconnect_token()
+        assert first == second
+        assert calls["n"] == 1, "appleconnect was invoked twice"
+
+    def test_environment_still_overrides_appleconnect(self, monkeypatch):
+        """An explicit token must win, for CI and for debugging."""
+        from config.floodgate import get_floodgate_token
+
+        monkeypatch.setenv("FLOODGATE_TOKEN", "explicit-token")
+        assert get_floodgate_token() == "explicit-token"

@@ -14,11 +14,14 @@ prompts, schemas and tools work either way.
 CREDENTIALS NEVER ENTER THE REPO. Resolution order, all outside the working tree:
 
     1. FLOODGATE_TOKEN / HWTGENIE_API_KEY   (environment)
-    2. hwtgenielib.perform_login()          (SSO, if installed)
-    3. ~/.hwtgenie                          (file written by `hwtgenie login`)
+    2. `appleconnect getToken` (PKCE, oauth-ID-token)  <- the one that works here
+    3. hwtgenielib.perform_login()          (SSO, if installed)
+    4. ~/.hwtgenie                          (file; may be stale)
 
-This mirrors how /Users/scj/Documents/Projects/AI/knowledgebase reaches the same
-endpoint. `.env` and `.hwtgenie*` are gitignored; the home-directory file is
+The appleconnect path is taken from pkg-wiki-cli (src/pkgwiki/core/auth.py),
+which reaches this gateway successfully; `hwtgenie` is not installed on this
+machine and ~/.hwtgenie was 187 days stale. Floodgate needs the ID token, not the
+access token. `.env` and `.hwtgenie*` are gitignored; the home-directory file is
 mode 600 and outside the repo entirely.
 
 Selecting the provider:
@@ -55,6 +58,85 @@ class FloodgateUnavailable(RuntimeError):
     """No Floodgate credential could be resolved."""
 
 
+# appleconnect is the credential source that actually works on this machine.
+# `hwtgenie` is not installed, and ~/.hwtgenie held a token that expired 187 days
+# ago — which is why a live LLM_PROVIDER=floodgate run failed on every turn.
+# These values, the PKCE grant and the ID-token (NOT access-token) requirement
+# all come from pkg-wiki-cli's src/pkgwiki/core/auth.py, which reaches the same
+# gateway successfully.
+APPLECONNECT_BIN = os.getenv("APPLECONNECT_BIN", "/usr/local/bin/appleconnect")
+FLOODGATE_CLIENT_ID = os.getenv(
+    "FLOODGATE_CLIENT_ID", "hvys3fcwcteqrvw3qzkvtk86viuoqv")
+FLOODGATE_SCOPES = os.getenv(
+    "FLOODGATE_SCOPES", "openid,dsid,accountname,profile,groups")
+
+# Floodgate ID tokens are short-lived. Cache for 25 minutes so a six-turn
+# playtest does not shell out on every single LLM call.
+_TOKEN_TTL_SECONDS = 25 * 60
+_token_cache: dict = {"value": "", "obtained_at": 0.0}
+
+
+def _appleconnect_token() -> Optional[str]:
+    """
+    Mint a fresh Floodgate ID token via `appleconnect getToken`.
+
+    Floodgate authenticates with the ID token, not the access token — asking for
+    the wrong one yields a token that is rejected. Returns None (never raises) so
+    the caller can fall through to the other sources.
+    """
+    import subprocess
+    import time
+
+    cached = _token_cache
+    if cached["value"] and (time.time() - cached["obtained_at"]) < _TOKEN_TTL_SECONDS:
+        return cached["value"]
+
+    if not Path(APPLECONNECT_BIN).exists():
+        logger.debug(f"   appleconnect not found at {APPLECONNECT_BIN}")
+        return None
+
+    command = [
+        APPLECONNECT_BIN, "getToken",
+        "-t", "oauth",
+        "-G", "pkce",
+        "-C", FLOODGATE_CLIENT_ID,
+        "-o", FLOODGATE_SCOPES,
+        # Never pop a UI in the middle of a turn; fail and fall back instead.
+        "--interactivity-type", "none",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=30)
+    except Exception as e:
+        logger.debug(f"   appleconnect failed to run: {e}")
+        return None
+
+    if result.returncode != 0:
+        logger.debug(
+            f"   appleconnect exit {result.returncode}: "
+            f"{(result.stderr or '').strip()[:200]}")
+        return None
+
+    output = (result.stdout or "").strip()
+    token = None
+    for line in output.splitlines():
+        if "oauth-id-token" in line:
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                token = parts[1].strip()
+                break
+    if token is None and "\n" not in output and len(output) > 20:
+        token = output
+
+    if token:
+        _token_cache.update({"value": token, "obtained_at": time.time()})
+        logger.debug("🔐 Floodgate ID token minted via appleconnect")
+        return token
+
+    logger.debug("   could not extract oauth-id-token from appleconnect output")
+    return None
+
+
 def get_floodgate_token(required: bool = True) -> Optional[str]:
     """
     Resolve a Floodgate token WITHOUT reading anything from the repo.
@@ -68,6 +150,12 @@ def get_floodgate_token(required: bool = True) -> Optional[str]:
         if token:
             logger.debug(f"🔐 Floodgate token from ${variable}")
             return token
+
+    # appleconnect first: it mints a FRESH token, whereas ~/.hwtgenie may be
+    # months out of date (it was, by 187 days, in a live run).
+    token = _appleconnect_token()
+    if token:
+        return token
 
     # SSO login, when the library is installed. Optional by design: the file
     # fallback below covers machines without it.
