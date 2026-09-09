@@ -284,6 +284,25 @@ def _status_code_of(error: BaseException) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
+def _finished_normally(response: Any) -> bool:
+    """
+    True if the candidate completed on its own terms (finish_reason=STOP).
+
+    Distinguishes "nothing more to say" from "cut off": STOP is success, whereas
+    MAX_TOKENS/SAFETY/RECITATION mean the reply was truncated or filtered and
+    the caller should treat the empty text as a failure.
+    """
+    try:
+        for candidate in (getattr(response, "candidates", None) or []):
+            finish = getattr(candidate, "finish_reason", None)
+            if finish is None:
+                continue
+            return "STOP" in getattr(finish, "name", str(finish)).upper()
+    except Exception:  # pragma: no cover - diagnostics must not mask the error
+        pass
+    return False
+
+
 def _empty_response_reason(response: Any) -> str:
     """
     Explain why a Gemini response carried no text.
@@ -501,11 +520,20 @@ class GeminiChatGenerator:
                     pass
 
             if not text_response:
-                # An empty reply is almost never "the model had nothing to say":
-                # it means the candidate was blocked, or hit the token cap
-                # mid-JSON. Surfacing the finish_reason turns a baffling empty
-                # string into an actionable message.
+                # An empty reply is only an ERROR when the model was stopped
+                # early. finish_reason=STOP means it completed normally and
+                # simply had no text to add — which is legitimate after a
+                # tool-only turn. Raising on STOP (as an earlier version did)
+                # turned a normal turn into a hard failure and cost the player
+                # the whole scene.
                 reason = _empty_response_reason(response)
+                if _finished_normally(response):
+                    logger.debug(
+                        f"🔧 Gemini returned no text but finished normally "
+                        f"({reason}); passing an empty reply through"
+                    )
+                    return {"replies": [ChatMessage.from_assistant("")]}
+
                 logger.error(f"❌ GEMINI EMPTY RESPONSE: {reason}")
                 raise GeminiAPIError(f"Gemini returned no text ({reason})")
 
