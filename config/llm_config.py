@@ -140,6 +140,15 @@ class LLMConfig:
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     extra_params: Dict[str, Any] = field(default_factory=dict)
+    # gemini-2.5-flash spends INTERNAL REASONING TOKENS against
+    # max_output_tokens before writing a single visible character. A live
+    # playtest showed thoughts_token_count=802 and 956 against the interface
+    # agent's 1000-token cap, so its JSON was truncated mid-string and the
+    # parser reported the misleading "No JSON object found in response".
+    #
+    # 0 disables thinking (right for deterministic extraction/classification);
+    # None leaves the model's default (right for creative narration).
+    thinking_budget: Optional[int] = None
 
 
 @dataclass
@@ -203,7 +212,12 @@ class LLMConfigManager:
                 provider=default_provider,
                 model=default_model,
                 temperature=0.5,  # Balanced for parsing
-                max_tokens=1000
+                # Intent classification is deterministic extraction, not
+                # reasoning: thinking burned 802-956 of the old 1000-token cap
+                # and truncated the JSON mid-string. Disable thinking and leave
+                # comfortable headroom — the payload itself is ~200 tokens.
+                max_tokens=2000,
+                thinking_budget=0,
             ),
             default_fallback=default_llm_config
         )
@@ -314,6 +328,12 @@ class LLMConfigManager:
             generation_config["temperature"] = config.temperature
         if config.max_tokens:
             generation_config["max_output_tokens"] = config.max_tokens
+        if config.thinking_budget is not None:
+            # Passed as a plain dict; llm_utils builds the ThinkingConfig, so
+            # this module stays free of SDK types.
+            generation_config["thinking_config"] = {
+                "thinking_budget": config.thinking_budget
+            }
 
         # Add extra parameters
         generation_config.update(config.extra_params)
@@ -352,10 +372,60 @@ class LLMConfigManager:
 
 
 # Environment-based configuration loader
+def _tuned_agent_defaults() -> Dict[str, LLMConfig]:
+    """
+    The tuned per-agent baseline, shared by both config paths.
+
+    Kept in ONE place because the values previously existed only inside
+    _create_default_config(), which get_global_config_manager() never reaches —
+    so they silently did not apply to the running game.
+    """
+    if GEMINI_AVAILABLE:
+        provider, model = LLMProvider.GEMINI, "gemini-2.5-flash"
+    elif OPENAI_AVAILABLE:
+        provider, model = LLMProvider.OPENAI, "gpt-4o-mini"
+    else:
+        raise ImportError(
+            "No supported LLM providers available. Install google-genai or openai.")
+
+    return {
+        # Creative narration: needs room for the full scenario JSON, and
+        # benefits from the model's own reasoning, so thinking is left enabled.
+        "scenario_generator": LLMConfig(provider=provider, model=model,
+                                        temperature=0.8, max_tokens=8000),
+        "rag_retriever": LLMConfig(provider=provider, model=model,
+                                   temperature=0.3, max_tokens=2000),
+        "npc_controller": LLMConfig(provider=provider, model=model,
+                                    temperature=0.9, max_tokens=2000),
+        # Deterministic extraction. thinking_budget=0 because reasoning tokens
+        # count against max_output_tokens: a live run spent 802 and 956 of a
+        # 1000-token cap thinking, truncating the intent JSON mid-string.
+        "main_interface": LLMConfig(provider=provider, model=model,
+                                    temperature=0.5, max_tokens=2000,
+                                    thinking_budget=0),
+        "default_fallback": LLMConfig(provider=provider, model=model,
+                                      temperature=0.7, max_tokens=2000),
+    }
+
+
 def load_config_from_environment() -> AgentLLMConfig:
-    """Load LLM configuration from environment variables"""
-    
-    def get_llm_config(prefix: str) -> LLMConfig:
+    """
+    Load LLM configuration from environment variables.
+
+    This is the path get_global_config_manager() actually takes, so it — not
+    _create_default_config() — decides what the running game uses. It previously
+    built every LLMConfig from scratch, leaving max_tokens and temperature None
+    whenever the (normally unset) env vars were absent. The tuned per-agent
+    values were therefore dead code: the scenario agent never got its 8000-token
+    cap and the interface agent never got temperature=0.5.
+
+    Env vars now OVERRIDE the tuned defaults instead of replacing them.
+    """
+
+    # The tuned per-agent baseline (max_tokens, temperature, thinking_budget).
+    baseline = _tuned_agent_defaults()
+
+    def get_llm_config(prefix: str, default: Optional[LLMConfig] = None) -> LLMConfig:
         # Determine default provider based on availability
         if GEMINI_AVAILABLE:
             default_provider = "gemini"
@@ -372,22 +442,30 @@ def load_config_from_environment() -> AgentLLMConfig:
         temperature = os.getenv(f"{prefix}_TEMPERATURE")
         api_key = os.getenv(f"{prefix}_API_KEY")
         base_url = os.getenv(f"{prefix}_BASE_URL")
+        thinking_budget = os.getenv(f"{prefix}_THINKING_BUDGET")
         
         return LLMConfig(
             provider=provider,
             model=model,
-            max_tokens=int(max_tokens) if max_tokens else None,
-            temperature=float(temperature) if temperature else None,
+            # Fall back to the tuned per-agent value, not to None.
+            max_tokens=(int(max_tokens) if max_tokens
+                        else (default.max_tokens if default else None)),
+            temperature=(float(temperature) if temperature
+                         else (default.temperature if default else None)),
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            thinking_budget=(int(thinking_budget) if thinking_budget is not None
+                             else (default.thinking_budget if default else None)),
         )
-    
+
     return AgentLLMConfig(
-        scenario_generator=get_llm_config("SCENARIO_GENERATOR"),
-        rag_retriever=get_llm_config("RAG_RETRIEVER"),
-        npc_controller=get_llm_config("NPC_CONTROLLER"),
-        main_interface=get_llm_config("MAIN_INTERFACE"),
-        default_fallback=get_llm_config("DEFAULT_FALLBACK")
+        scenario_generator=get_llm_config("SCENARIO_GENERATOR",
+                                         baseline["scenario_generator"]),
+        rag_retriever=get_llm_config("RAG_RETRIEVER", baseline["rag_retriever"]),
+        npc_controller=get_llm_config("NPC_CONTROLLER", baseline["npc_controller"]),
+        main_interface=get_llm_config("MAIN_INTERFACE", baseline["main_interface"]),
+        default_fallback=get_llm_config("DEFAULT_FALLBACK",
+                                       baseline["default_fallback"]),
     )
 
 
@@ -406,7 +484,10 @@ def create_gemini_config(model: str = "gemini-2.5-flash") -> AgentLLMConfig:
         scenario_generator=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.8, max_tokens=8000),
         rag_retriever=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.3, max_tokens=1500),
         npc_controller=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.9, max_tokens=2000),
-        main_interface=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.5, max_tokens=1000),
+        main_interface=LLMConfig(provider=LLMProvider.GEMINI, model=model, temperature=0.5,
+                                 # thinking_budget=0: see the main_interface comment in
+                                 # _create_default_config — thinking truncated the intent JSON.
+                                 max_tokens=2000, thinking_budget=0),
         default_fallback=base_config
     )
 
@@ -445,7 +526,10 @@ def create_mixed_config() -> AgentLLMConfig:
             provider=interface_provider,
             model=interface_model,
             temperature=0.5,
-            max_tokens=1000
+            # thinking_budget=0: see the main_interface comment in
+            # _create_default_config — thinking truncated the intent JSON.
+            max_tokens=2000,
+            thinking_budget=0,
         ),
         default_fallback=LLMConfig(
             provider=primary_provider,

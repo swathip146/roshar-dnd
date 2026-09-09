@@ -405,6 +405,16 @@ class GeminiChatGenerator:
             config_kwargs = dict(self.generation_config)
             if system_text:
                 config_kwargs["system_instruction"] = system_text
+
+            # thinking_config arrives as a plain dict from llm_config (which
+            # stays SDK-free); build the real type here. Disabling thinking
+            # matters because gemini-2.5-flash charges reasoning tokens against
+            # max_output_tokens BEFORE emitting any visible text, which silently
+            # truncated the interface agent's JSON mid-string.
+            thinking = config_kwargs.get("thinking_config")
+            if isinstance(thinking, dict):
+                config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
+                    **thinking)
             if gemini_tools:
                 config_kwargs["tools"] = gemini_tools
                 # Gemini rejects tools combined with JSON mode:
