@@ -4,6 +4,7 @@ Provides utility components for LLM integration
 """
 
 import os
+import re
 from typing import List, Dict, Any, Optional
 
 from config.logging_config import get_logger
@@ -245,6 +246,73 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
     return cleaned
 
 
+class GeminiAPIError(RuntimeError):
+    """
+    A Gemini call failed.
+
+    This exists because the failure used to be returned AS THE ASSISTANT'S REPLY:
+    a 403 became the string "Gemini API error: 403 Forbidden", which flowed
+    downstream until the intent parser rejected it and logged "Failed to parse
+    intent data from structured output: No JSON object found in response" against
+    pipeline_integration.py. The reported error named the wrong subsystem, and a
+    transient network fault was indistinguishable from a model that wrote prose
+    instead of JSON.
+
+    `status_code` is parsed off the message where possible so callers can tell a
+    retryable fault (429/5xx) from a permanent one (400/403).
+    """
+
+    def __init__(self, message: str, *, status_code: Optional[int] = None,
+                 cause: Optional[BaseException] = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.cause = cause
+
+    @property
+    def retryable(self) -> bool:
+        """True for rate limits and server faults, which are worth retrying."""
+        return self.status_code in (408, 429, 500, 502, 503, 504)
+
+
+def _status_code_of(error: BaseException) -> Optional[int]:
+    """Best-effort HTTP status for an SDK exception."""
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, int):
+            return value
+    match = re.search(r"\b(4\d{2}|5\d{2})\b", str(error))
+    return int(match.group(1)) if match else None
+
+
+def _empty_response_reason(response: Any) -> str:
+    """
+    Explain why a Gemini response carried no text.
+
+    MAX_TOKENS and SAFETY are the common causes and need opposite fixes (raise
+    the cap vs. rephrase the prompt), so the distinction is worth reporting.
+    """
+    try:
+        feedback = getattr(response, "prompt_feedback", None)
+        blocked = getattr(feedback, "block_reason", None)
+        if blocked:
+            return f"prompt blocked: {blocked}"
+
+        for candidate in (getattr(response, "candidates", None) or []):
+            finish = getattr(candidate, "finish_reason", None)
+            if finish is None:
+                continue
+            finish_name = getattr(finish, "name", str(finish))
+            if "MAX_TOKENS" in finish_name.upper():
+                return ("finish_reason=MAX_TOKENS — the reply was truncated; "
+                        "raise max_output_tokens")
+            if "SAFETY" in finish_name.upper() or "RECITATION" in finish_name.upper():
+                return f"finish_reason={finish_name} — candidate was filtered"
+            return f"finish_reason={finish_name}"
+    except Exception:  # pragma: no cover - diagnostics must never mask the error
+        pass
+    return "no candidates and no finish_reason"
+
+
 @component
 class GeminiChatGenerator:
     """
@@ -415,12 +483,35 @@ class GeminiChatGenerator:
                 except Exception:
                     pass
 
-            return {"replies": [ChatMessage.from_assistant(text_response or "")]}
+            if not text_response:
+                # An empty reply is almost never "the model had nothing to say":
+                # it means the candidate was blocked, or hit the token cap
+                # mid-JSON. Surfacing the finish_reason turns a baffling empty
+                # string into an actionable message.
+                reason = _empty_response_reason(response)
+                logger.error(f"❌ GEMINI EMPTY RESPONSE: {reason}")
+                raise GeminiAPIError(f"Gemini returned no text ({reason})")
+
+            return {"replies": [ChatMessage.from_assistant(text_response)]}
                 
+        except GeminiAPIError:
+            # Already classified (e.g. an empty-response raise below).
+            raise
         except Exception as e:
-            error_message = f"Gemini API error: {str(e)}"
-            logger.error(f"GEMINI ERROR: {error_message}")
-            return {"replies": [ChatMessage.from_assistant(error_message)]}
+            status = _status_code_of(e)
+            error_message = f"Gemini API error: {e}"
+            # Log the status explicitly: "403 Forbidden" and "429 rate limited"
+            # demand completely different responses from an operator, and the old
+            # message flattened both into unparseable reply text.
+            logger.error(
+                f"❌ GEMINI ERROR"
+                f"{f' (HTTP {status})' if status else ''}: {error_message}"
+            )
+            # RAISE rather than returning the error as the assistant's reply.
+            # Returning it made every API fault surface as a downstream JSON
+            # parse error blamed on the wrong component, and made the failure
+            # invisible to generate_with_retry, which treats a reply as success.
+            raise GeminiAPIError(error_message, status_code=status, cause=e) from e
     
     def _convert_messages_to_prompt(self, messages: List[ChatMessage]) -> str:
         """
