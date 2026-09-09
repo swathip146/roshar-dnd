@@ -274,3 +274,92 @@ class TestCombatAgentsHaveRealLLMConfigs:
         for name in ("npc_combat_ai", "combat_init", "combat_narrative"):
             assert getattr(config, name) is not None
             assert getattr(config, name) is not config.default_fallback
+
+
+class TestLLMSuppliedNumbersAreCoerced:
+    """
+    A live turn died with "TypeError: 'NoneType' object cannot be interpreted as
+    an integer" at `for i in range(count)`.
+
+    The extraction LLM emitted "count": null for "Voidbringer foot soldiers" — an
+    unspecified number — and `enemy.get('count', 1)` does NOT protect against a
+    present-but-null key, so the default never applied and the whole turn was
+    lost before combat began.
+    """
+
+    def test_null_count_becomes_one(self):
+        from components.combat.combat_initializer import _positive_int
+        assert _positive_int(None) == 1
+
+    def test_string_count_is_accepted(self):
+        from components.combat.combat_initializer import _positive_int
+        assert _positive_int("3") == 3
+
+    def test_nonsense_count_falls_back(self):
+        from components.combat.combat_initializer import _positive_int
+        assert _positive_int("a horde") == 1
+        assert _positive_int(0) == 1
+        assert _positive_int(-5) == 1
+
+    def test_absurd_count_is_capped(self):
+        """Each enemy costs an LLM call and an entity, so a huge count hangs."""
+        from components.combat.combat_initializer import _positive_int
+        assert _positive_int(500, maximum=12) == 12
+
+    def test_null_cr_becomes_a_default(self):
+        from components.combat.combat_initializer import _positive_float
+        assert _positive_float(None) == 0.5
+        assert _positive_float("bad") == 0.5
+        assert _positive_float(0) == 0.5
+
+    def test_real_cr_survives(self):
+        from components.combat.combat_initializer import _positive_float
+        assert _positive_float("2.5") == 2.5
+        assert _positive_float(3) == 3.0
+
+
+class TestRefusedActionsDoNotCrash:
+    """
+    A live combat logged "AttributeError: 'NoneType' object has no attribute
+    'canceled'" dozens of times, on every second attack.
+
+    dnd_engine's apply() returns None when it REFUSES an action — usually because
+    the actor has no action left. That started happening as soon as the action
+    economy was actually being consumed, and `not event.canceled` raised, so the
+    resolver reported "Action execution failed" while the narrator still
+    described the swing.
+    """
+
+    def test_a_refused_action_returns_a_result(self, arena):
+        _, wrapper, resolver, _ = arena
+        economy = wrapper.entities["Aggi"].action_economy
+        economy.reset_all_costs()
+
+        first = resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        assert first.get("success") in (True, False)
+
+        # Out of actions now: the engine refuses rather than resolving.
+        second = resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        assert isinstance(second, dict)
+        assert second["success"] is False
+
+    def test_a_refusal_is_labelled_as_such(self, arena):
+        _, wrapper, resolver, _ = arena
+        wrapper.entities["Aggi"].action_economy.reset_all_costs()
+        resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        second = resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        if second.get("refused"):
+            assert "cannot" in second["description"].lower()
+
+    def test_no_attributeerror_is_raised(self, arena):
+        """The specific live crash."""
+        _, wrapper, resolver, _ = arena
+        wrapper.entities["Aggi"].action_economy.reset_all_costs()
+        for _ in range(6):
+            result = resolver.resolve_action(
+                {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+            assert isinstance(result, dict), "resolver raised instead of returning"

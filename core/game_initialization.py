@@ -623,7 +623,14 @@ class GameInitializationSystem:
             if campaign["source"] == "file":
                 # Use file content for comprehensive parsing
                 raw_content = campaign.get("content", "")
-                filename = campaign.get("filename", "")
+                # Prefer the FULL PATH. source_file is what CombatInitializer
+                # opens to read authored encounters, and a bare filename
+                # ("shards_of_honor.json") does not resolve from the repo root —
+                # the authored roster was silently skipped and combat fell back
+                # to LLM extraction. campaign_info carries both; file_path is the
+                # usable one.
+                filename = (campaign.get("file_path")
+                            or campaign.get("filename", ""))
                 
                 # Parse campaign data based on format
                 parsed_data = self._parse_structured_content(raw_content)
