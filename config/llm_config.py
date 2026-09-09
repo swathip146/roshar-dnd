@@ -159,6 +159,29 @@ class AgentLLMConfig:
     npc_controller: LLMConfig
     main_interface: LLMConfig
     default_fallback: LLMConfig
+    # Combat agents. Optional so existing callers that build this object
+    # positionally keep working; None means "use default_fallback", and
+    # __post_init__ fills in tuned values instead.
+    npc_combat_ai: Optional[LLMConfig] = None
+    combat_init: Optional[LLMConfig] = None
+    combat_narrative: Optional[LLMConfig] = None
+
+    def __post_init__(self):
+        model = self.default_fallback.model
+        provider = self.default_fallback.provider
+        # thinking_budget=0 for the two that must return parseable JSON.
+        if self.npc_combat_ai is None:
+            self.npc_combat_ai = LLMConfig(provider=provider, model=model,
+                                           temperature=0.4, max_tokens=2000,
+                                           thinking_budget=0)
+        if self.combat_init is None:
+            self.combat_init = LLMConfig(provider=provider, model=model,
+                                          temperature=0.3, max_tokens=3000,
+                                          thinking_budget=0)
+        # Narration is prose, so leave the model's own reasoning enabled.
+        if self.combat_narrative is None:
+            self.combat_narrative = LLMConfig(provider=provider, model=model,
+                                               temperature=0.9, max_tokens=2000)
 
 
 class LLMConfigManager:
@@ -255,7 +278,18 @@ class LLMConfigManager:
             "scenario_generator": self.config.scenario_generator,
             "rag_retriever": self.config.rag_retriever,
             "npc_controller": self.config.npc_controller,
-            "main_interface": self.config.main_interface
+            "main_interface": self.config.main_interface,
+            # Combat agents were NOT listed here, so they silently took
+            # default_fallback — which leaves thinking ENABLED. In a live combat
+            # every npc_combat_ai call logged "Failed to parse JSON from LLM:
+            # Expecting value: line 1 column 1 (char 0)": reasoning tokens ate
+            # the budget and the visible reply was empty, so every NPC fell back
+            # to "attack the nearest player" and tactical AI never ran.
+            # These are structured-extraction tasks, exactly like the interface
+            # agent, so thinking is off.
+            "npc_combat_ai": self.config.npc_combat_ai,
+            "combat_init": self.config.combat_init,
+            "combat_narrative": self.config.combat_narrative,
         }
 
         llm_config = config_map.get(agent_name, self.config.default_fallback)
