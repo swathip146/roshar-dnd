@@ -237,3 +237,67 @@ class TestPromptContextIsWired:
         source = inspect.getsource(pipeline_integration)
         assert 'prompt_builder.prompt_context' in source
         assert 'validator.prompt_context' in source
+
+
+class TestAutomaticFunctionCallingIsDisabled:
+    """
+    AFC must be off on EVERY call, not only tool-carrying ones.
+
+    The SDK defaults it ON ("Default to enable AFC if not specified" —
+    google/genai/_extra_utils.should_disable_afc). A first attempt at this fix
+    put the disable inside the `if gemini_tools` branch, so tool-less calls (the
+    interface agent, Phase B narration) still entered the AFC path and the live
+    log still printed "AFC is enabled with max remote calls: 10" ten times.
+    """
+
+    def _config_for(self, tools):
+        from config.llm_utils import GeminiChatGenerator
+
+        generator = GeminiChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        captured = {}
+
+        class _Part:
+            text = "ok"
+            function_call = None
+
+        class _Content:
+            parts = [_Part()]
+
+        class _Candidate:
+            content = _Content()
+            finish_reason = None
+
+        class _Response:
+            candidates = [_Candidate()]
+            prompt_feedback = None
+            text = "ok"
+
+        class _FakeModels:
+            def generate_content(self, model, contents, config):
+                captured["config"] = config
+                return _Response()
+
+        class _FakeClient:
+            models = _FakeModels()
+
+        generator.client = _FakeClient()
+        generator.run(messages=[ChatMessage.from_user("hi")], tools=tools)
+        return captured["config"]
+
+    def test_disabled_with_tools(self):
+        from google.genai import _extra_utils
+        from agents.dm_tools import DM_TOOLS
+
+        config = self._config_for(DM_TOOLS)
+        assert config.automatic_function_calling.disable is True
+        assert _extra_utils.should_disable_afc(config) is True
+
+    def test_disabled_without_tools(self):
+        """The case the first attempt missed."""
+        from google.genai import _extra_utils
+
+        config = self._config_for(None)
+        assert config.automatic_function_calling.disable is True
+        assert _extra_utils.should_disable_afc(config) is True, \
+            "a tool-less call still entered the SDK's AFC path"
