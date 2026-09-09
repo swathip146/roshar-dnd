@@ -386,11 +386,20 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
     # BLOCKS FOREVER on "Choose action type (1-2):" — a live playtest hung there.
     # Always attack: it is the one choice guaranteed to advance the fight.
     combat_agent = (getattr(game.orchestrator, "agents", {}) or {}).get("combat")
+    auto_player = None
+    stdout_tap = None
     if combat_agent is not None:
-        def _auto_choose(prompt: str = "") -> str:
-            return "1"
-        combat_agent.input_provider = _auto_choose
-        print("   (combat choices auto-answered: always attack)")
+        from components.combat.auto_combat_player import AutoCombatPlayer
+
+        def _hp_fraction() -> float:
+            actor = game._active_character_id()
+            hp = game.character_manager.characters[actor].hit_points
+            return hp.get("current", 0) / max(1, hp.get("maximum", 1))
+
+        auto_player = AutoCombatPlayer(hp_fraction=_hp_fraction)
+        stdout_tap = auto_player.install()
+        combat_agent.input_provider = auto_player
+        print("   (combat auto-played: heal when hurt, else attack)")
 
     errors, empties = 0, 0
     placeholder_hits = []
@@ -462,6 +471,12 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
     beats = game.game_engine.get_narrative_beats(20)
     report.check("Narrative beats recorded", len(beats) > 1,
                  f"{len(beats)} beats (1 = only a one-turn memory)")
+
+    if stdout_tap is not None:
+        stdout_tap.uninstall()
+    if auto_player is not None and auto_player.decisions:
+        print(f"\n   auto-combat made {len(auto_player.decisions)} choices; "
+              f"first few: {auto_player.decisions[:3]}")
 
     _check_combat_and_quests(report, game, bool(force_combat_on_turn))
 

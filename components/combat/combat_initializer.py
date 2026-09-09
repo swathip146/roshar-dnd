@@ -495,11 +495,28 @@ Return JSON array of enemies:"""
             count = enemy.get('count', 1)
             enemy_name = enemy.get('name', 'Unknown Creature')
 
+            # CLAMP THE CR TO WHAT THE PARTY CAN SURVIVE.
+            #
+            # estimated_cr comes from the scene-extraction LLM, which reads
+            # "Voidbringers" and guesses — in a live run it returned CR 3 x3
+            # against a LEVEL 1 party, i.e. three 65 HP / AC 16 soldiers versus
+            # one character with 8 max HP. party_level was passed to the stat
+            # generator as advisory context only, and nothing enforced it, so
+            # the encounter was unwinnable by construction.
+            requested_cr = enemy.get('estimated_cr', 0.5)
+            balanced_cr = self._balanced_cr(requested_cr, party_level, count)
+            if balanced_cr != requested_cr:
+                self.logger.info(
+                    f"      ⚖️ CR {requested_cr} -> {balanced_cr} for a level "
+                    f"{party_level} party facing {count} enem"
+                    f"{'y' if count == 1 else 'ies'}")
+            enemy['estimated_cr'] = balanced_cr
+
             # Generate stats once (use template if available)
             try:
                 npc_stats = self.npc_generator.generate_npc_stats(
                     npc_description=enemy.get('description', enemy_name),
-                    challenge_rating=enemy.get('estimated_cr', 0.5),
+                    challenge_rating=balanced_cr,
                     role=enemy.get('role', 'combatant'),
                     context={
                         'party_level': party_level,
@@ -739,6 +756,52 @@ Return JSON array of enemies:"""
             "objective_achieved": False,
             "fled": False
         }
+
+    # Difficulty multipliers applied to the per-enemy CR budget. "medium" is
+    # the DMG baseline: a single enemy of CR ~= party level is a fair fight.
+    _DIFFICULTY_SCALE = {
+        "easy": 0.5,
+        "medium": 1.0,
+        "hard": 1.5,
+        "deadly": 2.0,
+    }
+
+    def _balanced_cr(self, requested_cr: float, party_level: int,
+                     count: int) -> float:
+        """
+        Clamp a requested CR to something the party can actually fight.
+
+        The LLM proposes; this decides — the same split the DM tools use for
+        rules and dice. Budget: one enemy of CR ~= party level is a fair fight at
+        medium, and facing several at once divides the share of each.
+
+        Never raises the CR: if the story calls for something weak, it stays
+        weak. This only prevents the unwinnable case.
+        """
+        try:
+            requested = float(requested_cr)
+        except (TypeError, ValueError):
+            requested = 0.5
+
+        level = max(1, int(party_level or 1))
+        scale = self._DIFFICULTY_SCALE.get(self._difficulty(), 1.0)
+        enemies = max(1, int(count or 1))
+
+        # Total budget for the encounter, shared across the enemies present.
+        ceiling = (level * scale) / enemies
+        # A floor so a level 1 party still meets something with stats.
+        ceiling = max(0.125, ceiling)
+
+        return round(min(requested, ceiling), 3)
+
+    def _difficulty(self) -> str:
+        """The campaign's difficulty, lowercased; 'medium' if unknown."""
+        for source in (getattr(self.game_engine, "campaign_config", None),
+                       self.game_engine):
+            value = getattr(source, "difficulty", None)
+            if isinstance(value, str) and value.strip():
+                return value.strip().lower()
+        return "medium"
 
     def _get_party_level(self, player_character_ids: List[str]) -> int:
         """
