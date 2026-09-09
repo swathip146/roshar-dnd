@@ -221,15 +221,22 @@ class CombatActionResolver:
             # which the caller reported as "Action execution failed" while the
             # narrator cheerfully described the swing anyway.
             if event is None:
+                # Read from `action`: _execute_action receives the action DICT,
+                # not the unpacked names that resolve_action has in scope. My
+                # first version referenced action_type/actor_id directly and
+                # raised NameError on every refusal, turning a clean "no action
+                # left" into a traceback.
+                refused_type = action.get("action_type", "that action")
+                refused_actor = action.get("actor", "the actor")
                 self.logger.info(
-                    f"   ⛔ {action_type} refused for {actor_id} "
+                    f"   ⛔ {refused_type} refused for {refused_actor} "
                     f"(no action available, or the engine declined it)")
                 return {
                     "success": False,
                     "event": None,
                     "refused": True,
-                    "description": (f"{actor_id} cannot {action_type} right now "
-                                    f"— no action remaining this turn."),
+                    "description": (f"{refused_actor} cannot {refused_type} "
+                                    f"right now — no action remaining this turn."),
                 }
 
             # Check if action succeeded

@@ -470,3 +470,97 @@ class TestNoneParts:
         assert len(calls) == 1
         assert calls[0].tool_name == "roll_skill_check"
         assert calls[0].arguments == {"skill": "perception", "dc": 12}
+
+
+class TestTransientFaultsAreRetried:
+    """
+    A live combat took HTTP 500 INTERNAL on EVERY npc_combat_ai call, so every
+    NPC silently degraded to "attack the nearest player" and the tactical AI
+    never ran. 500 is a Google-side fault that usually succeeds on a retry, so
+    the generator now retries transient statuses at the transport level — every
+    caller benefits, not only those routed through generate_with_retry.
+    """
+
+    def _generator(self, statuses):
+        """Fails with each status in turn, then succeeds."""
+        from config.llm_utils import GeminiChatGenerator
+
+        generator = GeminiChatGenerator(
+            model_name="gemini-2.5-flash", generation_config={})
+        generator.RETRY_BASE_DELAY_SECONDS = 0.001  # keep the test fast
+        calls = {"n": 0}
+
+        class _Part:
+            text = "ok"
+            function_call = None
+
+        class _Content:
+            parts = [_Part()]
+
+        class _Candidate:
+            content = _Content()
+            finish_reason = None
+
+        class _Response:
+            candidates = [_Candidate()]
+            prompt_feedback = None
+            text = "ok"
+
+        class _FakeModels:
+            def generate_content(self, model, contents, config):
+                index = calls["n"]
+                calls["n"] += 1
+                if index < len(statuses):
+                    raise RuntimeError(f"{statuses[index]} error")
+                return _Response()
+
+        class _FakeClient:
+            models = _FakeModels()
+
+        generator.client = _FakeClient()
+        return generator, calls
+
+    def _run(self, generator):
+        from haystack.dataclasses import ChatMessage
+        return generator.run(messages=[ChatMessage.from_user("hi")])
+
+    def test_a_single_500_recovers(self):
+        generator, calls = self._generator([500])
+        assert self._run(generator)["replies"][0].text == "ok"
+        assert calls["n"] == 2
+
+    def test_two_500s_still_recover(self):
+        generator, calls = self._generator([500, 500])
+        assert self._run(generator)["replies"][0].text == "ok"
+        assert calls["n"] == 3
+
+    def test_persistent_500_eventually_raises(self):
+        from config.llm_utils import GeminiAPIError
+
+        generator, calls = self._generator([500, 500, 500])
+        with pytest.raises(GeminiAPIError) as caught:
+            self._run(generator)
+        assert caught.value.status_code == 500
+        assert calls["n"] == 3, "should not retry forever"
+
+    def test_rate_limits_are_retried(self):
+        generator, calls = self._generator([429])
+        assert self._run(generator)["replies"][0].text == "ok"
+        assert calls["n"] == 2
+
+    def test_permanent_errors_are_not_retried(self):
+        """A 403 fails identically every time; retrying just triples latency."""
+        from config.llm_utils import GeminiAPIError
+
+        generator, calls = self._generator([403])
+        with pytest.raises(GeminiAPIError):
+            self._run(generator)
+        assert calls["n"] == 1, "a permanent error was retried"
+
+    def test_bad_request_is_not_retried(self):
+        from config.llm_utils import GeminiAPIError
+
+        generator, calls = self._generator([400])
+        with pytest.raises(GeminiAPIError):
+            self._run(generator)
+        assert calls["n"] == 1
