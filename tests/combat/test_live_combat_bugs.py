@@ -346,14 +346,37 @@ class TestRefusedActionsDoNotCrash:
         assert second["success"] is False
 
     def test_a_refusal_is_labelled_as_such(self, arena):
+        """
+        Assert UNCONDITIONALLY. The first version wrapped this in
+        `if second.get("refused")`, so when the refusal branch raised NameError
+        (action_type was not in scope in _execute_action) the test passed anyway
+        and a live combat logged a traceback on every refused action.
+        """
         _, wrapper, resolver, _ = arena
         wrapper.entities["Aggi"].action_economy.reset_all_costs()
         resolver.resolve_action(
             {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
         second = resolver.resolve_action(
             {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
-        if second.get("refused"):
-            assert "cannot" in second["description"].lower()
+
+        assert second["refused"] is True, "the second action should be refused"
+        assert "cannot" in second["description"].lower()
+        # The names must be resolved, not left as placeholders or missing.
+        assert "Aggi" in second["description"]
+        assert "attack" in second["description"]
+
+    def test_the_refusal_branch_does_not_raise(self, arena, caplog):
+        """The live failure: NameError inside the refusal path itself."""
+        import logging
+
+        _, wrapper, resolver, _ = arena
+        wrapper.entities["Aggi"].action_economy.reset_all_costs()
+        with caplog.at_level(logging.ERROR):
+            for _ in range(4):
+                resolver.resolve_action(
+                    {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        assert "NameError" not in caplog.text
+        assert "not defined" not in caplog.text
 
     def test_no_attributeerror_is_raised(self, arena):
         """The specific live crash."""

@@ -373,6 +373,41 @@ class GeminiChatGenerator:
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Gemini client: {e}")
     
+    # Transient-fault retry. Kept small deliberately: a game turn is
+    # interactive, so a long backoff is worse than a degraded NPC.
+    MAX_TRANSIENT_RETRIES = 2
+    RETRY_BASE_DELAY_SECONDS = 0.6
+
+    def _generate_with_backoff(self, prompt, config_kwargs):
+        """
+        Call the SDK, retrying 429/5xx with exponential backoff.
+
+        Only RETRYABLE statuses are retried — a 400 or 403 fails identically
+        every time, and retrying it would just triple the latency of a turn that
+        was always going to fail.
+        """
+        import time as _time
+
+        attempts = self.MAX_TRANSIENT_RETRIES + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(**config_kwargs),
+                )
+            except Exception as e:
+                status = _status_code_of(e)
+                transient = status in (408, 429, 500, 502, 503, 504)
+                if not transient or attempt == attempts:
+                    raise
+                delay = self.RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    f"⚠️ Gemini HTTP {status} (attempt {attempt}/{attempts}); "
+                    f"retrying in {delay:.1f}s"
+                )
+                _time.sleep(delay)
+
     @component.output_types(replies=List[ChatMessage])
     def run(self, messages: List[ChatMessage], tools: Optional[List[Any]] = None) -> Dict[str, Any]:
         """
@@ -477,11 +512,13 @@ class GeminiChatGenerator:
                         f"(Gemini forbids function calling with JSON mode)"
                     )
 
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(**config_kwargs),
-            )
+            # Retry transient faults at the TRANSPORT level, so every caller
+            # benefits — not only the ones that route through
+            # generate_with_retry. A live combat took HTTP 500 INTERNAL on EVERY
+            # npc_combat_ai call, so each NPC silently degraded to "attack the
+            # nearest player" and the tactical AI never ran at all. 500 is a
+            # Google-side fault and usually succeeds on a retry.
+            response = self._generate_with_backoff(prompt, config_kwargs)
 
             logger.debug(f"🔧 Response: {response}")
 
