@@ -192,9 +192,19 @@ class TestScenarioAgentIsAgentic:
         assert "tools=[]" not in agent_call, "still a single-shot call"
 
     def test_agent_can_take_multiple_steps(self):
-        src = self._source()
-        assert "max_agent_steps=1," not in src
-        assert "max_agent_steps=6" in src
+        """
+        Assert on the agent's real budget, not on a literal in the source.
+
+        This pinned "max_agent_steps=6" and broke when the ceiling was raised to
+        10 — a live playtest showed 6 was too tight: two turns spent every step
+        on tool calls and never wrote the scene.
+        """
+        from agents.scenario_generator_agent import create_scenario_generator_agent
+
+        agent = create_scenario_generator_agent()
+        assert agent.max_agent_steps > 1, "still a single-shot call"
+        assert agent.max_agent_steps >= 6, \
+            "too few steps to inspect state, look up a rule, roll, then narrate"
 
     def test_prompt_forbids_deciding_outcomes(self):
         src = self._source()

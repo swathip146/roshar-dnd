@@ -422,9 +422,13 @@ def check_turns(report: Report, game, turns: int, verbose: bool) -> None:
     # A live DM never narrates two different actions identically. Identical
     # output is the signature of a fallback that the placeholder list missed.
     distinct = len(set(responses))
+    duplicated = sorted(
+        {text for text in responses if responses.count(text) > 1})
     report.check("Narration varies between turns",
                  distinct == len(responses) if len(responses) > 1 else True,
-                 f"{distinct} distinct responses across {len(responses)} turns")
+                 f"{distinct} distinct responses across {len(responses)} turns"
+                 + (f"; repeated text ({len(duplicated[0])} chars): "
+                    f"{duplicated[0][:160]!r}" if duplicated else ""))
 
     # Memory and beats should have accumulated over those turns.
     try:
