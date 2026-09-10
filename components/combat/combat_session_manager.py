@@ -168,6 +168,7 @@ class CombatSessionManager:
 
         # Main combat loop
         loop_iteration = 0
+        stall_breaks = 0
         # A turn is action + bonus action + a little slack; beyond that the
         # economy plainly is not being consumed, so advance rather than spin.
         MAX_ACTIONS_PER_TURN = 4
@@ -224,6 +225,14 @@ class CombatSessionManager:
                 # Force the turn along after a bounded number of retries.
                 consecutive_same_actor += 1
                 if consecutive_same_actor >= MAX_ACTIONS_PER_TURN:
+                    # Counted, not just logged. This is a SAFETY NET for
+                    # production; if it fires at all, some actor's economy is not
+                    # decreasing and the turn logic is broken. Exposing the count
+                    # lets a test fail on it instead of silently limping — the
+                    # `actions OR bonus_actions` bug ran 355 iterations across 30
+                    # rounds while three loop tests passed, because the breaker
+                    # kept advancing play and the tests only checked termination.
+                    stall_breaks += 1
                     self.logger.warning(
                         f"   ⚠️ {current_actor_id} still has actions after "
                         f"{consecutive_same_actor} attempts and its economy is not "
@@ -248,7 +257,12 @@ class CombatSessionManager:
             "outcome": outcome,
             "rounds": self.combat_state["round_number"],
             "combat_log": self.combat_state["combat_log"],
-            "final_states": self.combat_state["combatant_states"]
+            "final_states": self.combat_state["combatant_states"],
+            # Diagnostics. `iterations` makes inefficiency measurable: a healthy
+            # encounter runs about rounds x combatants, so a 4x overshoot is
+            # visible instead of merely slow. `stall_breaks` should always be 0.
+            "iterations": loop_iteration,
+            "stall_breaks": stall_breaks,
         }
 
     def _execute_player_turn(self, player_char_id: str):
