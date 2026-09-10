@@ -502,6 +502,15 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
                 placeholder_hits.append(marker)
 
         print(f"   turn {i+1}: {len(text):>5} chars, {elapsed:>5.1f}s")
+
+        # Stop once the campaign is over. Playing on past a party wipe produces
+        # near-identical refusals, which then fail the "narration varies" check for
+        # a reason that is correct behaviour rather than a defect — the classic way
+        # a gate starts crying wolf.
+        if "campaign is over" in text or "campaign is complete" in text:
+            print(f"   (campaign ended on turn {i+1} — stopping)")
+            break
+
         if verbose:
             print(f"      {text[:300]}\n")
 

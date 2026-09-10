@@ -642,6 +642,37 @@ class HaystackDnDGame:
             logger.debug(f"   Endgame check skipped: {e}")
             return ""
 
+    def _campaign_ending_notice(self) -> Optional[str]:
+        """
+        The message to return instead of playing a turn, once the campaign is over.
+
+        Returns None while the campaign is live. Distinguishes defeat from victory
+        so the player is told which ending they reached, and points at `load` — a
+        finished campaign should not be a dead end with no way out.
+        """
+        try:
+            narrative = getattr(self.game_engine.game_state,
+                                "narrative_context", None)
+            if not isinstance(narrative, dict) or not narrative.get("campaign_ended"):
+                return None
+
+            if narrative.get("campaign_ending") == "party_defeated":
+                rounds = narrative.get("campaign_ending_rounds")
+                return (
+                    "💀 **The campaign is over — your party has fallen.**"
+                    + (f" The last fight lasted {rounds} rounds." if rounds else "")
+                    + "\n\nNothing more can be attempted. Type `load` to return to "
+                      "an earlier save, or restart for a new campaign."
+                )
+            return (
+                "🏆 **The campaign is complete.** Every condition of your charge "
+                "has been met.\n\nType `load` to revisit an earlier point, or "
+                "restart for a new campaign."
+            )
+        except Exception as e:
+            logger.debug(f"   Endgame gate skipped: {e}")
+            return None
+
     def _campaign_is_lost(self) -> bool:
         """True once the party has been wiped (set by the orchestrator)."""
         try:
@@ -781,6 +812,24 @@ class HaystackDnDGame:
             session_metadata = self.session_manager.get_session_metadata()
             if not session_metadata.get("session_active"):
                 return "No active session to process."
+
+            # A FINISHED CAMPAIGN STOPS ACCEPTING PLAY.
+            #
+            # The ending was announced but never enforced, so the game kept taking
+            # turns after the party died. Measured live: Aggi died on turn 2 and
+            # turns 3-6 were still processed — the DM narrated four variations of
+            # "the eternal night of oblivion" (two of them byte-identical), no turn
+            # could change anything, and the in-world clock never moved because a
+            # corpse cannot travel or rest.
+            #
+            # Every downstream guard was working correctly: combat was skipped
+            # ("no party member can act"), the campaign was flagged
+            # `party_defeated`, and the DM itself wrote "No further actions can be
+            # taken in this campaign." Nothing acted on that.
+            ended = self._campaign_ending_notice()
+            if ended:
+                logger.info("🏁 Turn refused: the campaign has ended")
+                return ended
 
             # Plan 3.4: record the player's turn in persistent history, so the
             # DM sees the conversation rather than a fresh context each turn.
