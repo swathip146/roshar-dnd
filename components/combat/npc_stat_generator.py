@@ -15,6 +15,12 @@ from config.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+
+def _is_number(value) -> bool:
+    """True for a real numeric CR. Guards against None and bools from the LLM."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 # Gemini-compatible JSON Schema for NPC stat generation (structured output)
 NPC_STATS_RESPONSE_SCHEMA = {
     "type": "object",
@@ -289,13 +295,118 @@ Generate complete stat block:"""
         try:
             npc = NPCStats(**npc_dict)
             self.logger.info(f"✅ Generated valid NPC: {npc.name} (AC {npc.armor_class}, HP {npc.hit_points['maximum']})")
-            return npc.model_dump()
+            return self._clamp_to_cr_band(npc.model_dump(), challenge_rating)
 
         except ValidationError as e:
             self.logger.warning(f"⚠️ Validation failed, attempting repair: {e}")
             # Attempt to repair
             repaired = self.validate_and_repair(npc_dict, challenge_rating)
-            return repaired
+            return self._clamp_to_cr_band(repaired, challenge_rating)
+
+    # HP/AC bands per CR, derived EMPIRICALLY from the vendored SRD monster list
+    # (`data/rules/srd/monsters.json`, 334 monsters, plan 2.9 Tier 1) rather than
+    # from memory: (hp_min, hp_max, ac_max) observed across every published
+    # monster at that CR, plus `ev_max` — the highest HP×AC "effective value"
+    # any published monster of that CR reaches.
+    #
+    # The EV term is the one that matters. Checking HP alone is not enough: a
+    # Dretch really does have 18 HP at CR 1/4, and a Zombie 22 — but they pay for
+    # it with AC 11 and AC 8. CR is a budget across BOTH, so a generated "CR 1/4"
+    # scout with 18 HP *and* AC 13 is harder than anything published at that CR
+    # even though each number is individually legal. That combination is what a
+    # live encounter produced, and what made an "easy" fight lethal.
+    #
+    # Regenerate all four columns with scripts/derive_cr_bands.py.
+    _CR_BANDS = {
+        0.0:   (1, 13, 13, 91),
+        0.125: (2, 15, 16, 195),
+        0.25:  (2, 24, 17, 289),
+        0.5:   (9, 32, 18, 434),
+        1.0:   (7, 52, 18, 594),
+        2.0:   (22, 85, 19, 975),
+        3.0:   (32, 90, 18, 1394),
+        4.0:   (45, 120, 19, 1843),
+        5.0:   (65, 136, 20, 2166),
+        6.0:   (40, 133, 19, 2337),
+        7.0:   (110, 157, 18, 2414),
+        8.0:   (75, 172, 18, 2580),
+        9.0:   (133, 200, 19, 3024),
+        10.0:  (127, 178, 18, 3204),
+    }
+
+    def _clamp_to_cr_band(self, npc: Dict[str, Any],
+                          target_cr: float) -> Dict[str, Any]:
+        """
+        Hold generated HP/AC to the CR that was requested (plan §14c defect 4).
+
+        The LLM was asked for CR 0.25 twice in one live session and returned
+        **18 HP / AC 13** then **14 HP / AC 13** for the same monster. Nothing
+        checked the stats that came back, so an encounter authored as "easy" was
+        materially harder than designed — and differently hard on every run, which
+        also makes balance untestable.
+
+        Three checks, in order of how much they matter:
+
+        1. **HP×AC against `ev_max`** — the real one. Individually-legal numbers
+           can combine into something no published monster of that CR reaches.
+           Excess is taken off HP, because HP is what the generator inflates and
+           AC is load-bearing for whether attacks land at all.
+        2. HP inside the published range for that CR.
+        3. AC no higher than any published monster of that CR.
+
+        Deliberately permissive — it excludes the impossible rather than
+        second-guessing a legal stat block. Clamps rather than rejects: a usable
+        monster with a warning beats a failed encounter, and the warning is what
+        ranks a prompt fix.
+        """
+        if not isinstance(npc, dict):
+            return npc
+
+        band = self._CR_BANDS.get(float(target_cr)) if _is_number(target_cr) else None
+        if band is None:
+            return npc
+        hp_min, hp_max, ac_max, ev_max = band
+
+        armor_class = npc.get("armor_class")
+        if isinstance(armor_class, int) and armor_class > ac_max:
+            self.logger.warning(
+                f"   ⚖️ CR {target_cr} AC {armor_class} exceeds the published "
+                f"maximum {ac_max}; clamping")
+            npc["armor_class"] = ac_max
+            armor_class = ac_max
+
+        hp = npc.get("hit_points")
+        if not isinstance(hp, dict):
+            return npc
+
+        maximum = hp.get("maximum")
+        if not isinstance(maximum, int):
+            return npc
+
+        target = maximum
+        if not (hp_min <= target <= hp_max):
+            target = max(hp_min, min(hp_max, target))
+            self.logger.warning(
+                f"   ⚖️ CR {target_cr} HP {maximum} is outside the published "
+                f"{hp_min}-{hp_max}; clamping to {target}")
+
+        # The combined budget. Only applies when we know the AC.
+        if isinstance(armor_class, int) and armor_class > 0:
+            if target * armor_class > ev_max:
+                affordable = max(hp_min, ev_max // armor_class)
+                if affordable < target:
+                    self.logger.warning(
+                        f"   ⚖️ CR {target_cr}: {target} HP at AC {armor_class} "
+                        f"(effective {target * armor_class}) exceeds the "
+                        f"published ceiling {ev_max} for that CR; HP -> "
+                        f"{affordable}")
+                    target = affordable
+
+        if target != maximum:
+            hp["maximum"] = target
+            hp["current"] = min(hp.get("current", target), target)
+
+        return npc
 
     def validate_and_repair(self, npc_data: Dict, target_cr: float) -> Dict:
         """
