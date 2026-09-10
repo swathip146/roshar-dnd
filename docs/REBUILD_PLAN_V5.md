@@ -1502,3 +1502,92 @@ Add to the verification rules:
   record went stale, which hid an entire encounter's damage.
 - **A test must not mutate the artefact it tests.** The playtest's progression
   checks corrupted the save, and every later run inherited it.
+
+---
+
+## 14e. What the live playtest found that 1,200 tests did not *(2026-09-10)*
+
+Every fix in §14d passed its tests. Then three live 3-turn runs found five more
+defects, none of which any unit test could have reached — because all five live in
+the seams *between* components that unit tests stub out.
+
+### 1. Every combat turn was reported to the player as a failure
+
+`play_turn()` gates on `response_dict["success"]`; `CombatAgent` returns only
+`{"response": {...}}`. So after a clean `outcome=defeat, rounds=4` — damage
+applied, campaign state updated — the player was told *"The world seems
+momentarily confused by your action"* and the log said
+`Processing failed: Unknown error`.
+
+Two consequences beyond the wrong message: the narrative beat was never written
+(`process_scenario_state_updates()` is only reached on the success path, which is
+why a live run showed **zero beats** while 2.2 worked perfectly), and
+`_handle_unknown` assigned the nested **dict** to `formatted_response`, which is
+how "The adventure continues" reached the player.
+
+### 2. A permanent stalemate — and the "known-open" test that was right all along
+
+**My own bug**, introduced when death saves were wired. Two paths cross a round
+boundary: the normal advance and the skip loop that steps over downed combatants.
+Only the first reset the action economy. Once anyone died, the skip loop began
+wrapping the round and nothing was ever reset again — every survivor's attack was
+refused for "no action available" forever.
+
+Measured: **496 rounds, 978 refusals, outcome `unknown`**, `damage_taken: 0`
+throughout. After the fix: **defeat in 11 rounds**.
+
+`test_full_combat_session` had been failing on exactly this and was recorded in
+this document's known-open list, across two audits, as *"test-harness wiring…
+verified in isolation that the real code path works."* **That was wrong.** The test
+was reporting a real defect and the audit dismissed it. A failing test explained
+away is worse than no test, because it converts a signal into permission.
+
+### 3. A wiped party kept being ambushed
+
+The party-wipe gate was placed on the `force_combat_on_turn` **test hook** only.
+Not enough: the DM's own `combat_trigger` fires independently, so a live run fought
+on all three turns and every turn narrated the same defeat. The gate now sits in
+`_maybe_run_combat`, the one point every route passes through.
+
+The lesson generalises past this bug: **a guard belongs at the narrowest point that
+all callers share, not on the path you happened to be debugging.**
+
+### 4. `move` crashed on every attempt
+
+The registry declares `end_position` and nothing supplies one — tactical movement
+is not implemented, since the grid is a fixed two-row line. Four
+`1 validation error for Move` per encounter, logged as "Action execution failed"
+while the actor silently lost its turn. A declared parameter nobody supplies is now
+a clean refusal that states the reason.
+
+### 5. Healing with no target crashed
+
+The NPC AI emitted `Decision: progression_healing (target: None)` and
+`target.name` raised on `NoneType`. Validation passed because it only checked the
+CASTER's level and Stormlight — never that there was anyone to heal.
+
+### Why unit tests could not find any of these
+
+| Defect | Why it was invisible offline |
+|---|---|
+| 1 | The response CONTRACT between two components, each of which was individually correct |
+| 2 | Needed a real death mid-encounter to engage the skip loop |
+| 3 | Needed two turns, and a real DM emitting `combat_trigger` |
+| 4 | The NPC AI has to actually choose `move` |
+| 5 | The NPC AI has to actually return `target: None` |
+
+Four of the five are **integration** defects, and the fifth is a real LLM making a
+choice no stub would make. This is the strongest argument yet for §12's Tier-3
+gate: the deterministic suite (185 tests, 4.5 s) is what keeps the mechanics
+honest, and `scripts/playtest.py` is what proves the product reaches them.
+
+### Corollary for §12
+
+- **A failing test is a hypothesis about the product, not about the test.** Explain
+  it or fix it; do not record it as environmental without evidence. This document
+  did exactly that for two audits.
+- **Put a guard where all callers converge.** A guard on one route reads as
+  protection while another route walks straight past.
+- **When a test passes with the bug restored, the test is wrong.** My first
+  skip-path test did: with one hostile the index wraps on the *normal* path and the
+  skip loop never runs. It needed a hero followed by two dead hostiles.
