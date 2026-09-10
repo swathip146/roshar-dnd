@@ -4,6 +4,7 @@ Authoritative state writer with 7-step pipeline - From Original Plan
 """
 
 from typing import Dict, Any, Optional, List, TypedDict
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -59,6 +60,9 @@ class NarrativeContext(TypedDict, total=False):
     pacing: str
     tension_level: str
     narrative_beats: List[str]
+    # Plan 2.2: compressed record of beats that aged out of the verbatim
+    # window, so a long campaign keeps its spine instead of losing it.
+    narrative_chronicle: List[str]
     story_hooks: List[Dict[str, Any]]  # Each hook: {"text": str, "priority": str, "added_time": float}
     last_scenario_type: str
     scenario_confidence: float
@@ -157,6 +161,7 @@ class GameEngine:
                 "pacing": "moderate",
                 "tension_level": "normal",
                 "narrative_beats": [],
+                "narrative_chronicle": [],
                 "story_hooks": []
             },
             location_context = {
@@ -1404,33 +1409,97 @@ class GameEngine:
         """Get current quest context"""
         return self.game_state.quest_context
     
-    # Plan 2.2: how many narrative beats to keep. Enough for the DM to
+    # Plan 2.2: how many narrative beats to keep verbatim. Enough for the DM to
     # reference recent history without unbounded prompt growth.
     MAX_NARRATIVE_BEATS = 12
     BEAT_SUMMARY_CHARS = 400
+    # Beats that age out of the window are folded into a rolling chronicle rather
+    # than deleted (see _append_narrative_beat). Bounded too, or the prompt grows
+    # without limit over a long campaign.
+    MAX_CHRONICLE_ENTRIES = 20
+    CHRONICLE_ENTRY_CHARS = 160
 
     def _append_narrative_beat(self, scene_text: str, turn_number: int) -> None:
         """
-        Record one narrative beat in a bounded rolling history (plan 2.2).
+        Record one narrative beat, with ROLLING SUMMARIZATION (plan 2.2).
 
-        Replaces a one-turn memory: `last_scenario` is a single slot that each
-        turn overwrites, so turn N-2 was gone. `narrative_beats` existed in the
-        schema but nothing ever wrote to it.
+        Two problems, fixed in order:
+
+        1. `last_scenario` was a single slot each turn overwrote, so turn N-2 was
+           gone and the DM had a one-turn memory. `narrative_beats` existed in the
+           schema and nothing ever wrote to it.
+        2. Beats past the window were then `del`'d outright. That bounded the
+           prompt but silently destroyed the early campaign: by turn 30 the DM had
+           no idea the party had ever sworn an oath or lost a companion, which is
+           precisely the continuity 2.2 promised. The plan said "rolling
+           summarization"; truncate-and-drop is not that.
+
+        A beat leaving the verbatim window is now compressed into
+        `narrative_chronicle` — a shorter, older-first record that survives. The
+        chronicle is itself bounded, so prompt size stays predictable while the
+        campaign's spine is preserved.
+
+        Compression is DETERMINISTIC (first sentence, then a character cap), not an
+        LLM call. Summarising with the LLM here would bill a token on every turn,
+        could fail mid-turn, and would make the same campaign produce different
+        history on a replay.
         """
         if not scene_text:
             return
         try:
-            beats = self.game_state.narrative_context.setdefault("narrative_beats", [])
+            narrative = self.game_state.narrative_context
+            beats = narrative.setdefault("narrative_beats", [])
             summary = scene_text.strip()
             if len(summary) > self.BEAT_SUMMARY_CHARS:
                 summary = summary[:self.BEAT_SUMMARY_CHARS].rstrip() + "…"
             beats.append(f"[Turn {turn_number}] {summary}")
-            # Bound it: keep the most recent beats only.
-            if len(beats) > self.MAX_NARRATIVE_BEATS:
-                del beats[:-self.MAX_NARRATIVE_BEATS]
-            logger.debug(f"📖 Narrative beats: {len(beats)} recorded")
+
+            # Fold anything past the window into the chronicle instead of dropping.
+            while len(beats) > self.MAX_NARRATIVE_BEATS:
+                self._chronicle(beats.pop(0))
+
+            logger.debug(f"📖 Narrative beats: {len(beats)} verbatim, "
+                         f"{len(narrative.get('narrative_chronicle', []))} chronicled")
         except Exception as e:
             logger.warning(f"⚠️ Could not record narrative beat: {e}")
+
+    def _chronicle(self, beat: str) -> None:
+        """Compress one aged-out beat into the rolling chronicle."""
+        narrative = self.game_state.narrative_context
+        chronicle = narrative.setdefault("narrative_chronicle", [])
+        entry = self._compress_beat(beat)
+        if entry:
+            chronicle.append(entry)
+        if len(chronicle) > self.MAX_CHRONICLE_ENTRIES:
+            # The chronicle is itself bounded. Drop from the MIDDLE, keeping the
+            # opening of the campaign (how it began) and the recent past, which is
+            # what continuity actually needs.
+            keep_head = self.MAX_CHRONICLE_ENTRIES // 4
+            keep_tail = self.MAX_CHRONICLE_ENTRIES - keep_head
+            narrative["narrative_chronicle"] = (
+                chronicle[:keep_head] + chronicle[-keep_tail:])
+
+    def _compress_beat(self, beat: str) -> str:
+        """
+        One beat -> one short line. Deterministic: first sentence, then a cap.
+
+        Keeps the `[Turn N]` prefix so the chronicle stays ordered and the DM can
+        tell how long ago something happened.
+        """
+        text = (beat or "").strip()
+        if not text:
+            return ""
+
+        prefix = ""
+        match = re.match(r"(\[Turn \d+\])\s*(.*)", text, flags=re.DOTALL)
+        if match:
+            prefix, text = match.group(1), match.group(2)
+
+        # First sentence carries the event; the rest is usually scene-setting.
+        sentence = re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
+        if len(sentence) > self.CHRONICLE_ENTRY_CHARS:
+            sentence = sentence[:self.CHRONICLE_ENTRY_CHARS].rstrip() + "…"
+        return f"{prefix} {sentence}".strip()
 
     def _apply_location_change(self, raw_location: Any) -> bool:
         """
@@ -1520,14 +1589,36 @@ class GameEngine:
         beats = self.game_state.narrative_context.get("narrative_beats", []) or []
         return list(beats[-limit:])
 
+    def get_narrative_chronicle(self, limit: int = 20) -> List[str]:
+        """The compressed older history, oldest first (plan 2.2)."""
+        chronicle = self.game_state.narrative_context.get(
+            "narrative_chronicle", []) or []
+        return list(chronicle[-limit:])
+
     def get_story_so_far(self, limit: int = 6) -> str:
         """
         Recent beats as a single block for the DM prompt (plan 2.2).
 
         This is what gives the DM continuity beyond the previous turn.
+
+        Includes the CHRONICLE — the compressed record of beats that have aged out
+        of the verbatim window. Without it, rolling summarization would preserve
+        the early campaign in state and never show it to the DM, which is the same
+        "the component works and the product does not reach it" failure that hid
+        four subsystems in this project.
         """
+        sections = []
+
+        chronicle = self.get_narrative_chronicle()
+        if chronicle:
+            sections.append("EARLIER (summarised):\n" + "\n".join(chronicle))
+
         beats = self.get_narrative_beats(limit)
-        return "\n".join(beats) if beats else ""
+        if beats:
+            sections.append("RECENTLY:\n" + "\n".join(beats) if chronicle
+                            else "\n".join(beats))
+
+        return "\n\n".join(sections)
 
     def process_scenario_state_updates(self, scenario_data: Dict[str, Any], turn_number: int):
         """Process scenario data and update authoritative game state"""
