@@ -409,13 +409,27 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
                 force_combat_on_turn: Optional[int] = None) -> None:
     """Play real turns through the live pipeline — the actual Tier-3 gate."""
     print(f"\n🎮 Playing {turns} real turns")
+    # Inputs are chosen to exercise DIFFERENT mechanics, not to be realistic prose.
+    #
+    # These were six variants of "I look around" — all passive observation. So a
+    # run could pass while travel, oaths, rests and skill checks were never
+    # reached through gameplay at all; only combat was, and only because it is
+    # forced. Each line below targets a subsystem:
+    #
+    #   1 perception/investigation  -> the 7-step skill pipeline
+    #   2 (forced encounter lands here)
+    #   3 travel                    -> the location graph + the game clock
+    #   4 an oath                   -> Radiant ideal progression
+    #   5 a rest                    -> HP recovery and the clock
+    #   6 talking to an NPC         -> the NPC pipeline
     inputs = [
-        "I look around and take stock of my surroundings.",
-        "I search the area for anything useful.",
-        "I listen carefully for any sound of danger.",
-        "I examine the ground for tracks.",
-        "I call out to see if anyone answers.",
-        "I ready myself and move on.",
+        "I search the ground carefully for tracks or anything hidden.",
+        "I ready my weapon and advance towards whatever lies ahead.",
+        "I travel onwards to the next location.",
+        "I speak my oath aloud: Life before death, strength before weakness, "
+        "journey before destination.",
+        "I make camp and take a long rest to recover.",
+        "I look for someone to talk to, and ask them about the Voidbringers.",
     ]
 
     # Force an encounter so combat is exercised deterministically. Combat was
@@ -424,6 +438,12 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
     if force_combat_on_turn:
         game.force_combat_on_turn = force_combat_on_turn
         print(f"   (forcing an encounter on turn {force_combat_on_turn})")
+
+    # Snapshot what the turns are supposed to CHANGE. Without this the turn checks
+    # only assert that narration looked plausible, so a run could pass while skill
+    # checks, travel, the clock and the NPC pipeline were never reached through
+    # gameplay at all — only combat was, and only because it is forced.
+    before = _mechanism_snapshot(game)
 
     # Combat asks the player to choose an action. Without an injected provider
     # CombatSessionManager falls back to real input() and an unattended run
@@ -522,7 +542,91 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
         print(f"\n   auto-combat made {len(auto_player.decisions)} choices; "
               f"first few: {auto_player.decisions[:3]}")
 
+    _check_mechanisms_fired(report, game, before)
     _check_combat_and_quests(report, game, bool(force_combat_on_turn))
+
+
+def _mechanism_snapshot(game) -> Dict[str, Any]:
+    """
+    The state the turns are meant to move.
+
+    Compared before/after so each subsystem is asserted to have fired THROUGH
+    GAMEPLAY, not merely to work when called directly. Every defect this playtest
+    has found was a wiring defect, so "the API works" is the weaker claim.
+    """
+    engine = game.game_engine
+    manager = game.character_manager
+    actor = game._active_character_id()
+    character = manager.characters.get(actor)
+
+    def _safe(getter, default=None):
+        try:
+            return getter()
+        except Exception:
+            return default
+
+    return {
+        "skill_checks": len(_safe(
+            lambda: engine.game_state.narrative_context.get("skill_check_log"), []) or []),
+        "elapsed_hours": _safe(
+            lambda: engine.game_state.environment.get("elapsed_hours"), 0) or 0,
+        "location": _safe(
+            lambda: engine.game_state.location_context.get("current_location"), ""),
+        "known_locations": len(_safe(
+            lambda: engine.game_state.location_context.get("known_locations"), {}) or {}),
+        "xp": getattr(character, "experience_points", 0) or 0,
+        "ideal_level": getattr(character, "ideal_level", 0) or 0,
+        "hp": dict(character.hit_points) if character else {},
+        "completed_objectives": len(_safe(
+            lambda: engine.game_state.quest_context.get("completed_objectives"), []) or []),
+        "beats": len(_safe(lambda: engine.get_narrative_beats(50), []) or []),
+    }
+
+
+def _check_mechanisms_fired(report: Report, game, before: Dict[str, Any]) -> None:
+    """
+    Did the turns actually exercise more than combat?
+
+    This group exists because a 3-turn run once produced TWO encounters and
+    nothing else: the turn inputs were six variants of "I look around", and a
+    keyword scan for "hostile" hijacked a peaceful scene. Combat dominating the
+    playtest is itself a finding, so assert on breadth.
+    """
+    print("\n🔧 Mechanisms exercised through gameplay")
+    after = _mechanism_snapshot(game)
+
+    # The clock is the broadest signal: skill checks, travel and rests all move it.
+    report.check("The game clock advanced",
+                 after["elapsed_hours"] > before["elapsed_hours"],
+                 f"{before['elapsed_hours']}h -> {after['elapsed_hours']}h "
+                 f"(unchanged = no turn consumed in-world time)")
+
+    report.check("The world grew or the party moved",
+                 (after["known_locations"] > before["known_locations"]
+                  or after["location"] != before["location"]),
+                 f"{before['known_locations']} -> {after['known_locations']} "
+                 f"locations; at {after['location']!r}")
+
+    report.check("Narrative memory accumulated across turns",
+                 after["beats"] > before["beats"],
+                 f"{before['beats']} -> {after['beats']} beats")
+
+    # HP moving in EITHER direction proves damage or healing reached the record.
+    report.check("Character HP changed during play",
+                 after["hp"].get("current") != before["hp"].get("current"),
+                 f"{before['hp'].get('current')} -> {after['hp'].get('current')}"
+                 f"/{after['hp'].get('maximum')}")
+
+    # Soft signals: report them, but do not fail — the DM legitimately may not
+    # offer an oath or award XP in three turns, and failing on that would make the
+    # gate flaky in a way that invites weakening the real assertions.
+    for name, key in (("XP awarded", "xp"),
+                      ("An Ideal was spoken", "ideal_level"),
+                      ("A quest objective completed", "completed_objectives")):
+        moved = after[key] > before[key]
+        print(f"   {'✅' if moved else 'ℹ️ '} {name} — "
+              f"{before[key]} -> {after[key]}"
+              f"{'' if moved else '  (not exercised this run)'}")
 
 
 def _check_combat_and_quests(report: Report, game, combat_was_forced: bool) -> None:

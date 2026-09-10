@@ -17,6 +17,7 @@ Integrates with:
 """
 
 import json
+import re
 import uuid
 import random
 from typing import Dict, List, Any, Optional
@@ -298,18 +299,54 @@ class CombatInitializer:
                 self.logger.debug(f"   ✓ Combat trigger found in choice: {choice.get('title', 'Unknown')}")
                 return True
 
-        # Fallback: Check scene text for combat keywords
+        # THE DM'S EXPLICIT "no" IS FINAL.
+        #
+        # The keyword fallback below used to run even when every choice carried
+        # `combat_trigger: false`, and it hijacked peaceful scenes. Measured live:
+        # the DM wrote gm_notes saying a spren "is **not immediately hostile** but
+        # will react defensively if directly approached", set combat_trigger false
+        # on all 7 choices — and combat started anyway, because the substring
+        # "hostile" appeared. Two encounters ran in a 3-turn playtest and no other
+        # mechanic got a turn.
+        #
+        # Same bug class as the routing substring match and the travel matcher that
+        # found "A" inside "Shattered Plains". A scenario that answered the question
+        # must not be second-guessed by a text scan.
+        if choices:
+            self.logger.debug(
+                f"   ✗ No combat: the DM set combat_trigger=false on all "
+                f"{len(choices)} choice(s)")
+            return False
+
+        # Fallback ONLY when the scenario expressed no opinion at all — a scene
+        # with no choices, or a non-scenario code path. Word-boundary matched, so
+        # "enemies" no longer fires on "enemiesake" and "attack" no longer fires on
+        # "attacked the problem".
         scene = scenario.get('scene', '').lower()
         gm_notes = scenario.get('gm_notes', '').lower()
         combined_text = f"{scene} {gm_notes}"
 
         combat_keywords = [
-            'attack', 'combat', 'fight', 'hostile', 'enemy', 'enemies',
-            'drawn weapon', 'battle', 'initiative', 'ambush', 'charging'
+            'attack', 'attacks', 'attacking', 'combat', 'fight', 'fighting',
+            'hostile', 'hostiles', 'enemy', 'enemies', 'battle', 'ambush',
+            'ambushed', 'charging', 'initiative',
         ]
 
+        # Negations that mean the OPPOSITE of a fight. Checked first, because a
+        # scene explaining why there is no fight contains the most combat words.
+        negations = [
+            'not hostile', 'not immediately hostile', 'no immediate threat',
+            'no immediate threats', 'not attacking', 'no enemies', 'no hostiles',
+            'avoid combat', 'without combat', 'no combat', 'peaceful',
+        ]
+        for negation in negations:
+            if negation in combined_text:
+                self.logger.debug(
+                    f"   ✗ No combat: scene says '{negation}'")
+                return False
+
         for keyword in combat_keywords:
-            if keyword in combined_text:
+            if re.search(rf"\b{re.escape(keyword)}\b", combined_text):
                 self.logger.debug(f"   ✓ Combat keyword found: '{keyword}' (fallback detection)")
                 return True
 
