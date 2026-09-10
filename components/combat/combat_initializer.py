@@ -121,7 +121,7 @@ class CombatInitializer:
             return None
 
         # Step 2: Parse enemies from scenario text
-        enemies = self._parse_enemies_from_scenario(scenario)
+        enemies = self._parse_enemies_from_scenario(scenario, force_combat)
         self.logger.info(f"   📋 Parsed {len(enemies)} enemy types from scenario")
 
         if not enemies:
@@ -345,6 +345,42 @@ class CombatInitializer:
             self.logger.info(f"   📜 {len(encounters)} authored encounter(s) available")
         return encounters
 
+    def _fallback_authored_encounter(self) -> Optional[Dict[str, Any]]:
+        """
+        Pick a reasonable authored encounter when combat is FORCED and none matched.
+
+        Preference order:
+          1. an encounter whose quest is still pending — it is next in the story
+          2. any encounter that actually has enemies
+          3. None, if the campaign authored no fights at all
+
+        Deliberately NOT used for organic play: firing an encounter without a
+        keyword hit would let a fight break out for being in the right place, which
+        is exactly what `_match_authored_encounter` guards against.
+        """
+        encounters = [e for e in (self._campaign_encounters() or [])
+                      if e.get("enemies")]
+        if not encounters:
+            return None
+
+        pending = set()
+        try:
+            quest_context = self.game_engine.game_state.quest_context
+            for objective in (quest_context.get("pending_objectives") or []):
+                quest = (objective.get("quest") if isinstance(objective, dict)
+                         else None)
+                if quest:
+                    pending.add(str(quest).lower())
+        except Exception:
+            pass
+
+        if pending:
+            for encounter in encounters:
+                if str(encounter.get("quest", "")).lower() in pending:
+                    return encounter
+
+        return encounters[0]
+
     def _match_authored_encounter(self, scenario: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Find the authored encounter this scene is describing, if any.
@@ -407,7 +443,8 @@ class CombatInitializer:
                 f"   📜 matched encounter '{best.get('id')}' (score {best_score})")
         return best
 
-    def _parse_enemies_from_scenario(self, scenario: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _parse_enemies_from_scenario(self, scenario: Dict[str, Any],
+                                     force_combat: bool = False) -> List[Dict[str, Any]]:
         """
         Extract enemy information from scenario using LLM parsing.
 
@@ -445,6 +482,25 @@ class CombatInitializer:
         # Extraction produced CR 3 x3 for a level 1 party in a live run, because
         # it reads "Voidbringers" and guesses. An authored roster cannot drift.
         authored = self._match_authored_encounter(scenario)
+
+        # A FORCED encounter must still find a roster. `force_combat` skipped the
+        # trigger check but was never passed down here, so a forced fight in a
+        # peaceful scene asked the LLM to extract enemies from prose containing
+        # none — "✅ Successfully extracted 0 enemy types", and the encounter was
+        # abandoned with "Combat initialization failed or no combat trigger".
+        # A live run forced combat on turn 2 and no fight happened.
+        #
+        # Keyword matching is deliberately strict for ORGANIC play (an encounter
+        # must not fire merely for being in the right place). When the caller has
+        # already decided there IS a fight, fall back to the best authored
+        # encounter for the current act/quest instead of failing.
+        if authored is None and force_combat:
+            authored = self._fallback_authored_encounter()
+            if authored is not None:
+                self.logger.info(
+                    f"   📜 Combat was forced and no encounter matched by keyword; "
+                    f"using authored '{authored.get('id')}'")
+
         if authored is not None:
             enemies = authored.get("enemies") or []
             self.logger.info(
