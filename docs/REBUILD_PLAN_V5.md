@@ -1884,3 +1884,47 @@ mitigation is evidence of an unfound bug, not a fix for one.
 Add to the rule list: **count both sides of any exchange.** `30 calls / 0 responses`
 is the kind of asymmetry that names the bug immediately, and neither number was
 being logged.
+
+### Three more, found by the playtest that confirmed §14g
+
+Fixing the tool loop let the next defect surface — each fix reveals the one behind
+it, which is what a working gate looks like.
+
+**1. A forced encounter could not find a roster.** `force_combat` skipped the
+trigger check but was never passed down to enemy parsing. So a forced fight in a
+peaceful starlit-ridge scene asked the LLM to extract enemies from prose containing
+none — *"✅ Successfully extracted 0 enemy types"* — and the encounter was abandoned
+with *"Combat initialization failed or no combat trigger"*, while the same log said
+*"📜 4 authored encounter(s) available"*.
+
+Keyword matching stays strict for **organic** play: an encounter must not fire
+merely for being in the right place. But when the caller has already decided there
+IS a fight, `_fallback_authored_encounter()` now picks one — preferring an encounter
+whose quest is still pending. A peaceful scene with `force_combat` yields the
+authored 2 × Voidbringer Scout at CR 0.25, which is *designed* difficulty rather
+than an LLM guess (extraction once produced CR 3 ×3 for a level-1 party).
+
+**2. `current` HP could exceed `maximum`.** Spotted in the DM's own gm_notes:
+
+> *"Aggi's current HP (13) is higher than max (8). This might be temporary HP from a
+> previous scene not captured or an error in input."*
+
+The source was a stale `haystack_save.json` in the pre-0.3 analytics-summary format
+(finding #4's artifact — it has no HP keys at all), so this was bad data rather than
+a live bug. **But it is worse than a crash**: the DM *noticed* the contradiction and
+worked around it in prose. An inconsistency that reaches the prompt makes the model
+guess which number to believe, and whichever it picks, mechanics and narration now
+disagree. `add_character()` enforces the invariant on load.
+
+**3. The playtest reviewed the wrong log file.** `check_logs()` read `logs[-1]` —
+newest by name — which is not necessarily this process's file. A concurrent `pytest`
+run put 19 errors in a different log and the playtest reported them as its own: HTTP
+403s from real-LLM tests plus *deliberate* negative-path assertions
+(`Unknown actor: invalid_char`, `character nobody not found`). Now pinned via the
+live logging handler.
+
+That last one matters more than it looks: **a gate that can attribute someone else's
+failures to itself is a gate that cries wolf**, and the fix for crying wolf is
+usually to weaken the assertion. This document already records one whitelist that
+was added for exactly that reason and had to be removed, because it suppressed the
+tools+JSON-mode 400 that was breaking every scenario turn.
