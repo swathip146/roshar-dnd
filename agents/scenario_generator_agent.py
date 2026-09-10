@@ -93,6 +93,58 @@ def debug_scenario_print(category: str, message: str, data: Any = None):
                 logger.debug(f"    📊 Data: {data}")
 
 
+def _campaign_bible_for(game_engine) -> str:
+    """
+    Build the persistent campaign context for this prompt (plan 0.19).
+
+    Derived from the structured campaign rather than hand-authored, so it cannot
+    drift from `shards_of_honor.json`: when a quest completes or a character
+    levels, the bible follows. Returns "" on any failure — a missing bible must
+    degrade the prompt, never break the turn.
+    """
+    try:
+        from components.campaign_bible import build_campaign_bible
+
+        campaign = None
+        for attr in ("campaign_config", "campaign", "campaign_data"):
+            candidate = getattr(game_engine, attr, None)
+            if candidate is not None:
+                campaign = (candidate if isinstance(candidate, dict)
+                            else getattr(candidate, "raw", None)
+                            or getattr(candidate, "data", None))
+                if campaign:
+                    break
+
+        if campaign is None:
+            campaign = _load_campaign_file()
+
+        return build_campaign_bible(
+            campaign=campaign,
+            character_manager=getattr(game_engine, "character_manager", None),
+            game_engine=game_engine)
+    except Exception as e:
+        logger.debug(f"   No campaign bible available: {e}")
+        return ""
+
+
+def _load_campaign_file() -> Optional[Dict[str, Any]]:
+    """Read the authored campaign directly when the engine does not carry it."""
+    import json
+    from pathlib import Path
+
+    directory = Path("data/current_campaign")
+    if not directory.exists():
+        return None
+    for path in sorted(directory.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("title"):
+                return data
+        except Exception:
+            continue
+    return None
+
+
 def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
     """
     Generate scenario using direct GameEngine access instead of DTO context duplication.
@@ -151,11 +203,19 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
                 "constraints": quest_context.get("quest_constraints", [])
             }
             debug_scenario_print("TOOL", "✅ Accessed GameEngine state directly")
+
+            # Plan 0.19: the persistent campaign context. RAG only surfaces what
+            # you think to query, and this prompt previously had NO campaign
+            # section at all — the DM never saw the party, the key NPCs, the acts
+            # or how the campaign ends, so it improvised those every turn and the
+            # story had no spine.
+            campaign_bible = _campaign_bible_for(game_engine)
         except Exception as e:
             debug_scenario_print("TOOL", f"⚠️ GameEngine access failed: {e}")
             # Fallback values
             narrative_context = {}
             story_so_far = ""
+            campaign_bible = ""
             location_context = {}
             quest_context = {}
             current_location = "unknown location"
@@ -168,6 +228,7 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
         # Fallback values when no engine available
         narrative_context = {}
         story_so_far = ""
+        campaign_bible = ""
         location_context = {}
         quest_context = {}
         current_location = "unknown location"
@@ -237,6 +298,8 @@ def create_scenario_from_dto(dto: Dict[str, Any]) -> str:
     
     # Build comprehensive prompt using directly accessed context (same format, different source)
     prompt = f"""Generate a D&D scenario using direct engine access context system:
+
+{campaign_bible if campaign_bible else "=== NO CAMPAIGN BIBLE AVAILABLE ==="}
 
 === A. NARRATIVE CONTEXT (from GameEngine) ===
 Player Action: "{player_action}"
