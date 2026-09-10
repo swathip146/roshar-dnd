@@ -762,6 +762,25 @@ class CombatSessionManager:
         char_state["bonus_actions_remaining"] = entity.action_economy.bonus_actions.normalized_score
         char_state["reaction_available"] = entity.action_economy.reactions.normalized_score > 0
 
+        # Mirror HP too. combat_state["hp_current"] was never written back from
+        # the engine, so the status panel and the action menu showed starting HP
+        # for the whole fight ("Voidbringer Scout: 22/22" while it was actually
+        # being wounded). End conditions read the engine directly, so this was
+        # cosmetic — but it made a working fight look broken, and it hid the
+        # damage that WAS being dealt.
+        self._sync_hp_from_engine()
+
+    def _sync_hp_from_engine(self) -> None:
+        """Copy every combatant's live HP from dnd_engine into combat_state."""
+        for cid, state in self.combat_state["combatant_states"].items():
+            entity = self.dnd_wrapper.entities.get(cid)
+            if entity is None:
+                continue
+            try:
+                state["hp_current"] = self.dnd_wrapper.get_entity_current_hp(entity)
+            except Exception as e:
+                self.logger.debug(f"   Could not sync HP for {cid}: {e}")
+
     def _has_actions_remaining(self, char_id: str) -> bool:
         """
         Check if combatant has actions/bonus actions remaining.
