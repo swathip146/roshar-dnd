@@ -770,8 +770,22 @@ WHAT TO DO, IN ORDER:
    cost or DC.
 3. Resolve the player's attempt — roll_skill_check for anything uncertain. You do
    not decide outcomes; the dice do.
-4. Apply real consequences — apply_damage / apply_healing / spend_stormlight /
-   advance_quest / award_experience / travel_to_location.
+4. APPLY the consequences with a tool. This step is NOT optional — narrating a
+   change you did not apply leaves the fiction and the game state disagreeing, and
+   the player will notice on the next turn.
+
+   Map the player's action to the tool that makes it TRUE:
+     goes somewhere / sets out / heads for      -> travel_to_location
+     rests / makes camp / sleeps                -> take_rest
+     is hurt / takes a hit / falls              -> apply_damage
+     is healed / bandaged / Regrowth            -> apply_healing
+     uses a Surge / draws in Stormlight         -> spend_stormlight
+     finishes an objective / achieves a goal    -> advance_quest
+     earns a reward / defeats a foe / learns    -> award_experience
+     tends a companion at 0 HP                  -> stabilize_dying
+
+   If the action moves the party, time, HP, Stormlight, XP or a quest, a tool call
+   is REQUIRED. If it genuinely changes nothing, say so in your summary.
 5. THEN STOP CALLING TOOLS and write a short plain-text summary of what actually
    happened: the rolls and their results, what changed, what is now true.
 
@@ -780,6 +794,10 @@ Hard rules:
   roll_skill_check.
 - NEVER describe damage or healing you did not apply with a tool, or the fiction
   and the character sheets will drift apart.
+- NEVER say the party travelled, rested, or that time passed, unless you called the
+  tool that made it so. Measured in a live run: six turns including an explicit
+  "I travel onwards" and "I make camp and take a long rest" advanced the in-world
+  clock by ZERO hours, because the model narrated both instead of applying them.
 - spend_stormlight can REFUSE. If affordable is false, say the Surge failed for
   want of Stormlight.
 - search_lore is flavour only. Never derive a mechanic from lore prose.

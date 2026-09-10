@@ -598,6 +598,76 @@ def apply_healing(amount: int, actor: str = "") -> Dict[str, Any]:
 
 
 @tool
+def take_rest(kind: str = "long", actor: str = "") -> Dict[str, Any]:
+    """
+    Rest the party, restoring hit points and advancing the game clock.
+
+    Call this whenever the party makes camp, sleeps, or stops to recover — a rest
+    the player asked for and you only narrated leaves them still wounded on the next
+    turn, and the in-world clock never moves.
+
+    Args:
+        kind: "long" (8 hours, full HP, resources reset) or "short" (1 hour,
+              spend a hit die)
+        actor: Character id; defaults to the whole party
+
+    Returns:
+        kind, hours, rested (per character: hp_before, hp_after)
+    """
+    try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
+        manager = _need("character_manager")
+        engine = _CONTEXT.get("game_engine")
+
+        long_rest = str(kind).strip().lower() != "short"
+        hours = 8 if long_rest else 1
+
+        # Default to the WHOLE PARTY: a party that camps together rests together,
+        # and resting one member while the rest stay wounded is never what was
+        # meant.
+        if actor:
+            targets = [actor]
+        else:
+            try:
+                npcs = set(manager.get_npcs() or [])
+            except Exception:
+                npcs = set()
+            targets = [cid for cid in manager.characters if cid not in npcs]
+
+        rested = {}
+        for char_id in targets:
+            character = manager.characters.get(char_id)
+            if character is None:
+                continue
+            before = dict(character.hit_points or {})
+            if long_rest:
+                manager.long_rest(char_id)
+            else:
+                manager.short_rest(char_id, hit_dice_to_spend=1)
+            rested[char_id] = {
+                "name": character.name,
+                "hp_before": before.get("current"),
+                "hp_after": character.hit_points.get("current"),
+                "hp_max": character.hit_points.get("maximum"),
+            }
+
+        # A rest that costs no time is not a rest — the highstorm cycle and every
+        # timed quest depend on the clock moving.
+        if engine is not None:
+            try:
+                engine.advance_time(hours=hours,
+                                    reason=f"{'long' if long_rest else 'short'} rest")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not advance the clock for a rest: {e}")
+
+        return {"kind": "long" if long_rest else "short", "hours": hours,
+                "rested": rested}
+    except Exception as e:
+        logger.warning(f"⚠️ take_rest failed: {e}")
+        return {"error": str(e)}
+
+
+@tool
 def stabilize_dying(actor: str = "") -> Dict[str, Any]:
     """
     Stabilise a dying character, e.g. after a successful Medicine check (DC 10).
@@ -771,6 +841,7 @@ DM_TOOLS = [
     search_lore,
     apply_damage,
     apply_healing,
+    take_rest,
     stabilize_dying,
     spend_stormlight,
     advance_quest,
