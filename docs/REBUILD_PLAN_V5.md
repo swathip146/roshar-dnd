@@ -21,7 +21,7 @@
 > |---|---|
 > | Phases 0-4 | ✅ done, except **2.10** and the Avrae automation schema |
 > | Unwired subsystems | ✅ none remain (was 5) |
-> | Tests | **854 non-combat + 371 combat** (was 380 + 174 at the audit) |
+> | Tests | **873 non-combat + 371 combat** (was 380 + 174 at the audit) |
 > | Live playtest | ✅ **48/48, 0 errors logged** (was 44/4 with 11 errors) |
 > | Remaining work | §14a "Ranked open work" — 2 open items, 3 deferred by decision |
 >
@@ -863,7 +863,8 @@ before continuing — that is precisely the failure mode v4.1 hit.
 | 2026-09-10 | 535 | 318 | 44 / 4 | positioning bugs fixed (§14b); first playtest run |
 | 2026-09-10 | 822 | 365 | 45 / 3 | §14c defects, deterministic suite, LangGraph, 0.15/0.19/2.2/D5-T3 |
 | 2026-09-10 | 844 | 371 | 48 / 0 | stalemate + combat-turn-reporting fixed (§14e); **all green** |
-| **2026-09-10** | **854** | **371** | **48 / 0** | dice fail loudly instead of dealing 0 damage |
+| 2026-09-10 | 854 | 371 | 48 / 0 | dice fail loudly instead of dealing 0 damage |
+| **2026-09-10** | **873** | **371** | *pending* | **tool results now reach the model** (§14g) — the tool-call loop was a transport bug |
 
 The 4 standing combat failures are environmental and are NOT counted as passing:
 3 make real LLM calls and get HTTP 403 through the sandbox proxy
@@ -1816,3 +1817,70 @@ Two of my own test errors are also worth keeping, both instances of §12 rule 6:
   never ran. Needed a hero followed by two dead hostiles.
 - An empty-prompt guard placed *after* the system prompt was prepended, so
   `converted` was never empty and the guard could not fire. Caught by my own test.
+
+---
+
+## 14g. The tool-call loop was a transport bug *(2026-09-10)*
+
+The DM agent re-requested the same state on every step:
+
+```
+⚠️ world_state requested 5× this turn — returning a stop-polling directive
+⚠️ party_state requested 4× this turn — ...
+⚠️ character_state:Aggi requested 5× this turn — ...
+```
+
+That reads like a misbehaving model, and it was treated as one — `_cached_read`'s
+"stop-polling directive" exists specifically to talk the model out of the loop.
+**It was a transport bug.** Measured in that live turn: **30 function calls, 0
+function responses.**
+
+`GeminiChatGenerator` flattens the conversation into a single prompt string, and
+both halves of a tool exchange carry `.text is None`:
+
+| Message | Where its payload lives | `.text` |
+|---|---|---|
+| `ChatMessage.from_tool(...)` | `.tool_call_results` | `None` |
+| `ChatMessage.from_assistant(tool_calls=[...])` | `.tool_calls` | `None` |
+
+The converter read only `.text`/`.content`, so both became `""` and were dropped —
+verified directly, a result containing `{"location":"Kholinar","day":1}` converted
+to the empty string. **From the model's point of view it had never asked**, so it
+asked again, every step, until `max_agent_steps` ran out with no scene written and
+the player received a canned fallback. `_convert_messages_to_gemini` carried the
+identical `if not content: continue`.
+
+Proven live over gateway after the fix: the model calls `get_world_state` **once**,
+receives the result, and answers *"The current location is Kholinar and the day is
+3."*
+
+### Why the guard hid this for so long
+
+`_cached_read`'s directive appeared to work, and its own comment records the
+observed behaviour honestly ("Making the repeats free only made it loop faster: 46
+cache hits, still no scene"). It appeared to work because **its counter lives in
+Python, not in the conversation** — the directive it returned was being dropped
+along with everything else. The loop ended because a Python counter tripped, not
+because the model was ever told anything.
+
+That is the trap: a mitigation whose mechanism is invisible to the thing it is
+supposedly persuading. It bounded the damage and, in doing so, removed the pressure
+to find the cause. The guard is retained as a genuine backstop and still tested,
+but it is no longer load-bearing.
+
+### A second bug found while testing the guard
+
+`clear_dm_tool_context()` cleared the read cache but **not** the read counters, so a
+freshly-configured context answered its very *first* read with *"you have already
+called this 2 times this turn"* and refused the data. Both reset paths now clear
+both, asserted for each entry point.
+
+### Corollary for §12
+
+**When a mitigation works, ask what it is measuring.** If the mechanism is invisible
+to the component it targets — a Python counter "telling" an LLM to stop — the
+mitigation is evidence of an unfound bug, not a fix for one.
+
+Add to the rule list: **count both sides of any exchange.** `30 calls / 0 responses`
+is the kind of asymmetry that names the bug immediately, and neither number was
+being logged.
