@@ -545,7 +545,24 @@ class PipelineOrchestrator:
                 pipeline_result = self._handle_gameplay_turn_pipeline_dto(dto)
             
             debug_print("PROCESS", "📥 Pipeline processing complete", {"result_keys": list(pipeline_result.keys()) if isinstance(pipeline_result, dict) else type(pipeline_result)})
-            
+
+            # Never hand None back to the game loop. `play_turn()` treats None as a
+            # total pipeline failure and tells the player "The magical forces seem
+            # disrupted", discarding a turn that may have partly succeeded. A
+            # pipeline that produced nothing usable should say so in a dict the
+            # caller can inspect — the NPC path returned a bare None when its agent
+            # ended on a tool call.
+            if pipeline_result is None:
+                pipeline_logger.error(
+                    f"Pipeline returned None for "
+                    f"{dto.get('type') if isinstance(dto, dict) else '?'}")
+                return create_unified_game_response(
+                    response_type="error",
+                    error="The pipeline produced no response",
+                    correlation_id=(dto.get("correlation_id")
+                                    if isinstance(dto, dict) else None),
+                )
+
             return pipeline_result
                 
         except Exception as e:
@@ -1414,10 +1431,29 @@ Retrieve relevant documents for this query and provide a concise answer based on
             
             if "npc_controller" in result:
                 agent_result = result["npc_controller"]
-                
+
                 # Use state schema for easy access to NPC response
                 if "npc_response" in agent_result:
                     npc_response = agent_result["npc_response"]
+
+                    # The KEY can be present with a None VALUE. When the NPC agent
+                    # ends on a tool call rather than text, `npc_response` is None,
+                    # and returning it made the whole TURN return None — the game
+                    # loop logged "Orchestrator returned None - pipeline failure"
+                    # and the player got "The magical forces seem disrupted."
+                    #
+                    # It also broke memory storage: `_remember_npc_interaction`
+                    # calls `.get` on the response, so the same None produced
+                    # "Could not store NPC memory ... 'NoneType' object has no
+                    # attribute 'get'" one line earlier. Two symptoms, one cause.
+                    if not isinstance(npc_response, dict):
+                        pipeline_logger.warning(
+                            f"NPC pipeline produced no usable response for "
+                            f"{npc_id!r} (got {type(npc_response).__name__}); "
+                            f"the agent likely ended on a tool call")
+                        return {"error": "NPC produced no dialogue",
+                                "npc_id": npc_id}
+
                     # Plan 2.4: persist the exchange so the next conversation
                     # has continuity instead of restarting at "neutral".
                     self._remember_npc_interaction(npc_id, player_action, npc_response)
