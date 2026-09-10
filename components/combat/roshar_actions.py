@@ -359,6 +359,19 @@ class ProgressionHealing(BaseAction):
         entity = Entity.get(self.source_entity_uuid)
         target = Entity.get(execution_event.target_entity_uuid)
 
+        # A heal with no target is not a heal. The NPC AI produced exactly this in
+        # a live combat — `Decision: progression_healing (target: None)` — and
+        # `target.name` raised AttributeError on NoneType, which the resolver
+        # reported as "Action execution failed" while the narrator described the
+        # surge anyway. Validation passed because it only checked the CASTER's
+        # level and Stormlight, never that there was someone to heal.
+        if target is None:
+            logger.warning(
+                f"⚠️ Progression healing has no target "
+                f"(target_entity_uuid={execution_event.target_entity_uuid})")
+            return execution_event.cancel(
+                status_message="No target to heal")
+
         logger.info(f"✨ {entity.name} uses Progression to heal {target.name}")
 
         # Roll healing: 2d8 + WIS modifier
