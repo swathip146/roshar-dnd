@@ -489,3 +489,102 @@ class TestCharactersCanActuallyHit:
         source = inspect.getsource(game_initialization)
         assert '"equipment": [],' not in source, (
             "a shipped character has no equipment, so it fights unarmed")
+
+
+class TestTurnsActuallyEnd:
+    """
+    A live combat ran 355 iterations across 30 ROUNDS without resolving, the
+    stall-breaker firing on every single turn.
+
+    _has_actions_remaining returned `actions > 0 OR bonus_actions > 0`. Every
+    action the menu offers costs an ACTION, so spending it left bonus_actions
+    untouched at 1 and the check stayed True forever. The turn could never end
+    on its own; only the 4-attempt stall-breaker moved play forward, which is why
+    each combatant appeared to attack four times per turn.
+
+    This became visible only once the action economy was genuinely being
+    consumed — before that, `actions` never decreased either, so the OR was
+    hiding behind a second bug.
+    """
+
+    def _session(self, arena):
+        from components.combat.combat_session_manager import CombatSessionManager
+
+        engine, wrapper, resolver, state = arena
+        state.update({
+            "active_combatants": ["Aggi", "Foe"],
+            "round_number": 1,
+            "current_turn_index": 0,
+            "initiative_order": [{"char_id": "Aggi", "initiative": 15},
+                                 {"char_id": "Foe", "initiative": 10}],
+            "combat_log": [],
+        })
+        return CombatSessionManager(
+            combat_state=state, game_engine=engine,
+            character_manager=engine.character_manager,
+            dnd_engine_wrapper=wrapper, combat_action_resolver=resolver,
+            combat_narrative_generator=None, npc_ai_agent=None,
+            input_provider=lambda prompt="": "1")
+
+    def test_the_turn_ends_once_the_action_is_spent(self, arena):
+        _, wrapper, resolver, _ = arena
+        session = self._session(arena)
+        economy = wrapper.entities["Aggi"].action_economy
+        economy.reset_all_costs()
+
+        assert session._has_actions_remaining("Aggi") is True
+        resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        assert session._has_actions_remaining("Aggi") is False, (
+            "the turn cannot end; only the stall-breaker would advance play")
+
+    def test_a_leftover_bonus_action_does_not_hold_the_turn_open(self, arena):
+        """The exact defect: bonus_actions stays at 1 after an attack."""
+        _, wrapper, resolver, _ = arena
+        session = self._session(arena)
+        economy = wrapper.entities["Aggi"].action_economy
+        economy.reset_all_costs()
+        resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+
+        assert economy.bonus_actions.normalized_score > 0, (
+            "precondition: a bonus action is still available")
+        assert session._has_actions_remaining("Aggi") is False, (
+            "a leftover bonus action must not keep an exhausted turn alive")
+
+    def test_a_new_round_restores_the_turn(self, arena):
+        _, wrapper, resolver, _ = arena
+        session = self._session(arena)
+        economy = wrapper.entities["Aggi"].action_economy
+        economy.reset_all_costs()
+        resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        economy.reset_all_costs()
+        assert session._has_actions_remaining("Aggi") is True
+
+
+class TestRefusedActionsAreNotNarrated:
+    """
+    Every refused action still printed a vivid missed sword swing, so the log
+    showed a flurry of attacks while mechanically nothing happened — fiction
+    contradicting state, which is the drift the DM tools exist to prevent.
+    """
+
+    def test_both_turn_paths_check_for_refusal(self):
+        import inspect
+
+        from components.combat import combat_session_manager
+
+        source = inspect.getsource(combat_session_manager)
+        # One guard in the player path, one in the NPC path.
+        assert source.count('result.get("refused")') >= 2, (
+            "a refused action would still be narrated as a real attack")
+
+    def test_a_refusal_is_flagged_by_the_resolver(self, arena):
+        _, wrapper, resolver, _ = arena
+        wrapper.entities["Aggi"].action_economy.reset_all_costs()
+        resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        second = resolver.resolve_action(
+            {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+        assert second.get("refused") is True
