@@ -332,11 +332,20 @@ class TestNPCDialogueIsReal:
         assert self._respond(attitude_change=2)["attitude_change"] == 2
 
     def test_prompt_demands_actual_words(self):
-        import agents.npc_controller_agent as mod
-        import inspect
+        """
+        Assert on the PROMPT, not on `inspect.getsource` of the factory.
 
-        src = inspect.getsource(mod.create_npc_controller_agent)
-        assert "YOU WRITE THE WORDS" in src
+        This previously grepped the function body, so hoisting the prompt to a
+        module constant (so the LangGraph backend could reuse it verbatim) broke
+        it while the behaviour was identical. Two Phase-3 tests failed the same
+        way before; §14's corollary is that source-grepping tests break on
+        refactors and would equally pass on a call that does nothing.
+        """
+        from agents.npc_controller_agent import NPC_SYSTEM_PROMPT
+
+        assert "YOU WRITE THE WORDS" in NPC_SYSTEM_PROMPT, (
+            "the NPC prompt no longer demands actual dialogue, so the LLM will "
+            "describe speech instead of writing it")
 
 
 class TestNPCMemory:

@@ -108,6 +108,59 @@ def _salvage_truncated_json(text: str) -> Dict[str, Any]:
     return recovered
 
 
+# LangGraph/Haystack agent backend switch (plan §4, Phase 3.5).
+#
+# Haystack 2.21 (pinned) is a dead end: 3.0 removed AgentBreakpoint/AgentSnapshot
+# ("pausing and resuming execution inside an Agent is no longer supported") while
+# current Gemini integrations require >= 3.0 — and requirements.txt declares
+# `haystack-ai>=2.0.0`, so a fresh clone installs 3.x and these agents break.
+#
+# The switch is an ENV VAR, not a code edit, and defaults to haystack so merging
+# it cannot change live behaviour. A bad run is one variable away from reverted:
+#
+#   LLM_AGENT_BACKEND=langgraph ./run_game.sh
+#
+# The LangGraph agents are drop-ins: same run(messages=...) -> {"messages": [...]}
+# contract, same prompts (hoisted to module constants so BOTH backends share one
+# source), same schemas. Nothing downstream branches on the backend.
+_LANGGRAPH_AGENT_FACTORIES = {
+    "main_interface": "create_interface_agent_langgraph",
+    "npc_controller": "create_npc_agent_langgraph",
+}
+
+
+def _build_agent(agent_name: str, haystack_factory):
+    """
+    Build one agent on the active backend, falling back to Haystack on any error.
+
+    The fallback is deliberate: a transport experiment must never take the game
+    down. It logs loudly, because a silent fallback would make the migration look
+    complete while nothing had actually changed — the exact failure mode that hid
+    three subsystems.
+    """
+    try:
+        from agents.langgraph_dm_agents import active_backend
+
+        if active_backend() != "langgraph":
+            return haystack_factory()
+
+        factory_name = _LANGGRAPH_AGENT_FACTORIES.get(agent_name)
+        if factory_name is None:
+            logger.info(f"   ↩️  {agent_name} has no LangGraph implementation yet; "
+                        f"using Haystack")
+            return haystack_factory()
+
+        import agents.langgraph_dm_agents as langgraph_agents
+
+        agent = getattr(langgraph_agents, factory_name)()
+        logger.info(f"🕸️  {agent_name} running on LangGraph")
+        return agent
+    except Exception as e:
+        logger.error(f"❌ LangGraph agent '{agent_name}' failed to build ({e}); "
+                     f"falling back to Haystack")
+        return haystack_factory()
+
+
 class PipelineOrchestrator:
     """
     Enhanced orchestrator with Haystack pipeline integration
@@ -218,7 +271,8 @@ class PipelineOrchestrator:
             
             debug_print("ORCHESTRATOR", "🎭 Creating NPC controller agent...")
             logger.debug("🔧 Step 6: Creating NPC controller agent...")
-            npc_agent = create_npc_controller_agent()
+            npc_agent = _build_agent("npc_controller",
+                                    create_npc_controller_agent)
             debug_print("ORCHESTRATOR", "✅ NPC controller agent created")
             
             # Use the new fixed interface agent
@@ -241,7 +295,8 @@ class PipelineOrchestrator:
                 raise
             
             logger.debug(f"   Creating interface agent...")
-            interface_agent = create_fixed_interface_agent()
+            interface_agent = _build_agent("main_interface",
+                                          create_fixed_interface_agent)
             debug_print("ORCHESTRATOR", "✅ Created fixed interface agent")
             
             logger.debug("🔧 Step 8: Creating combat components...")
