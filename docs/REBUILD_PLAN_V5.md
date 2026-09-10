@@ -254,7 +254,7 @@ These are prerequisites for 0-C. Full runbook in §10.
 | 2.6 | Location graph + travel verb; game clock + highstorm cycle (campaign data exists and is being dropped) |
 | 2.7 | Lightweaver surges (Illumination/Transformation), or ship a PC whose order has an implemented surge |
 | 2.8 | Wire oaths to player input |
-| 2.9 | **Three-tier rules architecture** (§8, §9c). **Tier 2 DONE**, Tier 1 outstanding. Tier 3: Qdrant for narrative lore only. **Rules are adjudicated from Tiers 1-2; the vector DB never adjudicates.**<br><br>**Tier 2 ✅** `data/rules/stormlight/surgebinding.json` + `components/cosmere_rules.py`: 9 Maneuvers, 2 features, 3 economies, 10 orders, extracted from the **parsed Handbook markdown** (not the embedded chunks — the full document preserves the tables). Every entry carries `source.line` + the **verbatim quote**; all 15 reviewed citations verified against the source, 7 marked `reviewed:false` and excluded from adjudication per D5. `verify_citations()` catches drift if the Handbook is re-parsed.<br><br>⚠️ **This corrected a real error of mine.** My earlier hardcoded surges invented per-use Stormlight-sphere costs (Lashing 1, Soulcast 3). The Handbook actually uses an expendable **dice** economy recovered on rest — Lashing Dice (2d4, scaling) for Windrunners, Investiture Points (1st=2 … 5th=7; Elsecaller always 1) for Invested Arts, plus Stormlight replenishment of `level × 5` sapphire marks per long rest. Plausible-but-wrong numbers are exactly what D5 exists to prevent.<br><br>**Tier 1 ⬜** Vendor `5e-bits/5e-database` (932★, MIT, data OGL 1.0a) — 334 monsters, spells, conditions, equipment as structured JSON. **Do not hand-author this**; clone the maintained dataset. `github.com` is allowlisted. |
+| 2.9 | **Three-tier rules architecture** (§8, §9c). **Tier 2 DONE**, Tier 1 outstanding. Tier 3: Qdrant for narrative lore only. **Rules are adjudicated from Tiers 1-2; the vector DB never adjudicates.**<br><br>**Tier 2 ✅** `data/rules/stormlight/surgebinding.json` + `components/cosmere_rules.py`: 9 Maneuvers, 2 features, 3 economies, 10 orders, extracted from the **parsed Handbook markdown** (not the embedded chunks — the full document preserves the tables). Every entry carries `source.line` + the **verbatim quote**; all 15 reviewed citations verified against the source, 7 marked `reviewed:false` and excluded from adjudication per D5. `verify_citations()` catches drift if the Handbook is re-parsed.<br><br>⚠️ **This corrected a real error of mine.** My earlier hardcoded surges invented per-use Stormlight-sphere costs (Lashing 1, Soulcast 3). The Handbook actually uses an expendable **dice** economy recovered on rest — Lashing Dice (2d4, scaling) for Windrunners, Investiture Points (1st=2 … 5th=7; Elsecaller always 1) for Invested Arts, plus Stormlight replenishment of `level × 5` sapphire marks per long rest. Plausible-but-wrong numbers are exactly what D5 exists to prevent.<br><br>**Tier 1 ✅ DONE** (status corrected 2026-09-10; this row previously said ⬜). Vendored `5e-bits/5e-database` (932★, MIT, data OGL 1.0a) → `data/rules/srd/` via `scripts/vendor_srd_data.py`: **334 monsters** plus spells, conditions, equipment, skills, ability scores and magic items as structured JSON. Wired: `components/srd_rules.py` → `dm_tools.py:395-418` (`query_rules`) → injected at `pipeline_integration.py:201`. Vendored rather than fetched at runtime so the turn loop has no live HTTP dependency. |
 | 2.10 | **LLM-assisted extraction of the rules long tail.** Once the Handbook is indexed (0.17), batch-prompt Gemini per rules section with a JSON schema to *draft* Tier-2 entries. **Review every one by hand** — this drafts, it does not decide. Every entry carries `"source": {"page": N, "reviewed": true}`; an unreviewed entry may never adjudicate. |
 | 2.11 | **Instrument the rules gap.** When the DM needs a mechanic with no Tier-2 entry, log it and fall back to RAG + LLM interpretation, clearly marked unofficial. The logs then rank exactly which rules to structure next, by real usage. This is the answer to "extraction will miss rules" — it will, and the system will tell you which. |
 
@@ -302,10 +302,10 @@ Revised for decisions D1-D6 (§13). **v1 = `Shards of Honor` playable start to a
 
 | Phase | Effort (solo) | Wall-clock if parallelized | Outcome |
 |---|---|---|---|
-| 0 — Stop the bleeding | 4-5 days | ~4 days (3 tracks) | Saves work (party-wide, D3); lore reaches the DM *and* includes the Cosmere ruleset; two collections (D1); chunking fixed; dice stop lying |
-| 1 — Combat works | 5-7 days | overlaps Phase 0 | Attacks land; party-aware turn order; combat resumable and testable |
-| 2 — Make it a game | 3-4 weeks | ~2-2.5 weeks | Oaths, XP/levels 1-10, rests, death saves, travel, quests, structured campaign schema + endgame (D2), party roster (D3), Lightweaver surges |
-| 3 — Make it agentic | ⚠️ **mostly** | ~0.5 day | 13 DM tools; LangGraph durable turns **wired into `play_turn()`** and surviving process exit; UI-agnostic `begin_turn()`/`resume_turn()` (D4); retry-with-reasoning; persistent history. **OPEN: `RulesJudge` (D5 Tier 3) is built and tested but never instantiated in production** — when `query_rules` finds nothing the DM is told to improvise with no grounded ruling and no binding precedent |
+| 0 — Stop the bleeding | 4-5 days | ~4 days (3 tracks) | ⚠️ **17/19.** Saves work (party-wide, D3); lore reaches the DM *and* includes the Cosmere ruleset; two collections (D1); chunking fixed; dice stop lying. **OPEN: 0.15** (payload filters still a no-op), **0.19** (campaign bible) |
+| 1 — Combat works | 5-7 days | overlaps Phase 0 | ✅ Attacks land; party-aware turn order; combat resumable and testable. *1.1 needed a second fix in live play — §14b* |
+| 2 — Make it a game | 3-4 weeks | ~2-2.5 weeks | ⚠️ **mostly.** Oaths, XP/levels 1-10, rests, death saves, travel, quests, structured campaign schema + endgame (D2), party roster (D3), Lightweaver surges, **three-tier rules (Tiers 1+2 both done)**. **OPEN: 2.10**; **PARTIAL: 2.2** (beats truncate-and-drop, no rolling summarization) |
+| 3 — Make it agentic | ⚠️ **partial** | ~0.5 day for the judge | 13 DM tools; LangGraph durable turns **wired into `play_turn()`** and surviving process exit; UI-agnostic `begin_turn()`/`resume_turn()` (D4); retry-with-reasoning; persistent history. **OPEN: (a) `RulesJudge` (D5 Tier 3) is built and tested but never instantiated in production** — when `query_rules` finds nothing the DM is told to improvise with no grounded ruling and no binding precedent; **(b) the Avrae declarative automation schema was never implemented** — surges are still imperative code, not data |
 | 4 — Hygiene | ✅ **DONE** | — | 10,934 lines of dead code deleted; **ported to the current `google-genai` SDK**; pytest marks + global timeout; `dnd_engine` pinned; three false claims removed from CLAUDE.md |
 | **v1 total** | **~8-11 weeks** | **~6-8 weeks** | vs. ~3-4 months to rewrite and re-earn the lore index and engine integration |
 | *5 — Web app (D4)* | *3-5 days+* | *after v1* | *Streamlit over the D4 turn API — **not in v1*** |
@@ -970,18 +970,146 @@ The ruleset **grows by play**. This is the concrete answer to "one-time extracti
 
 ## 14. Delivery Log
 
-### Phases 0-4: complete
+### Status at a glance — read §14a before trusting any ✅ elsewhere
 
-| Phase | Result |
+**§14a is the authoritative per-item audit** (2026-09-10), verified by grepping
+for production callers and by executing the code — not by reading tests. Where an
+earlier section of this document disagrees with §14a, §14a wins.
+
+| Phase | Honest status |
 |---|---|
-| **0** Stop the bleeding | Saves preserve state; lore reaches the DM *and* includes the Cosmere ruleset; two collections (D1); structure-aware chunking; dice stop lying |
-| **1** Combat works | Attacks land and deal damage; party-aware; resumable; conditions and surges functional |
-| **2** Make it a game | Skill checks, memory, quests, XP/levels/rests/death saves, travel, three-tier rules, party support |
-| **3** Make it agentic | Tool-using DM, grounded rules-judge, durable turns, retry-with-reasoning |
-| **4** Hygiene | Dead code deleted, current SDK, reproducible build, honest docs |
+| **0** Stop the bleeding | ✅ **mostly** — 17 of 19 done. **OPEN: 0.15** (Qdrant payload filters are still string-concatenated into the query — a silent no-op), **0.19** (campaign bible never written). 0.11 solved in place rather than as specified |
+| **1** Combat works | ✅ **done** — attacks land and deal damage, conditions and surges functional, resumable. The two positioning bugs found 2026-09-10 were fixed and regression-tested |
+| **2** Make it a game | ✅ **mostly** — **OPEN: 2.10** (no LLM-assisted rules extraction). **PARTIAL: 2.2** (bounded beats, but truncate-and-drop, not the promised rolling summarization) |
+| **3** Make it agentic | ⚠️ **partial** — tools, durable turns, retry-with-reasoning and persistent history all wired. **OPEN: `RulesJudge`/`RulingStore` never instantiated in production; Avrae automation schema (item 1) not implemented at all** |
+| **4** Hygiene | ✅ **done** — dead code deleted, current SDK, reproducible build, honest docs |
+| **5** Web app | ⬜ deferred by design (D4) |
 
-**Tests: 380 non-combat + 174 combat, 0 failures.** Baseline at audit was
-65 failed / 131 passed / 6 errors, with `pytest tests/` aborting entirely.
+**Tests: 535 non-combat + 318 combat passing.** 4 combat failures are real-LLM
+tests that get HTTP 403 through the sandbox proxy. Baseline at audit was 65
+failed / 131 passed / 6 errors, with `pytest tests/` aborting entirely.
+
+⚠️ **This table replaces an earlier "Phases 0-4: complete" claim**, which was
+wrong in the same way three subsystems were wrong: it counted *built and tested*
+as *delivered*. Its Phase 3 row advertised a "grounded rules-judge" that this
+same document later documents as never instantiated.
+
+---
+
+## 14a. Per-item audit *(2026-09-10, verified by execution)*
+
+Method: for each numbered plan item, (a) grep for callers in production code
+excluding `tests/`, and (b) where behaviour was claimed, execute it. An item is
+only ✅ if the product **reaches** it — the standard three subsystems failed.
+
+### Phase 0
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 0.1 | NPC loader path | ✅ | loads from `data/current_campaign/npcs/` |
+| 0.2 | RAG key alignment | ✅ | retrieved text reaches the prompt; playtest asserts it |
+| 0.3 | `CharacterData` to/from dict | ✅ | round-trips in save/load tests |
+| 0.4 | Restore iterates character map | ✅ | |
+| 0.5 | Save key | ✅ | reads `game_state` |
+| 0.6 | `"combat"` in intent map | ✅ | |
+| 0.7 | `interface_dto` bound | ✅ | |
+| 0.8 | `pytest tests/` runs | ✅ | 535 collected, no INTERNALERROR |
+| 0.9 | Autosave every turn | ✅ | |
+| 0.10 | `load` command | ✅ | |
+| 0.11 | Swap `dice.py` → `avrae/d20` | ⚠️ **fixed in place, not as specified** | All four cited failures now pass — `4d6kh3`→13, `1d6 + 2`→7, `1d8-1`→6 (breakdown honest, `static=-1`), `2d20kl1`→5. But `d20` is in `requirements.txt:119` and **never imported**; the hand-rolled parser was repaired instead. The symptoms are gone; the dependency swap is not done. Keep-drop, spaces and signed modifiers work; exploding dice and `[fire]` damage-type annotations remain unsupported |
+| 0.12 | Structure-aware chunking | ✅ | Measured live: median chunk 397 chars, p90 1,050, p99 1,938. The 79 chunks (1.0%) over 2,000 are **markdown tables kept whole by design** — the largest three are all `\|`-delimited tables. Exit criterion below restated accordingly |
+| 0.13 | Strip wiki markup | ✅ | in `batch_qdrant_indexer.py` |
+| 0.14 | Structure as metadata | ✅ | `folder_tags`/`document_tag` present in payloads |
+| 0.15 | **Real Qdrant payload filters** | ❌ **OPEN** | Still the original no-op: `rag_retriever_agent.py:88-114` builds `enhanced_query` by concatenating filter names into the **query text**, which is then embedded. `storage/simple_document_store.py` has **no filter support at all** (grep for `Filter`/`FieldCondition`: zero hits). So `document_tag == "rules"` cannot restrict anything; it just perturbs the vector |
+| 0.16 | WaysOfKings duplicate | ✅ | MD5s now differ (`c7f0839d…` vs `40734d49…`); 153 WoK chunks indexed |
+| 0.17 | Index the Radiant's Handbook | ✅ | **2,148 Handbook chunks** in `dnd_documents` (was 0 of 3,062) |
+| 0.18 | Re-parse + fresh re-embed | ✅ | Two collections (D1): `dnd_documents` 8,291 points, `dnd_reference` 2,726. Plan predicted ~8-12k; actual 11,017 |
+| 0.19 | **Campaign bible** | ❌ **OPEN, never started** | No file, no code path. Grep for `campaign_bible`/`bible` across `components/ agents/ orchestrator/ core/`: zero hits. Partly mitigated by 2.2's beats + the structured campaign schema (D2), but the hand-authored always-injected context does not exist |
+
+**Exit criteria — restated.** Original said "max chunk < ~2,000 chars". That is
+correct for prose and wrong for tables, which 0.12 deliberately keeps whole so
+headers stay attached to rows. Read it as: **p99 of prose chunks < 2,000 chars,
+with markdown tables exempt.** Verified: p99 = 1,938.
+
+### Phase 1
+
+All of 1.1-1.8 ✅. Attacks land, damage applies, conditions and surges work,
+combat is resumable and driven by an injected `input_provider`.
+
+⚠️ **1.1 was incompletely done and was only found in live play on 2026-09-10.**
+Positions were assigned, but via `entity.position = ...`, which updates the
+attribute and not `Entity._entity_by_position` — the class-level index that sense
+computation actually reads. Consequences and fix in §14b.
+
+### Phase 2
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 2.1 | Skill checks wired to choices | ✅ | rolls against `suggested_dc` |
+| 2.2 | Real narrative memory | ⚠️ **partial** | `narrative_beats` is written and read (`get_story_so_far()` → the DM prompt), fixing the one-turn memory. But it is **bounded truncate-and-drop**, not the promised *rolling summarization*: each beat is cut to `BEAT_SUMMARY_CHARS` and beats past `MAX_NARRATIVE_BEATS` are `del`'d outright (`game_engine.py:1423-1431`). Nothing summarizes what falls off, so a long campaign still loses its early history. `action_history` is active |
+| 2.3 | Quest advancement | ✅ | key mismatch fixed; `complete_quest_objective` called |
+| 2.4 | Social NPCs | ✅ | placeholder deleted; `npc_context` populated |
+| 2.5 | XP, levels, rests, death saves | ✅ | `award_xp`/`long_rest`/`short_rest` reached from `dm_tools.py:648`. *(`level_up` has no external caller because `award_xp` promotes internally — verified, not a gap.)* |
+| 2.6 | Location graph, travel, clock, highstorm | ✅ | in `game_engine.py`, exposed via `dm_tools.py` |
+| 2.7 | Lightweaver surges | ✅ | `Illumination` + `Transformation` in `roshar_actions.py:414+` |
+| 2.8 | Oaths wired to input | ✅ | `advance_ideal()` reached from tools |
+| 2.9 | Three-tier rules | ✅ **both tiers now** | **Tier 1 done and wired** — 334 monsters + spells/conditions/equipment vendored from `5e-bits/5e-database` into `data/rules/srd/` by `scripts/vendor_srd_data.py`, reached via `dm_tools.py:395-418`, injected at `pipeline_integration.py:201`. Tier 2 done. *The Phase 2 table above still shows Tier 1 as ⬜ — that is stale; it is done.* |
+| 2.10 | **LLM-assisted rules extraction** | ❌ **OPEN, never started** | No script exists (`ls scripts/`). Tier 2 was extracted by hand, so the long tail is unstructured. Gated on nothing now that 0.17 has shipped |
+| 2.11 | Instrument the rules gap | ✅ | `RulesGapTracker` wired at `dm_tools.py:424`; `data/rules/gaps.json` is accumulating real entries |
+
+### Phase 3
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | DM tools (13) | ✅ | `roll_skill_check`, `query_rules`, `search_lore`, etc. all registered and called |
+| 1b | **Avrae declarative automation schema** | ❌ **OPEN, never started, never previously flagged** | Grep for `automation`/`effect_tree`/`ieffect` in `components/ agents/`: **zero hits**. Actions remain imperative Python in `roshar_actions.py` — precisely what the plan said that file "is failing to be." This means a new surge still needs new adjudication *code* rather than new *data*. The largest unstarted design item in the plan |
+| 2 | Real orchestrator loop | ✅ | `max_agent_steps=10` for the scenario agent (was 1); NPC 4, RAG 2 |
+| 3 | Retry-with-reasoning | ✅ | `components/retry_with_reasoning.py`, wired |
+| 4 | Persistent message history | ✅ | asserted on conversation history, not source text |
+| 5 | Durable turns (LangGraph) | ✅ | `play_turn()` routes through `DurableTurnLoop`; survives process exit (two-interpreter test) |
+| D5 T3 | **`RulesJudge` / `RulingStore`** | ❌ **OPEN** | Never instantiated outside tests — only `tests/test_phase3_regressions.py` and its own module reference either name. `query_rules` records the gap (tier 3) and returns *"You may improvise, but say so openly"* with **no grounded ruling and no precedent lookup**. `gaps.json` entries show `"tiers": {"judged": 1}` — that is the tier label, **not** evidence a judge ran |
+
+### Deferred by explicit decision (not oversights)
+
+| Item | Where decided | Status |
+|---|---|---|
+| **Absorb-and-delete `dnd_engine`** | §4, §7, item 8 of the backlog | ⬜ **not started.** Still vendored at `external/dnd_engine` (pinned `2160564`, MIT) and imported by **15 production files** — `game_engine.py`, `shared_contract.py`, `srd_rules.py`, all of `components/combat/`, `agents/combat_agent.py`, `agents/dm_tools.py`, `core/game_initialization.py`, `orchestrator/pipeline_integration.py`, `haystack_dnd_game.py`, `scripts/playtest.py`. Plan says keep through Phase 1, treat as frozen third-party code behind the `DnDEngineWrapper` seam (now well tested), then absorb the used subset (~12%) and delete `external/`. Risk profile unchanged and confirmed: 24★, single author, 129 of 221 commits in one month, last real commit 2025-08-22, **no test suite** for ~15k LOC, 4-line `setup.py` stub |
+| **Phase 5** — Streamlit web app | D4 | ⬜ deferred until the CLI is fully working |
+| **D6 v2 backlog** — economy, downtime, multiclassing, full spellcasting, tactical depth | D6 | ⬜ out of v1 scope by definition |
+| **LangGraph migration of the four Haystack agents** | §4 | ⬜ not done. Durable turns (the item that *needed* LangGraph) shipped; the agent-layer migration did not. The case weakened once the two-call adjudicate/narrate split fixed the underlying problem — **awaiting a decision rather than blocked** |
+
+### Ranked open work
+
+**Found in live play 2026-09-10 (§14c) — these block a playable campaign:**
+
+0a. **Playtest corrupts the character it tests** (~0.5 day) — the progression
+    checks award 6,500 XP and set HP to 0/1 on the LIVE character, and autosave
+    persists it. Every run since starts from a level-5 Aggi at 13/36 HP.
+0b. **Combat skips death saves** (~0.5 day) — `roll_death_save()` is implemented
+    with zero production callers; combat ends at 0 HP with no dying state.
+0c. **Defeat does not persist** (~0.5 day) — final HP never written back to
+    `CharacterData`; nothing gates a turn on a party wipe, so the encounter
+    restarts. Plus `outcome=None, rounds=None` in the reporting path.
+0d. **Generated NPC HP is not CR-validated** (~0.5 day) — the same CR-0.25
+    monster came back with 18 HP and 14 HP on consecutive turns.
+
+**Then:**
+
+1. **0.15 · Qdrant payload filters** (~0.5 day) — currently a no-op, so every
+   "rules only" retrieval silently searches all 11,017 chunks including novels.
+   Cheapest real quality win left.
+2. **D5 Tier 3 · wire `RulesJudge`** (~0.5 day) — built, tested, unreachable.
+3. **2.10 · LLM-assisted rules extraction** (~1-2 days) — unblocked since 0.17.
+4. **0.19 · campaign bible** (~0.5 day authoring) — never started.
+5. **2.2 · real rolling summarization** (~0.5 day) — beats currently drop silently.
+6. **Phase 3 item 1b · Avrae automation schema** (~1 week) — the structural one:
+   turns surges into data. Biggest unstarted design item.
+7. **Absorb-and-delete `dnd_engine`** (~3-5 days) — bounded (~12% used) but not free.
+
+---
+
+### Historical: what shipped in Phases 0-4
+
 
 ### Bugs found during implementation that the audit missed
 
@@ -1014,10 +1142,22 @@ silently broken.
 
 ### Known-open
 
-- `test_combat_integration.py::test_full_combat_session` — its generated NPCs
-  never get engine entities. Verified in isolation that the real code path works;
-  this is test-harness wiring. **Left failing rather than papered over.**
-- **Phase 5** (Streamlit UI) and D6's v2 backlog remain by design.
+**Authoritative list: §14a's "Ranked open work".** Summarised here:
+
+- **0.15** Qdrant payload filters are still a no-op (string-concatenated into the
+  query and embedded); every "rules only" retrieval searches all 11,017 chunks.
+- **D5 Tier 3** `RulesJudge`/`RulingStore` built, tested, never instantiated.
+- **2.10** LLM-assisted rules extraction never started (unblocked since 0.17).
+- **0.19** Campaign bible never written.
+- **2.2** Beats are truncate-and-drop, not rolling summarization.
+- **Phase 3 item 1** Avrae automation schema never implemented — surges remain
+  imperative code rather than data.
+- **Absorb-and-delete `dnd_engine`** not started; still imported by 15
+  production files.
+- 4 combat tests make real LLM calls and get HTTP 403 through the sandbox proxy
+  (`test_combat_agent_error_handling`, two in `test_npc_dnd_engine_sync.py`,
+  `test_generate_goblin_stats_real_llm`). Environmental, not code.
+- **Phase 5** (Streamlit UI) and D6's v2 backlog remain deferred by design.
 
 ### Unwired-component audit *(2026-09-09)*
 
@@ -1066,7 +1206,6 @@ was intact, and would equally have passed on a call that recorded nothing. Both
 now assert on the conversation history itself.
 
 ### Live-API findings *(2026-09-09)*
-
 Once `scripts/playtest.py` ran against the real API, six further defects surfaced
 that no offline test could reach — every one of them a 200 OK or a config value
 that never applied:
@@ -1087,3 +1226,163 @@ that never applied:
    7-step pipeline subscripts directly → `KeyError` destroyed four skill checks,
    because the LLM wrote `"aggi"` for the character stored as `"Aggi"`.
 
+
+---
+
+## 14b. The all-misses combat: 1.1 was incompletely done *(2026-09-10)*
+
+A live 5-round encounter produced ~13 attacks and **zero hits on either side**,
+with correct dice, correct AC, correct proficiency and correct damage code.
+Measured directly against the same stats, the engine rolls **67% hits** and drives
+a scout to **-141 HP**. The mechanics were never the problem.
+
+**Cause 1 — the position index.** `Entity` keeps a class-level index,
+`Entity._entity_by_position`, and sense computation resolves who is visible via
+`get_all_entities_at_position()`, which reads **that index**, not
+`entity.position`. Assigning the attribute directly leaves the index at the
+entity's *creation* position forever.
+
+Both `_position_combatants` and — ironically — `DnDEngineWrapper.set_entity_position`
+did exactly that, while the latter's own docstring said *"always go through this
+rather than assigning `entity.position` directly."* `Entity.update_entity_position()`
+is the only correct mover.
+
+The measurement:
+
+```
+Aggi sense map:   {s1: (0,0), s2: (1,0)}   <- index, stale
+actual positions:  s1: (0,1), s2: (1,1)
+```
+
+The second hostile was absent from **every** sense map, so every attack to or
+from it cancelled *before rolling*: `attack_outcome` was `None` 20/20 in both
+directions. **A cancelled attack and a missed attack are indistinguishable in the
+narration** — the narrator rendered both as "Miss!", which is why this read as
+bad luck for five rounds.
+
+**Cause 2 — reach.** Independent, and only exposed once cause 1 was fixed. Both
+lines counted columns up from `x=0`, so they drifted apart at the far end: one
+player vs three hostiles put the third at `(2,1)`, two tiles from `(0,0)` and
+outside melee reach. The engine correctly refused with *"Target entity not in
+reach for Attack"*; since nothing in the loop repositions anyone, that combatant
+could never fight. Columns now interleave `0, -1, +1, -2, +2` so each line stays
+centred on the other.
+
+**Why the tests missed it.** Every existing fixture placed **exactly one
+hostile** — the one configuration where the attribute and the index agree often
+enough to look correct. `tests/combat/test_live_combat_bugs.py` now uses two and
+three hostiles and asserts on the **last** one. Verified by reintroducing each
+bug: **9 tests fail** for the index, **4** for the reach.
+
+**The generalised lesson**, and the third distinct form this failure mode has
+taken:
+
+| Form | Instance |
+|---|---|
+| Built, tested, never called | `durable_turns.py`, `CombatInitializer`, `EndgameEvaluator`, `RulesJudge` |
+| Assertion too weak to fail | `if second.get("refused")`, `rounds < 100`, `success` always True |
+| **Fixture too simple to expose** | **every combat fixture had one hostile** |
+
+Add to §12: when a bug depends on **cardinality**, a single-instance fixture
+cannot find it. Test the *second* and *third* of anything the product creates in
+plural — and assert on the last, not the first.
+
+---
+
+## 14c. Four defects from the first fully-working combat *(2026-09-10)*
+
+The positioning fixes (§14b) made combat resolve for the first time: hits landed,
+HP dropped, and the encounter reached `defeat` in 7 rounds. That exposed four
+further defects — all of them *outside* the combat resolver, which is why none
+were visible while attacks were silently cancelling.
+
+### 1. The playtest never starts from the authored character
+
+`scripts/playtest.py:196-220` (the Progression checks) **mutates the live
+character to test the mechanics** and never restores it: it awards 6,500 XP
+(level 1 → 5), sets `hit_points["current"] = 1`, then 0 for the death-save
+checks. Autosave (0.9) then persists that, so `game_saves/playtest_save.json`
+holds `level 5, hp 13/36, xp 1234` and **every later run starts from a mauled,
+over-levelled Aggi** — with 13 of 36 HP against an encounter budgeted for a
+healthy character.
+
+Note the disagreement inside the save itself:
+`game_state.character_data.Aggi.level = 1` vs `character_data.Aggi.level = 5`.
+
+**Fix:** the progression checks must operate on a throwaway copy, or snapshot and
+restore. A test that permanently damages the artefact under test is not a test.
+
+### 2. Combat skips death saves entirely
+
+`CombatSessionManager` has **no dying state**: grep `components/combat/` for
+`death_save`/`is_dying`/`stabiliz` → zero hits. `_check_end_conditions` asks
+`_is_combatant_dead()` and ends the fight with `all_players_defeated` the moment
+HP hits 0.
+
+`CharacterManager.roll_death_save()` is fully implemented (3 failures = dead,
+nat 20 = revive at 1 HP, successes/failures tracked) and has **no production
+caller** — only tests and the playtest's own direct check. So 5e's "you drop to
+0 and are *dying*, not dead" never happens in play, and the party display's
+`💀 DYING (0✓/0✗)` branch (`haystack_dnd_game.py:343`) is unreachable from combat.
+
+**Fix:** at 0 HP mark the combatant unconscious+dying and roll a death save at
+the start of each of its turns; only `dead` (3 failures) removes it. End the
+encounter when every player is dead *or* stably unconscious — not at 0 HP.
+
+### 3. Defeat does not persist, so the same fight restarts
+
+Two independent causes:
+
+- **HP never flows back to `CharacterData`.** `_sync_hp_from_engine()`
+  (`combat_session_manager.py:773`) copies engine HP into `combat_state` only.
+  Nothing writes it to the character, so after a 7-round beating that ended in
+  defeat, Aggi is still `13/36` in `CharacterManager` — as the turn-2 log shows,
+  identically re-initialising to `damage_taken: 23`.
+- **Nothing gates a turn on the party being down.** `play_turn()` has no
+  `is_dead`/party-alive check before routing, and `force_combat_on_turn` fires on
+  turn 2 regardless of the turn-1 wipe. `_check_campaign_endgame()` exists but
+  does not treat a party wipe as an ending.
+
+Combined: turn 1 ends in `defeat`, turn 2 re-rolls the same authored encounter
+against an unharmed-on-paper Aggi. Also visible:
+`⚔️ Combat resolved: outcome=None, rounds=None` — the outcome is logged
+correctly one line earlier (`outcome=defeat`), so the reporting path reads the
+wrong keys, and `Processing failed: Unknown error` follows.
+
+**Fix:** write final HP (and dying/dead flags) back to `CharacterData` at combat
+cleanup; make a party wipe a terminal campaign state; fix the outcome keys.
+
+### 4. Why an "easy" encounter overwhelmed a level-5 character
+
+The encounter is authored correctly and was honoured — `voidbringer_ambush`,
+`difficulty: "easy"`, 2 × CR 0.25, and the log confirms `Using authored encounter
+'voidbringer_ambush'` with CR 0.25 preserved. **CR balancing is not the bug.**
+
+The real causes:
+
+1. **Aggi started at 13/36 HP** — cause 1 above. A CR-1/4 pair is trivial against
+   36 HP and genuinely lethal against 13.
+2. **NPC HP is generated free-hand.** The generator returned **18 HP and 14 HP**
+   for the *same* CR-0.25 monster on two consecutive turns. A 5e CR 1/4 monster
+   is ~7-14 HP; 18 is out of band. `estimated_cr` is clamped by `_balanced_cr()`,
+   but the generated **HP/AC are not validated against the CR** they were asked
+   for.
+3. **Aggi never healed.** `AutoCombatPlayer` heals below 35% HP, and Aggi was at
+   36% (13/36) at round 1 and *below* 35% from round 2 — but `Progression` healing
+   is an Edgedancer/Truthwatcher surge and Aggi's order does not grant it, so the
+   option resolves to nothing useful. The auto-player then attacks by policy.
+4. **Two attackers vs one defender.** The authored encounter assumes a *party*;
+   the playtest runs a single character, so the action economy is 2:1 against.
+
+**Fix:** validate generated HP/AC against a CR band (5e DMG: CR 1/4 ≈ 7-14 HP,
+AC ~13) and clamp with a warning, exactly as `_balanced_cr()` does for CR; and
+either run the playtest with the authored party or scale the authored encounter
+to party size.
+
+### The pattern, again
+
+All four are the same shape as §14b: **the mechanic exists and the product does
+not reach it.** `roll_death_save` is implemented and uncalled; HP sync writes to
+the display and not the record; CR is balanced and HP is not. Add to §12: for any
+mechanic that *changes state*, assert the state changed **where it is persisted**,
+not where it is displayed.
