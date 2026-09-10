@@ -371,3 +371,107 @@ class TestTheLoopRollsSavesForADownedPlayer:
         assert result.get("stall_breaks", 0) == 0, (
             f"{result.get('stall_breaks')} stall-breaks fired")
         assert result.get("iterations", 0) < 100
+
+
+class TestARoundBoundaryAlwaysResetsTheEconomy:
+    """
+    A round that begins WITHOUT resetting the action economy is a permanent
+    stalemate, and there are two paths that cross a round boundary: the normal
+    advance, and the skip loop that steps over downed combatants.
+
+    Only the first used to reset. So once anyone died and the skip loop started
+    wrapping the round, nothing was reset again and every survivor's attack was
+    refused for "no action available" forever. Measured before the fix:
+    **496 rounds, 978 refusals, outcome `unknown`** — a live goblin and a 12 HP
+    hero unable to touch each other. This was my own bug, introduced when death
+    saves were wired.
+
+    `test_full_combat_session` had been reporting it for a while and was written off
+    as "test-harness wiring" in the plan's known-open list. It was a real defect.
+    """
+
+    def test_the_normal_advance_resets(self):
+        session, manager, wrapper, state = _session(hostiles=1)
+        for entity in wrapper.entities.values():
+            entity.action_economy.consume("actions", 1, cost_name="test")
+
+        for _ in range(len(state["initiative_order"])):
+            session._advance_turn()
+
+        for cid, entity in wrapper.entities.items():
+            assert entity.action_economy.actions.normalized_score > 0, (
+                f"{cid} has no action after a round boundary")
+
+    def test_the_skip_path_also_resets(self):
+        """
+        The regression proper. The dead hostile is LAST in the initiative order, so
+        skipping it is what crosses the round boundary — that is the path that used
+        to bump `round_number` without resetting anything.
+        """
+        from dnd.core.modifiers import DamageType
+
+        session, manager, wrapper, state = _session(hostiles=2, hostile_hp=4)
+
+        # Hero first, then TWO dead hostiles. Advancing off the hero lands on a
+        # dead combatant, so the SKIP LOOP — not the normal advance — is what
+        # wraps the round. Getting this wrong is easy: with a single hostile the
+        # index wraps on the normal path and the test proves nothing (my first
+        # version made exactly that mistake and passed with the bug restored).
+        state["initiative_order"] = [{"char_id": "hero", "initiative": 20},
+                                     {"char_id": "foe_1", "initiative": 10},
+                                     {"char_id": "foe_2", "initiative": 5}]
+        state["current_turn_index"] = 0
+
+        for cid in ("foe_1", "foe_2"):
+            entity = wrapper.entities[cid]
+            entity.health.take_damage(50, DamageType.SLASHING, entity.uuid)
+        for entity in wrapper.entities.values():
+            entity.action_economy.consume("actions", 1, cost_name="test")
+        assert wrapper.entities["hero"].action_economy.actions.normalized_score == 0
+
+        before = state["round_number"]
+        session._advance_turn()
+
+        assert state["round_number"] > before, "no round boundary was crossed"
+        hero = wrapper.entities["hero"]
+        assert hero.action_economy.actions.normalized_score > 0, (
+            "the hero has no action after the skip loop wrapped the round — "
+            "every attack is refused for the rest of the fight (measured: 496 "
+            "rounds, 978 refusals, outcome `unknown`)")
+
+    def test_a_stalemate_cannot_outlast_the_encounter(self):
+        """
+        Guard the SYMPTOM as well as the cause: whatever the mechanism, a fight
+        between two live combatants must not run hundreds of rounds.
+        """
+        session, manager, wrapper, state = _session(hostiles=1, hostile_hp=30,
+                                                    hero_hp=30)
+        result = session.run_combat_loop()
+        assert result["rounds"] < 60, (
+            f"{result['rounds']} rounds — the fight is not progressing")
+        assert result["outcome"] != "unknown", (
+            "combat ended without reaching an end condition")
+
+    def test_a_new_round_is_announced_from_either_path(self, capsys):
+        session, manager, wrapper, state = _session(hostiles=1)
+        session._begin_new_round()
+        assert "ROUND" in capsys.readouterr().out
+
+    def test_begin_new_round_survives_a_missing_state_entry(self):
+        """A combatant in the order but not in combatant_states must not raise."""
+        session, manager, wrapper, state = _session(hostiles=1)
+        state["active_combatants"].append("ghost")
+        session._begin_new_round()   # must not raise
+
+    def test_an_encounter_with_a_death_still_resolves(self):
+        """
+        End to end: the fight must reach a real outcome even though a combatant
+        dies mid-way and the skip loop engages.
+        """
+        session, manager, wrapper, state = _session(
+            hostiles=2, hostile_hp=4, hero_hp=40)
+        result = session.run_combat_loop()
+
+        assert result["outcome"] in {"victory", "defeat"}, (
+            f"outcome {result['outcome']!r} after a mid-fight death")
+        assert result["rounds"] < 50, f"took {result['rounds']} rounds"

@@ -759,6 +759,20 @@ Return your analysis in the required JSON format.
         if combat_agent is None:
             return None
 
+        # A party that cannot act must never be pulled into another encounter.
+        #
+        # The gate was originally put on the `force_combat_on_turn` test hook only,
+        # which was not enough: a live run still fought on all three turns, because
+        # the DM's OWN `combat_trigger` fires independently of the hook. So a wiped
+        # party kept being ambushed, every turn narrated the same defeat, and the
+        # campaign could not end. This is the single point every route passes
+        # through, forced or not.
+        if not self._party_can_fight():
+            logger.warning(
+                "⚠️ Skipping combat: no party member can act (dead, or stably "
+                "unconscious)")
+            return None
+
         forced = bool(dto.get("force_combat"))
         if not forced:
             initializer = getattr(combat_agent, "initializer", None)
@@ -826,7 +840,80 @@ Return your analysis in the required JSON format.
             if narrative and "formatted_response" not in result:
                 result["formatted_response"] = narrative
 
+        # Record the encounter as a narrative beat (2.2). A combat turn returns
+        # early and never reaches process_scenario_state_updates(), so a fight —
+        # the most consequential thing that can happen in a turn — left NO trace in
+        # the DM's memory. A live 3-turn run recorded zero beats for this reason.
+        self._record_combat_beat(payload, outcome, rounds)
+
         return result
+
+    def _record_combat_beat(self, payload: Dict[str, Any], outcome: Optional[str],
+                            rounds: Optional[int]) -> None:
+        """Write the encounter into narrative memory so later turns remember it."""
+        engine = self.game_engine
+        if engine is None or not hasattr(engine, "_append_narrative_beat"):
+            return
+        try:
+            narrative = payload.get("narrative") or ""
+            summary = (f"Combat: {outcome or 'resolved'}"
+                       + (f" after {rounds} round(s)." if rounds else ".")
+                       + (f" {narrative}" if narrative else ""))
+            turn = 0
+            for source in (lambda: engine.game_state.turn_number,
+                           lambda: engine.game_state.narrative_context.get("turn_number"),
+                           lambda: getattr(engine, "turn_counter", 0)):
+                try:
+                    value = source()
+                    if isinstance(value, int) and value > 0:
+                        turn = value
+                        break
+                except Exception:
+                    continue
+            engine._append_narrative_beat(summary, turn)
+            logger.debug("📖 Recorded a narrative beat for the encounter")
+        except Exception as e:
+            logger.debug(f"   Could not record a combat beat: {e}")
+
+    def _party_can_fight(self) -> bool:
+        """
+        Is anyone in the party able to take a combat turn?
+
+        A character who is dead, or at 0 HP and stable-but-unconscious, cannot.
+        A DYING character still can be revived (nat 20, or an ally's heal), so it
+        does not block — that distinction is the 5e rule and is what makes a
+        last-gasp comeback possible.
+
+        Defaults to True when the roster cannot be read: refusing combat because a
+        lookup failed would be a worse failure than running it.
+        """
+        manager = getattr(self, "character_manager", None)
+        if manager is None:
+            # Fall back to the engine's own manager before giving up.
+            manager = getattr(getattr(self, "game_engine", None),
+                              "character_manager", None)
+        if manager is None:
+            return True
+        try:
+            npcs = set(manager.get_npcs() or [])
+            party = [cid for cid in getattr(manager, "characters", {})
+                     if cid not in npcs]
+        except Exception:
+            return True
+
+        if not party:
+            return True
+
+        for char_id in party:
+            character = manager.characters[char_id]
+            if getattr(character, "is_dead", False) is True:
+                continue
+            hp = character.hit_points if isinstance(character.hit_points, dict) else {}
+            if hp.get("current", 1) > 0:
+                return True
+            if getattr(character, "is_stable", False) is not True:
+                return True   # dying, but revivable
+        return False
 
     def _record_party_defeat(self, rounds: Optional[int]) -> None:
         """
