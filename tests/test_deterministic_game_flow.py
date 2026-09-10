@@ -1250,3 +1250,106 @@ class TestAFullEncounterResolves:
         result = session.run_combat_loop()
         assert result.get("iterations", 0) < 100, (
             f"{result.get('iterations')} iterations for a 2-enemy fight")
+
+
+# ==========================================================================
+# 13. Rolling summarization (plan 2.2, completed)
+# ==========================================================================
+
+class TestRollingSummarization:
+    """
+    2.2 promised "rolling summarization"; what shipped was truncate-and-drop —
+    beats past the window were `del`'d outright. That bounded the prompt but
+    silently destroyed the early campaign: by turn 30 the DM had no idea the party
+    had ever sworn an oath or lost a companion, which is exactly the continuity
+    2.2 existed to provide.
+
+    Aged-out beats are now compressed into a bounded chronicle that REACHES THE
+    PROMPT — preserving them in state without showing them to the DM would be the
+    same "built but unreachable" failure that hid four subsystems here.
+    """
+
+    def _run_turns(self, engine, count):
+        for turn in range(1, count + 1):
+            engine._append_narrative_beat(
+                f"Aggi confronted the challenge of turn {turn}. "
+                f"Dust hung in the air and the scene continued at length "
+                f"with atmosphere that is not the key event.",
+                turn)
+
+    def test_the_verbatim_window_stays_bounded(self, engine):
+        self._run_turns(engine, 40)
+        assert len(engine.get_narrative_beats(1000)) <= engine.MAX_NARRATIVE_BEATS
+
+    def test_aged_out_beats_are_not_destroyed(self, engine):
+        """The regression: turn 1 used to vanish completely."""
+        self._run_turns(engine, 30)
+        chronicle = " ".join(engine.get_narrative_chronicle(1000))
+        assert "[Turn 1]" in chronicle, (
+            "turn 1 was deleted rather than summarised — the campaign's opening "
+            "is gone from the DM's memory")
+
+    def test_the_chronicle_reaches_the_prompt(self, engine):
+        """Preserving history in state and not showing it changes nothing."""
+        self._run_turns(engine, 30)
+        story = engine.get_story_so_far(6)
+        assert "[Turn 1]" in story, (
+            "the chronicle exists but never reaches the DM prompt")
+        assert "EARLIER" in story, "the DM cannot tell old history from recent"
+
+    def test_chronicle_entries_are_compressed(self, engine):
+        """A chronicle of full beats would defeat the point."""
+        self._run_turns(engine, 30)
+        for entry in engine.get_narrative_chronicle(1000):
+            assert len(entry) <= engine.CHRONICLE_ENTRY_CHARS + 30, (
+                f"chronicle entry is not compressed: {len(entry)} chars")
+
+    def test_compression_keeps_the_event_not_the_atmosphere(self, engine):
+        engine._append_narrative_beat(
+            "Aggi swore the First Ideal. Dust swirled and the wind rose over "
+            "the plateau in a long descriptive passage.", 1)
+        compressed = engine._compress_beat(
+            engine.get_narrative_beats(1)[0])
+        assert "First Ideal" in compressed
+        assert "descriptive passage" not in compressed
+
+    def test_the_chronicle_is_itself_bounded(self, engine):
+        """Otherwise the prompt grows without limit over a long campaign."""
+        self._run_turns(engine, 300)
+        assert (len(engine.get_narrative_chronicle(10000))
+                <= engine.MAX_CHRONICLE_ENTRIES)
+
+    def test_the_campaign_opening_survives_a_long_campaign(self, engine):
+        """
+        When the chronicle itself overflows it drops from the MIDDLE, because how
+        the campaign began is what continuity needs most.
+        """
+        self._run_turns(engine, 300)
+        chronicle = " ".join(engine.get_narrative_chronicle(10000))
+        assert "[Turn 1]" in chronicle, (
+            "the campaign's opening was dropped from the chronicle")
+
+    def test_the_prompt_block_stays_a_sane_size(self, engine):
+        """Continuity must not cost unbounded tokens."""
+        self._run_turns(engine, 300)
+        assert len(engine.get_story_so_far(6)) < 6000
+
+    def test_turn_order_is_preserved(self, engine):
+        self._run_turns(engine, 30)
+        entries = engine.get_narrative_chronicle(1000)
+        turns = [int(e.split("]")[0].replace("[Turn ", "")) for e in entries]
+        assert turns == sorted(turns), f"chronicle is out of order: {turns}"
+
+    def test_a_short_campaign_needs_no_chronicle(self, engine):
+        """Don't clutter the prompt before anything has aged out."""
+        self._run_turns(engine, 3)
+        assert engine.get_narrative_chronicle(100) == []
+        assert "EARLIER" not in engine.get_story_so_far(6)
+
+    def test_the_chronicle_survives_a_save_load(self, engine):
+        """State that does not persist is not memory."""
+        self._run_turns(engine, 30)
+        before = engine.get_narrative_chronicle(1000)
+        assert "narrative_chronicle" in engine.game_state.narrative_context
+        restored = dict(engine.game_state.narrative_context)
+        assert restored["narrative_chronicle"] == before
