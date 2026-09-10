@@ -227,6 +227,46 @@ class TestDiceNotation:
                     == result["dice_subtotal"] + result["static_modifier"]), (
                 f"{expression}: {result['breakdown']}")
 
+    @pytest.mark.parametrize("expression", ["4d6e6", "1d20r1", "4d6!", "garbage",
+                                            "", "d", "0d6"])
+    def test_unsupported_notation_fails_loudly(self, roller, expression):
+        """
+        Silently returning 0 damage is the worst possible answer.
+
+        Measured 2026-09-10: `4d6e6` (exploding), `1d20r1` (reroll), `4d6!` and
+        even the literal "garbage" all returned total_damage 0 with rolls=[] and no
+        error. A spell written with exploding dice would deal NO damage and nothing
+        would report it — the same silent-zero shape as the `success`-always-True
+        bug that took a whole session to find.
+        """
+        try:
+            result = roller.damage_roll(expression)
+        except ValueError:
+            return                      # correct: refused loudly
+        assert result["total_damage"] > 0 or result["damage_rolls"], (
+            f"{expression!r} silently returned "
+            f"{result['total_damage']} damage with rolls="
+            f"{result['damage_rolls']}")
+
+    def test_a_partly_unparseable_expression_raises(self, roller):
+        """
+        `1d6+2d6e6` used to return only the 1d6 — a two-part damage expression
+        quietly losing half its dice. A partly-understood expression is not usable.
+        """
+        with pytest.raises(ValueError):
+            roller.damage_roll("1d6+2d6e6")
+
+    def test_the_error_names_what_it_could_not_parse(self, roller):
+        """An error a caller cannot act on is barely better than a silent zero."""
+        with pytest.raises(ValueError, match="4d6e6"):
+            roller.damage_roll("4d6e6")
+
+    def test_supported_notation_is_unaffected(self, roller):
+        """Both directions: the guard must not reject anything legal."""
+        for expression in ("1d6", "4d6kh3", "2d20kl1", "1d6 + 2", "1d8-1",
+                           "3d8 + 5", "2d6[fire]", "8d6", "1d4+1"):
+            assert roller.damage_roll(expression)["total_damage"] >= 0
+
     @pytest.mark.parametrize("sides", [4, 6, 8, 10, 12, 20, 100])
     def test_a_die_stays_in_range(self, roller, sides):
         for _ in range(200):

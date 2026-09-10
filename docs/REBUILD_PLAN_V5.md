@@ -1,8 +1,33 @@
 # Roshar D&D — Status Audit & Rebuild Plan v5
 
-**Date:** 2026-09-07
+**Audit date:** 2026-09-07 · **Last updated:** 2026-09-10
 **Supersedes:** `docs/COMBAT_ENGINE_IMPLEMENTATION_PLAN.md` v4.1 (2026-01-03)
 **Method:** Parallel code audit (5 agents) + web survey of OSS alternatives, with every critical claim independently verified by direct execution — against the real `dnd_engine` API, the live Qdrant store, the dice parser, and upstream repos/package source.
+
+> ## ⚠️ READ THIS FIRST — how to read this document
+>
+> **§1-§13 are the ORIGINAL AUDIT of 2026-09-07 and are now largely HISTORICAL.**
+> They describe the state of the code *before* any of the work happened, and are
+> kept because the diagnoses explain why the fixes are shaped as they are. Every
+> one of §1's "six findings that matter" has since been fixed.
+>
+> **For the current state, read §14 onward.** Where any earlier section disagrees
+> with §14a, **§14a wins** — it is the per-item audit, verified by executing the
+> code and by grepping for production callers rather than by reading tests.
+>
+> **Status as of 2026-09-10:**
+>
+> | | |
+> |---|---|
+> | Phases 0-4 | ✅ done, except **2.10** and the Avrae automation schema |
+> | Unwired subsystems | ✅ none remain (was 5) |
+> | Tests | **844 non-combat + 371 combat** (was 380 + 174 at the audit) |
+> | Live playtest | ✅ **48/48, 0 errors logged** (was 44/4 with 11 errors) |
+> | Remaining work | §14a "Ranked open work" — 2 open items, 3 deferred by decision |
+>
+> The live gate is `LLM_PROVIDER=gateway ./scripts/playtest.py --turns 3`, and it
+> must stay green: **four of the last five defects were integration defects that
+> 1,200 unit tests could not see** (§14e).
 
 | § | Contents |
 |---|---|
@@ -20,10 +45,21 @@
 | [12](#12-verification-strategy--how-each-item-gets-proven) | **Verification strategy** — tests + automated playtest gates |
 | [13](#13-decisions-log) | **Decisions log (D1-D6)** — read this first; supersedes earlier text |
 | [14](#14-delivery-log) | **Delivery log** — what shipped, and the 11 bugs the audit missed |
+| [14a](#14a-per-item-audit-2026-09-10-verified-by-execution) | **⭐ Per-item audit — CURRENT STATUS. Start here.** Includes "Ranked open work" |
+| [14b](#14b-the-all-misses-combat-11-was-incompletely-done-2026-09-10) | The all-misses combat: the position index and reach bugs |
+| [14c](#14c-four-defects-from-the-first-fully-working-combat-2026-09-10) | Four defects the first working combat exposed |
+| [14d](#14d-closing-the-audit-what-shipped-2026-09-10) | What shipped closing the audit (incl. the deterministic suite) |
+| [14e](#14e-what-the-live-playtest-found-that-1200-tests-did-not-2026-09-10) | Five defects the live playtest found that the tests could not |
 
 ---
 
 ## 1. Executive Summary
+
+> **HISTORICAL — this is the assessment of 2026-09-07.** All six findings below are
+> now **FIXED**; each row carries the fix. Kept because the diagnoses explain the
+> shape of the solutions, and because the *reason* the breakage went unnoticed
+> (finding 6) is the single most transferable lesson in this document. For current
+> status see §14a.
 
 The project is **not 85% complete**, as v4.1 claims. Measured against "a playable LLM-driven D&D game," it is roughly **35-40% complete**, and several subsystems are **broken in ways that make the game unplayable end-to-end**.
 
@@ -31,14 +67,14 @@ The architecture is sound. The prose quality is good. The problem is that a larg
 
 ### The six findings that matter
 
-| # | Finding | Impact | Verified by |
-|---|---|---|---|
-| 1 | **Every attack cancels.** Entities are created without `position` or senses, so `validate_line_of_sight` always fails. | Combat cannot deal damage. | Live execution: `EventPhase.CANCEL, 'Target entity not in line of sight'` |
-| 2 | **Retrieved lore never reaches the DM.** Written to `dto["rag"]["response"]`, read from `rag["rag_context"]`. | RAG is paid for and discarded every turn. | `pipeline_integration.py:680` vs `scenario_generator_agent.py:208` |
-| 3 | **The Cosmere ruleset was never indexed.** 0 of 3,062 chunks come from the Radiant's Handbook. The 394 stormlight/surge mentions are all novel prose and wiki summaries — lore, not rules. | The DM has never had access to a single Surgebinding *rule*. | Direct scan of `qdrant_storage/.../storage.sqlite` |
-| 4 | **Save/load destroys the character.** Serialized via `get_character_summary()` (an analytics view). | Save file has **zero** HP/equipment/AC/spell-slot/stormlight keys. Load resurrects at 0 HP, class "Unknown". | Direct JSON key scan of `game_saves/haystack_save.json` |
-| 5 | **No dice are rolled outside combat.** The 7-step skill pipeline has **zero production callers**. The LLM's `suggested_dc` is read by nothing. | The game is freeform improv wearing a d20 costume. | grep: only caller is in `legacy/` |
-| 6 | **Tests validate an imagined API.** 8 combat test files `Mock()` the engine wrapper; `Mock` auto-creates `is_dead()`, `reset()`, `.value`, `cost_type` — none of which exist. | v4.1's "121/126 passing (96%)" is measuring nothing. Real: **65 failed, 131 passed, 6 errors**. | Confirmed non-existent via `inspect` on the real classes |
+| # | Finding (2026-09-07) | Status 2026-09-10 |
+|---|---|---|
+| 1 | **Every attack cancels.** Entities created without `position` or senses, so `validate_line_of_sight` always fails. | ✅ **FIXED** (1.1, then twice more). Attacks hit ~65% and deal damage. The follow-ups were subtler than the original: the class-level position INDEX was never updated (§14b), and columns drifted out of melee reach |
+| 2 | **Retrieved lore never reaches the DM.** Written to `rag["response"]`, read from `rag["rag_context"]`. | ✅ **FIXED** (0.2). And retrieval now really filters (0.15) — it had been concatenating filter names into the query text, a second silent no-op |
+| 3 | **The Cosmere ruleset was never indexed.** 0 of 3,062 chunks from the Radiant's Handbook. | ✅ **FIXED** (0.17-0.18). **2,148 Handbook chunks** across two collections, 11,017 points total |
+| 4 | **Save/load destroys the character.** Serialized via an analytics view. | ✅ **FIXED** (0.3-0.5). Round-trip verified field-by-field: zero fields differ |
+| 5 | **No dice are rolled outside combat.** The 7-step skill pipeline has zero production callers. | ✅ **FIXED** (2.1). The requested DC is honoured too — DC 5 and DC 25 had both resolved as 14 |
+| 6 | **Tests validate an imagined API.** 8 combat files `Mock()` the wrapper, which auto-creates methods that do not exist. | ✅ **FIXED** (1.3) — and this finding kept paying out all session. The `Mock().is_dead` truthiness bug resurfaced twice more in existing fixtures. Now countered by the deterministic suite (§14d) and the live playtest gate (§14e) |
 
 Findings 2 and 3 compound: even once the Handbook *is* indexed, the retrieved text is still discarded before reaching the prompt. **Fix them together or neither is observable.**
 
@@ -686,6 +722,53 @@ Sequence by *unblocking power*, not by phase number: **0.12-0.18** (starts the l
 
 Every plan item ships with a check. Three tiers, cheapest first.
 
+### The rules, earned the hard way
+
+Nine rules, each written after a specific bug got past a passing test suite. They
+are ordered by how much damage the corresponding mistake did.
+
+1. **A passing unit test proves a component WORKS, never that the product REACHES
+   it.** Grep for production callers outside the defining module before marking
+   anything done. Five subsystems were "delivered" while nothing called them:
+   `durable_turns`, `CombatInitializer`, `EndgameEvaluator`, `RulesJudge`, and the
+   whole death-save mechanic.
+2. **Assert where state is PERSISTED, not where it is displayed.**
+   `_sync_hp_from_engine` wrote HP to `combat_state` and left `CharacterData`
+   stale, so an entire encounter's damage vanished at cleanup — and the mechanic
+   that reads the record (death saves) could never fire.
+3. **Assert BOTH directions.** `success = not event.canceled` was unconditionally
+   True, which satisfies every success-path test. A miss must report failure *and*
+   a hit must report success, *and* a hit must carry damage.
+4. **When a bug depends on CARDINALITY, a single-instance fixture cannot find it.**
+   Every combat fixture had exactly one hostile — the one case where the position
+   attribute and the position index agree often enough to look correct. Test the
+   second and third of anything the product creates in plural, and assert on the
+   **last**.
+5. **A failing test is a hypothesis about the PRODUCT, not about the test.** Explain
+   it or fix it; never record it as environmental without evidence.
+   `test_full_combat_session` was listed as "test-harness wiring" here for two
+   audits while it was faithfully reporting a 496-round stalemate.
+6. **If a test passes with the bug reintroduced, the TEST is wrong.** Revert each
+   fix and confirm the new test fails. This caught a bad test of mine: with one
+   hostile the round index wraps on the *normal* path, so the skip-loop branch it
+   claimed to cover never ran.
+7. **Put a guard where all callers CONVERGE.** A guard on the route you were
+   debugging reads as protection while another route walks straight past — the
+   party-wipe check sat on the test hook while the DM's own `combat_trigger` kept
+   starting fights.
+8. **Never assert on `inspect.getsource`.** Three tests did; all three broke on
+   refactors while behaviour was intact, and each would equally have passed on a
+   call that did nothing. Assert on observable state.
+9. **A test must not mutate the artefact it tests.** The playtest's progression
+   checks awarded 6,500 XP and dropped HP to 0 on the live character; autosave
+   persisted it, and every later run inherited a mauled, over-levelled party.
+
+**Two gates, not one.** The deterministic suite (185 tests, 4.5 s, no network,
+§14d) keeps the *mechanics* honest. `scripts/playtest.py` keeps the *wiring* honest.
+They are not substitutes: four of the last five defects were integration defects in
+the seams between individually-correct components, invisible to 1,200 unit tests
+(§14e).
+
 ### Tier 1 · Unit / integration tests (most items)
 
 Standard `pytest`. Two prerequisites before this tier is trustworthy at all:
@@ -693,7 +776,12 @@ Standard `pytest`. Two prerequisites before this tier is trustworthy at all:
 - **0.8** — `pytest tests/` currently aborts with `INTERNALERROR` because three files call `pytest.main()`/`sys.exit()` at import scope. Fix first or you cannot measure anything.
 - **1.3** — replace the `Mock()` engine wrapper in `tests/combat/` with the real `DnDEngineWrapper`. **This is the single most important item in the plan.** The current suite auto-creates `is_dead()`, `reset()`, `.value`, `cost_type` — none of which exist — which is exactly how five subsystems broke while reporting "96% passing."
 
-Baseline to beat: **65 failed / 131 passed / 6 errors**. Record the number after each phase; it must go monotonically up.
+Baseline at the audit: **65 failed / 131 passed / 6 errors**. Record the number after each phase; it must go monotonically up.
+
+**Current: 844 non-combat + 371 combat passing** (2026-09-10). The 4 remaining
+combat failures are environmental — 3 make real LLM calls and get HTTP 403 through
+the sandbox proxy, and `test_combat_agent_error_handling` predates this work
+(verified by stash).
 
 ### Tier 2 · Targeted assertions on the real subsystem (no LLM)
 
@@ -723,35 +811,65 @@ assert max(len(c.content) for c in chunks) < 2000
 
 ### Tier 3 · Automated playtest (per-phase gate, uses the LLM)
 
-`haystack_dnd_game.py:291` exposes `play_turn(player_input) -> str` — call it directly rather than piping stdin (`tests/run_automated_test.py` shows the older stdin approach; the programmatic one is more assertable). Build `tests/test_playthrough_smoke.py`:
+**BUILT: `scripts/playtest.py`.** 48 checks across 8 groups, all asserting on
+observable state. This section originally sketched what to build; the sketch is
+superseded by the script.
 
-```python
-game = HaystackDnDGame(...)
-transcript = [game.play_turn(t) for t in [
-    "look around", "talk to the guard", "search the room", "1",
-]]
-# Structural assertions — cheap, deterministic, no LLM judging
-assert all(r and not r.startswith("Error") for r in transcript)
-assert "The guard responds to your action" not in " ".join(transcript)  # 2.4 placeholder
-assert log_has_no_errors(latest_log())
+```bash
+LLM_PROVIDER=gateway ./scripts/playtest.py --turns 3     # the standing gate
+./scripts/playtest.py --turns 12                           # longer soak
+./scripts/playtest.py --force-combat 2                     # deterministic encounter
 ```
 
-Costs ~4-8 LLM calls per run at ~$0.0002/turn — negligible. Run it at every phase gate.
+**Current: 48 passed, 0 failed, 0 errors logged** (2026-09-10). It must stay there.
 
-**Phase gates:**
+What it asserts, beyond "no errors": narration varies between turns (a repeated
+string means the LLM call failed and a canned scene was substituted); no
+placeholder text reaches the player; narrative beats accumulate (1 beat = the DM
+still has a one-turn memory); combat starts *from a turn*, reaches a real
+`victory`/`defeat`, and is not left running; a quest objective completes; the
+endgame check runs; and the log is clean.
 
-| After | Playtest must show |
-|---|---|
-| Phase 0 | 4 turns, no errors; save→quit→load preserves HP/inventory/location; retrieved lore text appears in the prompt; Handbook chunks > 0 |
-| Phase 1 | A scripted encounter runs start→finish; attacks deal damage; stormlight is consumed; combat state survives save/load |
-| Phase 2 | Skill checks roll real dice against `suggested_dc`; a quest objective completes; an NPC's *actual* LLM prose reaches the player; XP is awarded |
-| Phase 3 | The DM calls tools instead of inventing numbers; a turn survives process exit and resumes |
+Combat is auto-played by `AutoCombatPlayer`, which chooses by what an action DOES
+(heal when hurt, else attack) rather than by menu position — picking option 1
+blindly once meant Lashing a creature immune to it, forever.
 
-**Do not gate on prose quality.** Assert on structure (no errors, no placeholders, state changed as expected). LLM-judging narrative quality is expensive, flaky, and not what these gates are for.
+**Why this tier is not optional.** Four of the last five defects were integration
+defects that 1,200 unit tests could not see, because each component was
+individually correct and the bug lived in the seam (§14e). The playtest is the only
+gate that exercises the seams.
+
+**Do not gate on prose quality.** Assert on structure. LLM-judging narrative is
+expensive, flaky, and not what these gates are for.
+
+**Phase gates** (all now met):
+
+| After | Playtest must show | Status |
+|---|---|---|
+| Phase 0 | 4 turns, no errors; save→load preserves HP/inventory/location; retrieved lore appears in the prompt; Handbook chunks > 0 | ✅ |
+| Phase 1 | A scripted encounter runs start→finish; attacks deal damage; stormlight is consumed; combat state survives save/load | ✅ |
+| Phase 2 | Skill checks roll real dice against `suggested_dc`; a quest objective completes; an NPC's *actual* prose reaches the player; XP is awarded | ✅ |
+| Phase 3 | The DM calls tools instead of inventing numbers; a turn survives process exit and resumes | ✅ |
 
 ### Regression guard
 
-After each phase, append the real test count and the playtest result to a running table in this document. If a number goes down, stop and fix before continuing — that is precisely the failure mode v4.1 hit.
+Append the real numbers here after each phase. If one goes down, stop and fix
+before continuing — that is precisely the failure mode v4.1 hit.
+
+| Date | Non-combat | Combat | Playtest | Note |
+|---|---|---|---|---|
+| 2026-09-07 | 131 pass / 65 fail / 6 err | — | — | audit baseline; `pytest tests/` aborted with INTERNALERROR |
+| 2026-09-09 | 380 | 174 | — | Phases 0-4 delivered (three subsystems still unwired) |
+| 2026-09-10 | 535 | 318 | 44 / 4 | positioning bugs fixed (§14b); first playtest run |
+| 2026-09-10 | 822 | 365 | 45 / 3 | §14c defects, deterministic suite, LangGraph, 0.15/0.19/2.2/D5-T3 |
+| **2026-09-10** | **844** | **371** | **48 / 0** | stalemate + combat-turn-reporting fixed (§14e); **all green** |
+
+The 4 standing combat failures are environmental and are NOT counted as passing:
+3 make real LLM calls and get HTTP 403 through the sandbox proxy
+(`test_npc_generation_basic`, `test_combat_initialization_full`,
+`test_generate_goblin_stats_real_llm`), and `test_combat_agent_error_handling`
+predates this work — it expects an error from an empty DTO and combat now
+initialises anyway. Verified pre-existing by stash.
 
 ---
 
@@ -989,7 +1107,7 @@ earlier section of this document disagrees with §14a, §14a wins.
 `CombatInitializer`, `EndgameEvaluator` and `RulesJudge` now returns clean: all
 five have production callers outside their defining module.
 
-**Tests: 822 non-combat + 365 combat passing** (was 535 + 318 on 2026-09-10, and
+**Tests: 844 non-combat + 371 combat passing** (was 535 + 318 earlier on 2026-09-10, and
 380 + 174 at the previous audit). 4 combat failures remain: 3 make real LLM calls
 and get HTTP 403 through the sandbox proxy, and `test_combat_agent_error_handling`
 predates this work (verified by stash). Baseline at audit was 65
@@ -1019,7 +1137,7 @@ only ✅ if the product **reaches** it — the standard three subsystems failed.
 | 0.5 | Save key | ✅ | reads `game_state` |
 | 0.6 | `"combat"` in intent map | ✅ | |
 | 0.7 | `interface_dto` bound | ✅ | |
-| 0.8 | `pytest tests/` runs | ✅ | 535 collected, no INTERNALERROR |
+| 0.8 | `pytest tests/` runs | ✅ | 844 collected, no INTERNALERROR |
 | 0.9 | Autosave every turn | ✅ | |
 | 0.10 | `load` command | ✅ | |
 | 0.11 | Swap `dice.py` → `avrae/d20` | ⚠️ **fixed in place, not as specified** | All four cited failures now pass — `4d6kh3`→13, `1d6 + 2`→7, `1d8-1`→6 (breakdown honest, `static=-1`), `2d20kl1`→5. But `d20` is in `requirements.txt:119` and **never imported**; the hand-rolled parser was repaired instead. The symptoms are gone; the dependency swap is not done. Keep-drop, spaces and signed modifiers work; exploding dice and `[fire]` damage-type annotations remain unsupported |
@@ -1113,7 +1231,21 @@ subsystems are closed.
 4. **The scenario agent's LangGraph port** — its two-phase adjudicate/narrate loop
    with `max_agent_steps=10` works; porting a working tool loop is where a silent
    regression hides. Moves once the migrated agents have run in live play.
-5. **Phase 5** (Streamlit) and **D6's v2 backlog** — out of v1 scope by design.
+5. **Phase 5** (Streamlit) and **D6's v2 backlog** (economy, downtime,
+   multiclassing, full spellcasting, tactical depth) — out of v1 scope by design.
+
+**Smaller known gaps** — each found and characterised during the work, none
+blocking play. Recorded so they are not rediscovered as surprises:
+
+| Gap | Detail | Cost |
+|---|---|---|
+| **`d20` swap (0.11) not done as specified** | All four cited parser failures are fixed IN PLACE (`4d6kh3`, `1d6 + 2`, `1d8-1`, `2d20kl1`) and the audit trail no longer lies; `[fire]`-style damage-type annotations also work. But `d20` is in `requirements.txt:119` and **never imported** | ~0.5 day |
+| ~~Unsupported dice notation silently returns 0~~ | ✅ **FIXED 2026-09-10** while writing this table. Measured first: `4d6e6` (exploding), `1d20r1` (reroll), `4d6!`, `""`, `"0d6"` and even `"garbage"` all returned `total_damage: 0` with `rolls=[]` and NO error — a spell written with exploding dice would deal nothing and nobody would know. Same silent-zero shape as `success`-always-True. Now raises `ValueError` naming what it could not parse, including the partial case `1d6+2d6e6`, which had quietly returned only the `1d6`. `dm_tools.roll_damage` already wraps it, so the DM gets `{"error": ...}` rather than a silent 0. **Exploding and reroll notation remain unsupported — they are now loudly unsupported.** | done |
+| **Tactical movement** | `move` declares `end_position` and nothing supplies one, because the grid is a fixed two-row line. The action is now cleanly REFUSED with a reason instead of raising a pydantic error, but nobody can reposition. Blocks any real tactics (cover, flanking, reach weapons, AoE placement) | ~2-3 days |
+| **`Petrified` missing** | `dnd.conditions` implements 13 of the 14 PHB conditions. Asserted as a known gap in the deterministic suite, so the test fails and prompts an update if the engine gains it | ~0.5 day |
+| **Proficiency deviation** | `dnd_engine` applies `proficiency_bonus` to SKILLS ONLY (entity.py declares it, skills.py consumes it, actions.py never mentions it), so the wrapper adds it to weapon attacks. Deliberate and RAW-correct, but it is a divergence from the vendored engine and is pinned by a test so it cannot regress silently | — |
+| **NPC AI can pick unusable actions** | It chose `progression_healing` with `target: None`, and `move` with no destination. Both now refuse cleanly rather than crashing, but the AI's action menu should exclude what it cannot legally do | ~0.5 day |
+| **`test_combat_agent_error_handling`** | Expects an error from an empty DTO; combat now initialises anyway and returns `combat_complete`. Either the test's premise or the agent's tolerance of a contextless DTO is wrong — decide which | ~0.5 day |
 
 ---
 
