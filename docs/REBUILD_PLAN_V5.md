@@ -21,8 +21,8 @@
 > |---|---|
 > | Phases 0-4 | ✅ done, except **2.10** and the Avrae automation schema |
 > | Unwired subsystems | ✅ none remain (was 5) |
-> | Tests | **873 non-combat + 371 combat** (was 380 + 174 at the audit) |
-> | Live playtest | ✅ **48/48, 0 errors logged** (was 44/4 with 11 errors) |
+> | Tests | **879 non-combat + 378 combat** (was 380 + 174 at the audit) |
+> | Live playtest | ✅ **49/49, 0 errors logged** (was 44/4 with 11 errors) |
 > | Remaining work | §14a "Ranked open work" — 2 open items, 3 deferred by decision |
 >
 > The live gate is `LLM_PROVIDER=floodgate ./scripts/playtest.py --turns 3`, and it
@@ -778,7 +778,7 @@ Standard `pytest`. Two prerequisites before this tier is trustworthy at all:
 
 Baseline at the audit: **65 failed / 131 passed / 6 errors**. Record the number after each phase; it must go monotonically up.
 
-**Current: 854 non-combat + 371 combat passing** (2026-09-10). The 4 remaining
+**Current: 879 non-combat + 378 combat passing** (2026-09-10). The 4 remaining
 combat failures are environmental — 3 make real LLM calls and get HTTP 403 through
 the sandbox proxy, and `test_combat_agent_error_handling` predates this work
 (verified by stash).
@@ -821,7 +821,7 @@ LLM_PROVIDER=floodgate ./scripts/playtest.py --turns 3     # the standing gate
 ./scripts/playtest.py --force-combat 2                     # deterministic encounter
 ```
 
-**Current: 48 passed, 0 failed, 0 errors logged** (2026-09-10). It must stay there.
+**Current: 49 passed, 0 failed, 0 errors logged** (2026-09-10). It must stay there.
 
 What it asserts, beyond "no errors": narration varies between turns (a repeated
 string means the LLM call failed and a canned scene was substituted); no
@@ -864,7 +864,8 @@ before continuing — that is precisely the failure mode v4.1 hit.
 | 2026-09-10 | 822 | 365 | 45 / 3 | §14c defects, deterministic suite, LangGraph, 0.15/0.19/2.2/D5-T3 |
 | 2026-09-10 | 844 | 371 | 48 / 0 | stalemate + combat-turn-reporting fixed (§14e); **all green** |
 | 2026-09-10 | 854 | 371 | 48 / 0 | dice fail loudly instead of dealing 0 damage |
-| **2026-09-10** | **873** | **371** | *pending* | **tool results now reach the model** (§14g) — the tool-call loop was a transport bug |
+| 2026-09-10 | 873 | 371 | — | **tool results now reach the model** (§14g) — the tool-call loop was a transport bug |
+| **2026-09-10** | **879** | **378** | **49 / 0** | forced-encounter roster, HP invariant, playtest reads its own log |
 
 The 4 standing combat failures are environmental and are NOT counted as passing:
 3 make real LLM calls and get HTTP 403 through the sandbox proxy
@@ -1729,7 +1730,7 @@ honest, and `scripts/playtest.py` is what proves the product reaches them.
 ### Live playtest: green *(2026-09-10)*
 
 ```
-PLAYTEST: 48 passed, 0 failed, 0 skipped
+PLAYTEST: 49 passed, 0 failed, 0 skipped
 ```
 
 Up from 44/4 at the start of this session, and 0 errors in the log (was 11). The
@@ -1749,7 +1750,7 @@ fight now enters the DM's memory), **no placeholder text**, and **no errors
 logged**.
 
 Standing gate for future work: `LLM_PROVIDER=floodgate ./scripts/playtest.py
---turns 3` must stay at 48/48. Four of the five §14e defects were integration
+--turns 3` must stay at 49/49. Four of the five §14e defects were integration
 defects invisible to 1,200 unit tests, so this run is not a formality.
 
 ---
