@@ -641,6 +641,54 @@ class TestExperienceAndLevels:
         assert restored.level == 5
 
 
+class TestHitPointsAreAlwaysCoherent:
+    """
+    `current` must never exceed `maximum` — 5e has no mechanism for it, short of
+    temporary HP, which is a separate field.
+
+    A live run put `Aggi's current HP (13) is higher than max (8)` into the DM's own
+    gm_notes, from a stale save whose HP keys did not match the authored sheet. The
+    DM noticed and worked around it, which is WORSE than a crash: the contradiction
+    reached the prompt and the model had to guess which number to believe.
+    """
+
+    def _add(self, hp):
+        manager = CharacterManager()
+        manager.add_character(_sheet("X", hit_points=hp))
+        return manager.characters["X"].hit_points
+
+    def test_current_is_clamped_to_maximum(self):
+        """The exact live values."""
+        hp = self._add({"current": 13, "maximum": 8, "temporary": 0})
+        assert hp["current"] <= hp["maximum"], hp
+
+    def test_a_zero_maximum_trusts_current(self):
+        """
+        A maximum of 0 with positive current means `maximum` was never populated.
+        Clamping to 0 would silently kill the character.
+        """
+        hp = self._add({"current": 5, "maximum": 0, "temporary": 0})
+        assert hp["current"] == 5 and hp["maximum"] == 5
+
+    def test_negative_current_is_floored(self):
+        """A negative on the sheet breaks death saves and the HP display."""
+        assert self._add({"current": -3, "maximum": 10, "temporary": 0})["current"] == 0
+
+    def test_a_valid_sheet_is_untouched(self):
+        """Both directions — the guard must not rewrite correct data."""
+        hp = self._add({"current": 8, "maximum": 12, "temporary": 0})
+        assert hp["current"] == 8 and hp["maximum"] == 12
+
+    def test_an_integer_shorthand_still_works(self):
+        hp = self._add(12)
+        assert hp["current"] == 12 and hp["maximum"] == 12
+
+    def test_temporary_hp_is_not_folded_into_current(self):
+        """Temp HP is a separate pool; adding it to current would double-count."""
+        hp = self._add({"current": 8, "maximum": 8, "temporary": 5})
+        assert hp["current"] == 8 and hp["temporary"] == 5
+
+
 class TestRests:
     def test_a_long_rest_restores_all_hp(self, manager):
         character = manager.characters["Aggi"]
