@@ -244,10 +244,23 @@ class CombatActionResolver:
 
             # Extract results based on action type
             if isinstance(event, AttackEvent):
+                # For an ATTACK, "success" must mean IT HIT — not merely that the
+                # event was not cancelled. A miss is a perfectly valid,
+                # non-cancelled event, so `not event.canceled` was True for every
+                # attack ever resolved.
+                #
+                # Both consumers read this field: the narrator prints "Hit!" or
+                # "Miss!" from it, and the LLM prompt states "Success: {success}".
+                # So every attack was reported to the model as a success while
+                # damage was applied correctly underneath — 13 attacks across 5
+                # live rounds all narrated as misses with nobody losing HP.
+                outcome = getattr(event, "attack_outcome", None)
+                hit = outcome in (AttackOutcome.HIT, AttackOutcome.CRIT)
+
                 result = {
-                    "success": success,
+                    "success": hit,
                     "event": event,
-                    "attack_outcome": event.attack_outcome if hasattr(event, 'attack_outcome') else None,
+                    "attack_outcome": outcome,
                     "damage": sum(roll.total for roll in event.damage_rolls) if hasattr(event, 'damage_rolls') and event.damage_rolls else 0,
                     "critical": event.attack_outcome == AttackOutcome.CRIT if hasattr(event, 'attack_outcome') else False,
                     "description": self._format_attack_result(event)

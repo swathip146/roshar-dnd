@@ -588,3 +588,125 @@ class TestRefusedActionsAreNotNarrated:
         second = resolver.resolve_action(
             {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
         assert second.get("refused") is True
+
+
+class TestAttackSuccessMeansItHit:
+    """
+    A live fight ran 5 rounds and ~13 attacks, EVERY ONE narrated "Miss!", with
+    nobody losing HP — yet the engine was rolling 65-70% hits and applying damage
+    correctly the whole time.
+
+    `success = not event.canceled` means "the event was not cancelled". A miss is
+    a perfectly valid, non-cancelled event, so success was True for every attack
+    ever resolved. Two consumers read that field:
+      - the narrator prints "Hit!"/"Miss!" from it
+      - the LLM prompt states "Success: {success}"
+    so the model was told every attack succeeded while the printed summary and
+    the visible HP disagreed.
+    """
+
+    def _resolve(self, arena, trials=40):
+        _, wrapper, resolver, _ = arena
+        rows = []
+        for _ in range(trials):
+            wrapper.entities["Aggi"].action_economy.reset_all_costs()
+            rows.append(resolver.resolve_action(
+                {"actor": "Aggi", "action_type": "attack", "target": "Foe"}))
+        return rows
+
+    def test_success_tracks_the_attack_outcome(self, arena):
+        from dnd.core.dice import AttackOutcome
+
+        for result in self._resolve(arena):
+            outcome = result.get("attack_outcome")
+            expected = outcome in (AttackOutcome.HIT, AttackOutcome.CRIT)
+            assert result["success"] is expected, (
+                f"success={result['success']} but outcome={outcome}")
+
+    def test_misses_are_reported_as_failures(self, arena):
+        """The specific defect: a miss reported success=True."""
+        from dnd.core.dice import AttackOutcome
+
+        results = self._resolve(arena)
+        misses = [r for r in results
+                  if r.get("attack_outcome") in (AttackOutcome.MISS,
+                                                 AttackOutcome.CRIT_MISS)]
+        assert misses, "no misses in 40 attacks — the sample proves nothing"
+        assert all(r["success"] is False for r in misses)
+
+    def test_hits_are_reported_as_successes(self, arena):
+        from dnd.core.dice import AttackOutcome
+
+        results = self._resolve(arena)
+        hits = [r for r in results
+                if r.get("attack_outcome") in (AttackOutcome.HIT,
+                                               AttackOutcome.CRIT)]
+        assert hits, "no hits in 40 attacks — attacks are not landing at all"
+        assert all(r["success"] is True for r in hits)
+
+    def test_damage_accompanies_a_hit(self, arena):
+        """A reported hit that deals 0 damage would be the same class of lie."""
+        results = [r for r in self._resolve(arena) if r["success"]]
+        assert results
+        assert all(r.get("damage", 0) > 0 for r in results)
+
+    def test_a_miss_deals_no_damage(self, arena):
+        results = [r for r in self._resolve(arena) if not r["success"]]
+        assert results
+        assert all(r.get("damage", 0) == 0 for r in results)
+
+
+class TestDisplayedHPTracksReality:
+    """
+    combat_state["hp_current"] was never written back from the engine, so the
+    status panel and action menu showed STARTING HP for the whole fight —
+    "Voidbringer Scout: 22/22" while it was being wounded. End conditions read
+    the engine directly so combat still ended correctly, but the display made a
+    working fight look broken and hid the damage that was landing.
+    """
+
+    def test_hp_is_mirrored_after_damage(self, arena):
+        from components.combat.combat_session_manager import CombatSessionManager
+
+        engine, wrapper, resolver, state = arena
+        state.update({"active_combatants": ["Aggi", "Foe"], "round_number": 1,
+                      "current_turn_index": 0, "combat_log": [],
+                      "initiative_order": [{"char_id": "Aggi", "initiative": 15},
+                                           {"char_id": "Foe", "initiative": 10}]})
+        session = CombatSessionManager(
+            combat_state=state, game_engine=engine,
+            character_manager=engine.character_manager,
+            dnd_engine_wrapper=wrapper, combat_action_resolver=resolver,
+            combat_narrative_generator=None, npc_ai_agent=None,
+            input_provider=lambda prompt="": "1")
+
+        # Land hits until the engine records damage.
+        for _ in range(40):
+            wrapper.entities["Aggi"].action_economy.reset_all_costs()
+            resolver.resolve_action(
+                {"actor": "Aggi", "action_type": "attack", "target": "Foe"})
+
+        engine_hp = wrapper.get_entity_current_hp(wrapper.entities["Foe"])
+        assert engine_hp < 30, "precondition: the engine recorded damage"
+
+        session._sync_hp_from_engine()
+        assert state["combatant_states"]["Foe"]["hp_current"] == engine_hp, (
+            "the displayed HP does not match the engine's")
+
+    def test_sync_survives_a_missing_entity(self, arena):
+        from components.combat.combat_session_manager import CombatSessionManager
+
+        engine, wrapper, resolver, state = arena
+        state.update({"active_combatants": ["Aggi", "Foe"], "round_number": 1,
+                      "current_turn_index": 0, "combat_log": [],
+                      "initiative_order": []})
+        state["combatant_states"]["ghost"] = {"is_hostile": True,
+                                             "hp_current": 5, "hp_max": 5}
+        session = CombatSessionManager(
+            combat_state=state, game_engine=engine,
+            character_manager=engine.character_manager,
+            dnd_engine_wrapper=wrapper, combat_action_resolver=resolver,
+            combat_narrative_generator=None, npc_ai_agent=None,
+            input_provider=lambda prompt="": "1")
+        session._sync_hp_from_engine()  # must not raise
+        assert state["combatant_states"]["ghost"]["hp_current"] == 5
