@@ -253,6 +253,11 @@ def check_progression(report: Report, game) -> None:
         report.check("A natural 20 revives at 1 HP", revive.get("revived") is True)
     finally:
         manager.characters[actor] = CharacterData.from_dict(snapshot)
+        # Belt and braces: the restore is faithful, but this is the one place the
+        # playtest deliberately drives HP to 0 and levels a character, so assert the
+        # invariant rather than trusting it. A live run reached combat at
+        # `current 13 / maximum 8`.
+        manager.enforce_hp_invariant(manager.characters[actor])
 
     restored = manager.characters[actor]
     report.check(

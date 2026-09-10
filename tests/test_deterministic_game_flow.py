@@ -688,6 +688,67 @@ class TestHitPointsAreAlwaysCoherent:
         hp = self._add({"current": 8, "maximum": 8, "temporary": 5})
         assert hp["current"] == 8 and hp["temporary"] == 5
 
+    # ---- the invariant is callable ANYWHERE, not just at load ----------------
+    #
+    # `add_character()` enforcing it on load was not enough: HP is mutated in a
+    # dozen places, and a live run reached COMBAT at `current 13 / maximum 8`.
+    # The DM noticed and wrote about the contradiction in its own gm_notes, which
+    # is worse than a crash — the model had to guess which number to believe.
+
+    def _character(self, current, maximum):
+        manager = CharacterManager()
+        manager.add_character(_sheet("A"))
+        character = manager.characters["A"]
+        character.hit_points.update({"current": current, "maximum": maximum})
+        return manager, character
+
+    def test_the_invariant_can_be_enforced_after_the_fact(self):
+        manager, character = self._character(13, 8)
+        assert manager.enforce_hp_invariant(character) is True
+        assert character.hit_points["current"] == 8
+
+    def test_enforcing_reports_whether_it_changed_anything(self):
+        """A caller should be able to tell a correction from a no-op."""
+        manager, character = self._character(5, 8)
+        assert manager.enforce_hp_invariant(character) is False
+
+    def test_enforcing_is_idempotent(self):
+        manager, character = self._character(13, 8)
+        manager.enforce_hp_invariant(character)
+        assert manager.enforce_hp_invariant(character) is False
+
+    def test_levelling_never_breaks_the_invariant(self):
+        """
+        `_level_up` adds hp_gain to BOTH current and maximum. If current was already
+        over maximum, that preserved the gap instead of closing it.
+        """
+        manager = CharacterManager()
+        manager.add_character(_sheet("A"))
+        manager.characters["A"].hit_points.update({"current": 13, "maximum": 8})
+        manager.award_xp("A", 6500)
+        hp = manager.characters["A"].hit_points
+        assert hp["current"] <= hp["maximum"], hp
+
+    def test_a_malformed_sheet_is_survived(self):
+        manager = CharacterManager()
+        manager.add_character(_sheet("A"))
+        character = manager.characters["A"]
+        character.hit_points = None
+        assert manager.enforce_hp_invariant(character) is False
+
+    def test_combat_corrects_an_incoherent_sheet(self):
+        """
+        Combat is where the player SEES the contradiction, so it must not
+        initialise a fight from one.
+        """
+        import inspect
+
+        from components.combat import combat_initializer
+
+        source = inspect.getsource(combat_initializer.CombatInitializer)
+        assert "enforce_hp_invariant" in source, (
+            "combat initialises from CharacterManager HP without checking it")
+
 
 class TestRests:
     def test_a_long_rest_restores_all_hp(self, manager):
