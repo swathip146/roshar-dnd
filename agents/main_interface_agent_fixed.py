@@ -378,28 +378,12 @@ classify_player_intent_tool = Tool(
     outputs_to_state={"interface_result": {"source": "interface_result"}}
 )
 
-def create_fixed_interface_agent(chat_generator=None) -> Agent:
-    """
-    Create interface agent with structured output for intent analysis.
-    Returns structured JSON that orchestrator will convert to DTO via classify_player_intent.
 
-    Args:
-        chat_generator: Optional Haystack chat generator
 
-    Returns:
-        Configured Agent that returns structured intent analysis JSON
-    """
-
-    # Use LLM config manager to get generator with structured output schema
-    if chat_generator is None:
-        config_manager = get_global_config_manager()
-        # Pass intent analysis schema for structured output
-        generator = config_manager.create_generator("main_interface", response_schema=INTENT_ANALYSIS_SCHEMA)
-        logger.info("🎯 Interface agent created with structured output schema for guaranteed valid intent analysis")
-    else:
-        generator = chat_generator
-
-    system_prompt = """
+# The intent-classification prompt, tuned over several live runs.
+# Module-level so the LangGraph backend can reuse it VERBATIM: re-authoring it
+# there would confound a transport change with a behaviour change.
+INTERFACE_SYSTEM_PROMPT = """
 You are a D&D intent classification agent that analyzes player input and returns structured intent analysis.
 
 CRITICAL: Respond with ONLY a valid JSON object matching the exact schema. No explanations, no extra text.
@@ -445,6 +429,29 @@ JSON RESPONSE FORMAT:
 
 Always return valid JSON matching this exact structure.
 """
+
+def create_fixed_interface_agent(chat_generator=None) -> Agent:
+    """
+    Create interface agent with structured output for intent analysis.
+    Returns structured JSON that orchestrator will convert to DTO via classify_player_intent.
+
+    Args:
+        chat_generator: Optional Haystack chat generator
+
+    Returns:
+        Configured Agent that returns structured intent analysis JSON
+    """
+
+    # Use LLM config manager to get generator with structured output schema
+    if chat_generator is None:
+        config_manager = get_global_config_manager()
+        # Pass intent analysis schema for structured output
+        generator = config_manager.create_generator("main_interface", response_schema=INTENT_ANALYSIS_SCHEMA)
+        logger.info("🎯 Interface agent created with structured output schema for guaranteed valid intent analysis")
+    else:
+        generator = chat_generator
+
+    system_prompt = INTERFACE_SYSTEM_PROMPT
 
     agent = Agent(
         chat_generator=generator,

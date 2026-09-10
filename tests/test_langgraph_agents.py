@@ -230,3 +230,195 @@ class TestTheTransportIsPreserved:
         module.create_chat_model("main_interface")
         assert captured.get("api_key") == "direct-key"
         assert "base_url" not in captured
+
+
+class TestTheBackendSwitch:
+    """
+    The switch must default to Haystack, so merging the migration cannot change
+    live behaviour, and must never take the game down when LangGraph misbehaves.
+    """
+
+    def test_the_default_is_haystack(self, monkeypatch):
+        from agents.langgraph_dm_agents import active_backend
+
+        monkeypatch.delenv("LLM_AGENT_BACKEND", raising=False)
+        assert active_backend() == "haystack"
+
+    def test_langgraph_is_opt_in(self, monkeypatch):
+        from agents.langgraph_dm_agents import active_backend
+
+        monkeypatch.setenv("LLM_AGENT_BACKEND", "langgraph")
+        assert active_backend() == "langgraph"
+
+    def test_an_unknown_backend_falls_back(self, monkeypatch):
+        from agents.langgraph_dm_agents import active_backend
+
+        monkeypatch.setenv("LLM_AGENT_BACKEND", "pytorch-lightning")
+        assert active_backend() == "haystack"
+
+    def test_case_and_whitespace_are_tolerated(self, monkeypatch):
+        from agents.langgraph_dm_agents import active_backend
+
+        monkeypatch.setenv("LLM_AGENT_BACKEND", "  LangGraph  ")
+        assert active_backend() == "langgraph"
+
+    def test_haystack_is_used_by_default(self, monkeypatch):
+        from orchestrator.pipeline_integration import _build_agent
+
+        monkeypatch.delenv("LLM_AGENT_BACKEND", raising=False)
+        assert _build_agent("main_interface", lambda: "HAYSTACK") == "HAYSTACK"
+
+    def test_an_unmigrated_agent_falls_back(self, monkeypatch):
+        """
+        Only two agents are ported. The rest must keep working rather than
+        raising KeyError — a partial migration has to be safe.
+        """
+        from orchestrator.pipeline_integration import _build_agent
+
+        monkeypatch.setenv("LLM_AGENT_BACKEND", "langgraph")
+        assert _build_agent("scenario_generator", lambda: "HAYSTACK") == "HAYSTACK"
+
+    def test_a_broken_langgraph_agent_falls_back(self, monkeypatch):
+        """A transport experiment must never take the game down."""
+        import agents.langgraph_dm_agents as module
+        from orchestrator.pipeline_integration import _build_agent
+
+        monkeypatch.setenv("LLM_AGENT_BACKEND", "langgraph")
+
+        def _explode():
+            raise RuntimeError("no credentials")
+
+        monkeypatch.setattr(module, "create_interface_agent_langgraph", _explode)
+        assert _build_agent("main_interface", lambda: "HAYSTACK") == "HAYSTACK"
+
+
+class TestTheDropInContract:
+    """
+    The LangGraph agents must satisfy the contract the orchestrator ALREADY reads,
+    so no downstream code branches on the backend.
+    """
+
+    def _agent(self, reply="{}"):
+        import agents.langgraph_dm_agents as module
+
+        agent = module.LangGraphAgent.__new__(module.LangGraphAgent)
+        agent.agent_name = "test"
+        agent.system_prompt = "You are a test."
+        agent.tools = []
+
+        class _Model:
+            def invoke(self, messages):
+                return type("R", (), {"content": reply})()
+
+        agent._model = _Model()
+        return agent
+
+    def test_run_returns_a_messages_list(self):
+        result = self._agent("hello").run(messages=[{"role": "user",
+                                                     "content": "hi"}])
+        assert "messages" in result and result["messages"]
+
+    def test_the_last_message_exposes_text(self):
+        """`.text` is what pipeline_integration reads first."""
+        result = self._agent("the scene unfolds").run(
+            messages=[{"role": "user", "content": "hi"}])
+        assert result["messages"][-1].text == "the scene unfolds"
+
+    def test_the_reply_also_exposes_the_content_parts(self):
+        """The orchestrator falls back to `._content[0].text`."""
+        reply = self._agent("abc").run(
+            messages=[{"role": "user", "content": "hi"}])["messages"][-1]
+        assert reply._content[0].text == "abc"
+        assert str(reply) == "abc"
+
+    def test_list_content_is_joined(self):
+        """Gemini can return content as a list of parts on a 200 OK."""
+        import agents.langgraph_dm_agents as module
+
+        agent = self._agent()
+
+        class _Model:
+            def invoke(self, messages):
+                return type("R", (), {"content": [{"text": "a"}, {"text": "b"}]})()
+
+        agent._model = _Model()
+        result = agent.run(messages=[{"role": "user", "content": "hi"}])
+        assert result["messages"][-1].text == "ab"
+
+    def test_an_empty_prompt_is_refused(self):
+        """
+        Plain dicts once produced EMPTY prompts for every NPC-AI call — one defect
+        that surfaced as three symptoms and was misattributed to thinking budgets
+        and Google-side 500s. Refuse loudly instead of calling with nothing.
+        """
+        result = self._agent().run(messages=[])
+        assert result.get("error") == "empty prompt"
+
+    def test_dict_messages_are_converted(self):
+        """The exact shape that broke before: a plain dict, not a ChatMessage."""
+        from agents.langgraph_dm_agents import _to_langchain
+
+        converted = _to_langchain([{"role": "user", "content": "attack"}])
+        assert len(converted) == 1
+        assert converted[0].content == "attack"
+
+    def test_string_messages_are_converted(self):
+        from agents.langgraph_dm_agents import _to_langchain
+
+        assert _to_langchain(["just a string"])[0].content == "just a string"
+
+    def test_roles_are_preserved(self):
+        from agents.langgraph_dm_agents import _to_langchain
+
+        converted = _to_langchain([
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "a"},
+        ])
+        assert [type(m).__name__ for m in converted] == [
+            "SystemMessage", "HumanMessage", "AIMessage"]
+
+    def test_empty_messages_are_dropped(self):
+        """An empty part would otherwise become an empty turn and confuse Gemini."""
+        from agents.langgraph_dm_agents import _to_langchain
+
+        assert _to_langchain([{"role": "user", "content": ""}]) == []
+
+    def test_haystack_chat_messages_still_convert(self):
+        """Both backends share prompt-building code, so both shapes must work."""
+        from haystack.dataclasses import ChatMessage
+
+        from agents.langgraph_dm_agents import _to_langchain
+
+        converted = _to_langchain([ChatMessage.from_user("hello")])
+        assert converted and converted[0].content == "hello"
+
+
+class TestPromptsAreSharedNotDuplicated:
+    """
+    Both backends must read ONE prompt. A copy would drift, and then a bug fixed
+    on one transport would silently persist on the other.
+    """
+
+    def test_the_interface_prompt_is_a_module_constant(self):
+        from agents.main_interface_agent_fixed import INTERFACE_SYSTEM_PROMPT
+
+        assert len(INTERFACE_SYSTEM_PROMPT) > 500
+        assert "intent" in INTERFACE_SYSTEM_PROMPT.lower()
+
+    def test_the_npc_prompt_is_a_module_constant(self):
+        from agents.npc_controller_agent import NPC_SYSTEM_PROMPT
+
+        assert "YOU WRITE THE WORDS" in NPC_SYSTEM_PROMPT
+
+    def test_the_langgraph_agents_reuse_them(self):
+        """Assert the SAME object, not merely similar text."""
+        import inspect
+
+        import agents.langgraph_dm_agents as module
+
+        source = inspect.getsource(module)
+        assert "INTERFACE_SYSTEM_PROMPT" in source
+        assert "NPC_SYSTEM_PROMPT" in source
+        assert "You are a D&D intent classification agent" not in source, (
+            "the prompt was copied into the LangGraph backend instead of imported")

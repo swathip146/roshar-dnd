@@ -199,25 +199,10 @@ def determine_npc_action(npc_context: Dict[str, Any], situation: Dict[str, Any])
     }
 
 
-def create_npc_controller_agent(chat_generator: Optional[Any] = None) -> Agent:
-    """
-    Create a Haystack Agent for NPC control and dialogue generation.
-    
-    Args:
-        chat_generator: Optional chat generator (uses LLM config if None)
-        
-    Returns:
-        Configured Haystack Agent for NPC control
-    """
-    
-    # Use LLM config manager to get appropriate generator
-    if chat_generator is None:
-        config_manager = get_global_config_manager()
-        generator = config_manager.create_generator("npc_controller")
-    else:
-        generator = chat_generator
-    
-    system_prompt = """
+
+
+# Module-level so the LangGraph backend reuses this prompt VERBATIM.
+NPC_SYSTEM_PROMPT = """
 You are an NPC (Non-Player Character) controller for a D&D game system.
 
 Your role is to bring NPCs to life by:
@@ -267,6 +252,26 @@ GUIDELINES:
 
 Always use the available tools to process NPC interactions systematically.
 """
+
+def create_npc_controller_agent(chat_generator: Optional[Any] = None) -> Agent:
+    """
+    Create a Haystack Agent for NPC control and dialogue generation.
+    
+    Args:
+        chat_generator: Optional chat generator (uses LLM config if None)
+        
+    Returns:
+        Configured Haystack Agent for NPC control
+    """
+    
+    # Use LLM config manager to get appropriate generator
+    if chat_generator is None:
+        config_manager = get_global_config_manager()
+        generator = config_manager.create_generator("npc_controller")
+    else:
+        generator = chat_generator
+    
+    system_prompt = NPC_SYSTEM_PROMPT
 
     agent = Agent(
         chat_generator=generator,
