@@ -240,19 +240,24 @@ class SimpleDocumentStore:
             print(f"⚠️ Search failed: {e}")
             return []
     
-    def search_with_metadata(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        """Enhanced search that returns documents with metadata"""
+    def search_with_metadata(self, query: str, top_k: int = 3,
+                             filters: Any = None) -> List[Dict[str, Any]]:
+        """
+        Enhanced search that returns documents with metadata.
+
+        `filters` becomes a real Qdrant payload filter (plan 0.15) rather than
+        being concatenated into the query text, which was a silent no-op.
+        """
         try:
-            result = self.retrieval_pipeline.run({
-                "embedder": {"text": query}
-                # "ranker": {"query": query}  # Provide query text directly to ranker
-            })
-            
-            # Get documents from retriever
-            # documents = result.get("ranker", {}).get("documents", [])
-            # if not documents:
+            inputs: Dict[str, Any] = {"embedder": {"text": query}}
+            payload_filter = self.build_payload_filter(filters)
+            if payload_filter is not None:
+                inputs["retriever"] = {"filters": payload_filter}
+                print(f"🔍 Qdrant payload filter: {payload_filter}")
+
+            result = self.retrieval_pipeline.run(inputs)
             documents = result.get("retriever", {}).get("documents", [])
-            
+
             results = []
             for doc in documents[:top_k]:
                 results.append({
@@ -260,9 +265,9 @@ class SimpleDocumentStore:
                     "metadata": doc.meta,
                     "score": getattr(doc, 'score', 0.0)
                 })
-            
+
             return results
-            
+
         except Exception as e:
             print(f"⚠️ Enhanced search failed: {e}")
             return []
@@ -316,21 +321,102 @@ class SimpleDocumentStore:
         """Store a single document with metadata - for testing"""
         return self.add_campaign_content(content, metadata)
     
-    def retrieve_documents(self, query: str, top_k: int = DEFAULT_TOP_K) -> List[Document]:
-        """Retrieve documents for RAG - returns Haystack Document objects"""
+    # Categories a caller may filter on, mapped to the payload field that
+    # actually carries them. Verified against the live store: chunks are written
+    # with `meta.document_tag` ("rules" | "lore" | "campaigns" | "characters" |
+    # "items") and `meta.folder_tags` (a list).
+    _FILTER_FIELD = "meta.document_tag"
+
+    @staticmethod
+    def build_payload_filter(categories: Any) -> Optional[Dict[str, Any]]:
+        """
+        Turn requested categories into a REAL Qdrant payload filter (plan 0.15).
+
+        This was the bug: filters were string-concatenated into the query text and
+        then embedded —
+
+            enhanced_query = f"{query} {' '.join(categories)}"
+
+        — which is a silent no-op. `document_tag == "rules"` merely perturbed the
+        vector, so a "rules only" lookup still searched all 11,017 chunks
+        including five Stormlight novels. The retriever has accepted a `filters`
+        argument all along; nothing ever passed one.
+
+        Accepts the shapes callers actually send: a list, a dict of
+        {"context_type": [...]}, a bare string, or a JSON string (the RAG agent
+        forwards `{'value': '{"context_type": ["campaigns"]}'}`).
+
+        Returns a Haystack filter dict, or None when there is nothing to filter
+        on — None means "search everything", which is the correct default.
+        """
+        categories = SimpleDocumentStore._normalise_categories(categories)
+        if not categories:
+            return None
+
+        if len(categories) == 1:
+            return {"field": SimpleDocumentStore._FILTER_FIELD,
+                    "operator": "==", "value": categories[0]}
+        return {"field": SimpleDocumentStore._FILTER_FIELD,
+                "operator": "in", "value": categories}
+
+    @staticmethod
+    def _normalise_categories(raw: Any) -> List[str]:
+        """Extract a flat list of category strings from any caller's shape."""
+        import json as _json
+
+        if raw is None:
+            return []
+
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text.startswith("{") or text.startswith("["):
+                try:
+                    return SimpleDocumentStore._normalise_categories(
+                        _json.loads(text))
+                except (ValueError, TypeError):
+                    return [text]
+            return [text] if text else []
+
+        if isinstance(raw, dict):
+            # {"value": "<json>"} and {"context_type": [...]} both occur.
+            collected: List[str] = []
+            for key in ("value", "context_type", "categories", "document_tag"):
+                if key in raw:
+                    collected.extend(
+                        SimpleDocumentStore._normalise_categories(raw[key]))
+            return collected
+
+        if isinstance(raw, (list, tuple, set)):
+            collected = []
+            for item in raw:
+                collected.extend(SimpleDocumentStore._normalise_categories(item))
+            return collected
+
+        return []
+
+    def retrieve_documents(self, query: str, top_k: int = DEFAULT_TOP_K,
+                           filters: Any = None) -> List[Document]:
+        """
+        Retrieve documents for RAG - returns Haystack Document objects.
+
+        `filters` is applied as a real Qdrant payload filter (plan 0.15), so
+        asking for rules genuinely excludes the novels.
+        """
         try:
-            result = self.retrieval_pipeline.run({
-                "embedder": {"text": query}
-                # "ranker": {"query": query}  # Provide query text directly to ranker
-            })
-            
-            # Get documents from retriever
-            # documents = result.get("ranker", {}).get("documents", [])
-            # if not documents:
+            retriever_args: Dict[str, Any] = {}
+            payload_filter = self.build_payload_filter(filters)
+            if payload_filter is not None:
+                retriever_args["filters"] = payload_filter
+                print(f"🔍 Qdrant payload filter: {payload_filter}")
+
+            inputs: Dict[str, Any] = {"embedder": {"text": query}}
+            if retriever_args:
+                inputs["retriever"] = retriever_args
+
+            result = self.retrieval_pipeline.run(inputs)
             documents = result.get("retriever", {}).get("documents", [])
-                
             return documents[:top_k]
-            
+
         except Exception as e:
             print(f"⚠️ Document retrieval failed: {e}")
             return []

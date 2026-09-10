@@ -85,38 +85,47 @@ def create_retrieve_documents_tool(document_store: Optional[SimpleDocumentStore]
         if document_store:
             debug_rag_print("TOOL", f"✅ Document store available: {document_store.collection_name}")
             try:
-                # Start with base query and enhance with context and filters
-                enhanced_query = query
+                # Plan 0.15: pass filters as a REAL Qdrant payload filter.
+                #
+                # This used to build `f"{query} category:{' OR '.join(categories)}"`
+                # and embed it, which is a silent no-op — the words "category" and
+                # "rules" just perturbed the vector, so a rules lookup still
+                # searched all 11,017 chunks including five Stormlight novels.
+                #
+                # It also only handled `isinstance(filters, list)`, while the
+                # orchestrator sends {'value': '{"context_type": [...]}'} — so
+                # `categories` was empty even on the no-op path. Normalisation now
+                # lives in the store, which knows the payload field names.
                 filter_metadata = {}
-                
+                payload_filter = None
                 if filters:
                     debug_rag_print("TOOL", f"📊 Applying contextual filters", filters)
-                    # Log filter usage
                     logger.info(f"📊 RAG Retrieval: Applying contextual filters: {filters}")
-                    
-                    # Handle both list and dict filter formats
+
+                    build = getattr(document_store, "build_payload_filter", None)
+                    if build is not None:
+                        payload_filter = build(filters)
                     categories = []
-                    if isinstance(filters, list):
-                        # Direct list of categories from orchestrator
-                        categories = filters
-                    
-                    if categories:
-                        if isinstance(categories, list):
-                            enhanced_query = f"{enhanced_query} category:{' OR '.join(categories)}"
-                        else:
-                            enhanced_query = f"{enhanced_query} category:{categories}"
-                    
+                    normalise = getattr(document_store, "_normalise_categories", None)
+                    if normalise is not None:
+                        categories = normalise(filters)
+
                     filter_metadata = {
                         "categories_used": categories,
+                        "payload_filter": payload_filter,
                         "original_query": query,
-                        "enhanced_query": enhanced_query
                     }
-                    debug_rag_print("TOOL", f"🔍 Enhanced query with filters", {"original": query, "enhanced": enhanced_query, "categories": categories})
-                    
+                    if payload_filter is None:
+                        logger.warning(
+                            f"⚠️ Filters {filters!r} produced no payload filter; "
+                            f"searching the whole collection")
+                    else:
+                        logger.info(f"   🔍 Qdrant payload filter: {payload_filter}")
 
                 # Use SimpleDocumentStore's search_with_metadata method for full results
-                debug_rag_print("TOOL", f"🔎 Searching document store", {"enhanced_query": enhanced_query, "top_k": top_k})
-                search_results = document_store.search_with_metadata(enhanced_query, top_k)
+                debug_rag_print("TOOL", f"🔎 Searching document store", {"query": query, "top_k": top_k, "filter": payload_filter})
+                search_results = document_store.search_with_metadata(
+                    query, top_k, filters=filters)
                 debug_rag_print("TOOL", f"📋 Search results", {"count": len(search_results), "results_type": type(search_results)})
                 
                 # Convert to expected format with filter information
@@ -139,12 +148,17 @@ def create_retrieve_documents_tool(document_store: Optional[SimpleDocumentStore]
                     context_summary += f" with {len(filters)} contextual filters"
                     
                 return {
-                    "query": enhanced_query,
+                    # The query is now sent VERBATIM — filtering happens in the
+                    # payload, not by mangling the text. (This read
+                    # `enhanced_query`, which no longer exists: a NameError on
+                    # every filtered retrieval, caught by the 0.15 tests.)
+                    "query": query,
                     "original_query": query,
                     "documents": documents,
                     "context_summary": context_summary,
                     "context_type": context_type,
                     "filters": filters or {},
+                    "payload_filter": payload_filter,
                     "source": "qdrant_document_store_filtered"
                 }
                 
