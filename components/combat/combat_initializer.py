@@ -225,6 +225,23 @@ class CombatInitializer:
         Skipping this left mid-combat NPCs at the default position with empty
         sense maps, so every one of their attacks was rejected for line of
         sight / reach — visible in play as enemies that always miss.
+
+        Placement MUST go through the wrapper's `set_entity_position()`. This
+        used to assign `entity.position` directly, which updates the attribute
+        but not `Entity._entity_by_position` — the class-level index that sense
+        computation actually reads. With two hostiles, the second was left out of
+        every sense map and every attack involving it cancelled without rolling,
+        so combat ran for rounds with zero hits on either side.
+
+        Columns are also INTERLEAVED around each opposing line rather than both
+        starting at x=0. Two parallel lines both counting up from zero drift
+        apart at their far ends: with one player and three hostiles, the third
+        hostile landed at (2,1), two tiles from the player at (0,0) and therefore
+        outside melee reach ("Target entity not in reach for Attack"). Nothing in
+        the loop repositions anyone, so that enemy could never be attacked and
+        never attack — combat could not resolve. Interleaving (0, -1, +1, -2, …)
+        keeps each line centred on the other, so every combatant starts adjacent
+        to at least one enemy for parties up to three-a-side.
         """
         wrapper = self.dnd_wrapper
         if wrapper is None:
@@ -233,13 +250,12 @@ class CombatInitializer:
 
         placed = 0
         for row, group in ((0, player_ids), (1, hostile_ids)):
-            for column, char_id in enumerate(group):
-                entity = wrapper.entities.get(char_id)
-                if entity is None:
+            for index, char_id in enumerate(group):
+                if char_id not in wrapper.entities:
                     self.logger.warning(f"   ⚠️ No entity for {char_id}; cannot position")
                     continue
-                entity.position = (column, row)
-                placed += 1
+                if wrapper.set_entity_position(char_id, (self._column(index), row)):
+                    placed += 1
 
         # One global refresh AFTER all placements
         if hasattr(wrapper, "refresh_senses"):
@@ -247,8 +263,19 @@ class CombatInitializer:
 
         self.logger.info(
             f"   📍 Positioned {placed} combatant(s) and refreshed senses "
-            f"(players at y=0, hostiles at y=1)"
+            f"(players at y=0, hostiles at y=1, columns centred on 0)"
         )
+
+    @staticmethod
+    def _column(index: int) -> int:
+        """
+        Spread a line outward from x=0: 0, -1, +1, -2, +2, ...
+
+        Keeps both lines centred on the same column so opposing combatants stay
+        within melee reach instead of drifting apart at the far end.
+        """
+        step = (index + 1) // 2
+        return step if index % 2 == 0 else -step
 
     def _should_trigger_combat(self, scenario: Dict[str, Any]) -> bool:
         """
