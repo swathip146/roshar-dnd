@@ -306,3 +306,91 @@ class TestAForcedEncounterAlwaysFindsARoster:
         enemies = initializer._parse_enemies_from_scenario(
             combat_scene, force_combat=True)
         assert enemies, "a keyword-matching scene produced no enemies"
+
+
+class TestTheDMDecidesWhetherThereIsAFight:
+    """
+    A keyword scan hijacked peaceful scenes, so combat crowded out every other
+    mechanic in the playtest.
+
+    Measured live: the DM wrote gm_notes saying a spren "is **not immediately
+    hostile** but will react defensively if directly approached", set
+    `combat_trigger: false` on ALL SEVEN choices — and combat started anyway,
+    because the substring "hostile" appeared in the text explaining that there was
+    no fight. Two encounters ran in a 3-turn run and nothing else got a turn.
+
+    Same bug class as the routing substring match and the travel matcher that found
+    "A" inside "Shattered Plains". A scenario that answered the question must not be
+    second-guessed by a text scan.
+    """
+
+    def _initializer(self):
+        from components.combat.combat_initializer import CombatInitializer
+        from config.logging_config import get_logger
+
+        initializer = CombatInitializer.__new__(CombatInitializer)
+        initializer.logger = get_logger("test")
+        return initializer
+
+    def test_an_explicit_no_is_final(self):
+        """The exact live scenario."""
+        scenario = {
+            "scene": "A spren drifts between the rocks, watching you.",
+            "gm_notes": ("It is not immediately hostile but will react "
+                         "defensively if directly approached."),
+            "choices": [{"combat_trigger": False} for _ in range(7)],
+        }
+        assert self._initializer()._should_trigger_combat(scenario) is False, (
+            "combat started despite combat_trigger=false on every choice")
+
+    def test_an_explicit_yes_still_starts_a_fight(self):
+        """Both directions — the DM must still be able to start one."""
+        scenario = {"scene": "A quiet plateau.",
+                    "choices": [{"combat_trigger": True, "title": "Charge"}]}
+        assert self._initializer()._should_trigger_combat(scenario) is True
+
+    def test_one_yes_among_many_noes_wins(self):
+        scenario = {"scene": "x", "choices": [{"combat_trigger": False},
+                                             {"combat_trigger": True},
+                                             {"combat_trigger": False}]}
+        assert self._initializer()._should_trigger_combat(scenario) is True
+
+    def test_combat_words_do_not_override_an_explicit_no(self):
+        """
+        A scene ABOUT a battle is not a scene that starts one — a war story told
+        by an NPC would otherwise trigger a fight.
+        """
+        scenario = {
+            "scene": ("The veteran describes the battle: the enemy attacked at "
+                      "dawn, hostile ranks charging through the ambush."),
+            "choices": [{"combat_trigger": False}],
+        }
+        assert self._initializer()._should_trigger_combat(scenario) is False
+
+    def test_the_fallback_still_works_with_no_choices(self):
+        """
+        The keyword scan remains for scenarios that expressed no opinion — a scene
+        with no choices, or a non-scenario code path.
+        """
+        scenario = {"scene": "Two enemies attack from behind the rocks!",
+                    "choices": []}
+        assert self._initializer()._should_trigger_combat(scenario) is True
+
+    def test_a_negation_beats_a_keyword(self):
+        """A scene explaining why there is no fight contains the most combat words."""
+        scenario = {"scene": "The camp is peaceful. No immediate threats remain.",
+                    "choices": []}
+        assert self._initializer()._should_trigger_combat(scenario) is False
+
+    @pytest.mark.parametrize("text,expected", [
+        ("She attacked the problem of the broken cart.", False),   # 'attacked'
+        ("The enemy is upon us!", True),
+        ("Hostiles on the ridge!", True),
+        ("A quiet morning with nothing to report.", False),
+    ])
+    def test_keywords_are_word_boundary_matched(self, text, expected):
+        scenario = {"scene": text, "choices": []}
+        assert self._initializer()._should_trigger_combat(scenario) is expected
+
+    def test_an_empty_scenario_does_not_start_a_fight(self):
+        assert self._initializer()._should_trigger_combat({}) is False
