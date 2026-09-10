@@ -21,7 +21,7 @@
 > |---|---|
 > | Phases 0-4 | ✅ done, except **2.10** and the Avrae automation schema |
 > | Unwired subsystems | ✅ none remain (was 5) |
-> | Tests | **844 non-combat + 371 combat** (was 380 + 174 at the audit) |
+> | Tests | **854 non-combat + 371 combat** (was 380 + 174 at the audit) |
 > | Live playtest | ✅ **48/48, 0 errors logged** (was 44/4 with 11 errors) |
 > | Remaining work | §14a "Ranked open work" — 2 open items, 3 deferred by decision |
 >
@@ -778,7 +778,7 @@ Standard `pytest`. Two prerequisites before this tier is trustworthy at all:
 
 Baseline at the audit: **65 failed / 131 passed / 6 errors**. Record the number after each phase; it must go monotonically up.
 
-**Current: 844 non-combat + 371 combat passing** (2026-09-10). The 4 remaining
+**Current: 854 non-combat + 371 combat passing** (2026-09-10). The 4 remaining
 combat failures are environmental — 3 make real LLM calls and get HTTP 403 through
 the sandbox proxy, and `test_combat_agent_error_handling` predates this work
 (verified by stash).
@@ -862,7 +862,8 @@ before continuing — that is precisely the failure mode v4.1 hit.
 | 2026-09-09 | 380 | 174 | — | Phases 0-4 delivered (three subsystems still unwired) |
 | 2026-09-10 | 535 | 318 | 44 / 4 | positioning bugs fixed (§14b); first playtest run |
 | 2026-09-10 | 822 | 365 | 45 / 3 | §14c defects, deterministic suite, LangGraph, 0.15/0.19/2.2/D5-T3 |
-| **2026-09-10** | **844** | **371** | **48 / 0** | stalemate + combat-turn-reporting fixed (§14e); **all green** |
+| 2026-09-10 | 844 | 371 | 48 / 0 | stalemate + combat-turn-reporting fixed (§14e); **all green** |
+| **2026-09-10** | **854** | **371** | **48 / 0** | dice fail loudly instead of dealing 0 damage |
 
 The 4 standing combat failures are environmental and are NOT counted as passing:
 3 make real LLM calls and get HTTP 403 through the sandbox proxy
@@ -1107,7 +1108,7 @@ earlier section of this document disagrees with §14a, §14a wins.
 `CombatInitializer`, `EndgameEvaluator` and `RulesJudge` now returns clean: all
 five have production callers outside their defining module.
 
-**Tests: 844 non-combat + 371 combat passing** (was 535 + 318 earlier on 2026-09-10, and
+**Tests: 854 non-combat + 371 combat passing** (was 535 + 318 earlier on 2026-09-10, and
 380 + 174 at the previous audit). 4 combat failures remain: 3 make real LLM calls
 and get HTTP 403 through the sandbox proxy, and `test_combat_agent_error_handling`
 predates this work (verified by stash). Baseline at audit was 65
@@ -1137,7 +1138,7 @@ only ✅ if the product **reaches** it — the standard three subsystems failed.
 | 0.5 | Save key | ✅ | reads `game_state` |
 | 0.6 | `"combat"` in intent map | ✅ | |
 | 0.7 | `interface_dto` bound | ✅ | |
-| 0.8 | `pytest tests/` runs | ✅ | 844 collected, no INTERNALERROR |
+| 0.8 | `pytest tests/` runs | ✅ | 854 collected, no INTERNALERROR |
 | 0.9 | Autosave every turn | ✅ | |
 | 0.10 | `load` command | ✅ | |
 | 0.11 | Swap `dice.py` → `avrae/d20` | ⚠️ **fixed in place, not as specified** | All four cited failures now pass — `4d6kh3`→13, `1d6 + 2`→7, `1d8-1`→6 (breakdown honest, `static=-1`), `2d20kl1`→5. But `d20` is in `requirements.txt:119` and **never imported**; the hand-rolled parser was repaired instead. The symptoms are gone; the dependency swap is not done. Keep-drop, spaces and signed modifiers work; exploding dice and `[fire]` damage-type annotations remain unsupported |
@@ -1749,3 +1750,69 @@ logged**.
 Standing gate for future work: `LLM_PROVIDER=gateway ./scripts/playtest.py
 --turns 3` must stay at 48/48. Four of the five §14e defects were integration
 defects invisible to 1,200 unit tests, so this run is not a formality.
+
+---
+
+## 14f. Session inventory *(2026-09-10)* — what to read, and where it lives
+
+### New files
+
+| File | What it is |
+|---|---|
+| `tests/test_deterministic_game_flow.py` | **195 tests, ~4 s, no network.** The mechanics oracle: RAW 5e asserted end to end, from ability modifiers to a full scripted encounter. Network access is *enforced* off by an autouse fixture that patches `socket.connect` |
+| `tests/combat/test_death_saves_in_combat.py` | 24 tests. Death saves, the dying-vs-dead distinction, HP written to the RECORD, and the round-boundary reset |
+| `tests/combat/test_defeat_and_cr_bands.py` | 29 tests. Defeat persisting as an ending, and generated monsters held to their CR budget |
+| `tests/test_combat_turn_reaches_the_player.py` | 22 tests. The response contract between combat and the game loop; the party-wipe gate; encounters entering narrative memory |
+| `tests/test_campaign_bible.py` | 27 tests. 0.19, including that the prompt builder actually interpolates it |
+| `tests/test_qdrant_payload_filters.py` | 18 tests. 0.15, with 5 run against the live 11,017-point store |
+| `tests/test_rules_judge_wiring.py` | 17 tests. D5 Tier 3 — asserting the WIRING, since four passing suites failed to establish exactly that |
+| `tests/test_langgraph_agents.py` | 40 tests. The agent-layer seam, the backend switch, and the drop-in contract |
+| `components/campaign_bible.py` | 0.19. Derived from the campaign schema + live state, not hand-authored |
+| `agents/langgraph_models.py` | LangChain chat models over the same transport, gateway included |
+| `agents/langgraph_dm_agents.py` | Drop-in LangGraph agents; `LLM_AGENT_BACKEND` selects |
+| `scripts/derive_cr_bands.py` | Regenerates the CR HP/AC bands from the vendored SRD monsters |
+
+### Commits, in order
+
+```
+de804a9  Fix the all-misses combat: entities were never really on the grid
+71a6310  Audit the plan against reality; document 4 defects from live combat
+3b1908d  Wire death saves into combat; persist HP; stop the playtest self-corrupting
+f5ca08a  Persist defeat as an ending; hold generated monsters to their CR budget
+23e3eda  Add a deterministic no-LLM game-flow suite
+ff6fca4  Add the LangGraph agent-layer seam, proven over gateway
+a3550ee  Migrate the interface and NPC agents to LangGraph behind an env switch
+639daa8  Fix 0.15: make Qdrant payload filters real instead of a no-op
+422bf0b  Wire the D5 Tier-3 rules judge — the last unwired subsystem
+070e169  Complete 2.2: real rolling summarization, not truncate-and-drop
+f530e79  Fix 0.19: give the DM a campaign bible in every prompt
+40d2b19  Update the plan: Phase 0 complete, no unwired subsystems remain
+28adbaf  Make a resolved combat turn reach the player, and stop two action crashes
+c936939  Fix a permanent stalemate: a skipped round never reset the action economy
+1826c29  Record §14e: five defects the live playtest found that the tests could not
+b6ff35e  Playtest is green: 48/48, 0 errors
+6da9007  Dice: unsupported notation now fails loudly instead of dealing 0 damage
+```
+
+### Corrections to my own claims, recorded deliberately
+
+Six times this session I asserted something and then measured it to be wrong. Each
+is noted at the point it matters, and collected here because the pattern is the
+lesson: **claims about a codebase are hypotheses until executed.**
+
+| Claim | Reality |
+|---|---|
+| CR 1/4 caps at AC 13 | The MM goblin is **AC 15** (leather + shield). An existing test caught it. Bands are now derived from the 334 vendored SRD monsters, not from memory |
+| 18 HP is out of band for CR 1/4 | **It is not** — a Dretch has exactly 18, a Zombie 22. They pay with AC 11 and AC 8. CR is a budget across BOTH numbers, hence the HP×AC term |
+| `langchain-google-genai` uses the deprecated SDK and will break gateway | It uses `from google import genai` — the same SDK Phase 4 ported to — and accepts `base_url`. Three real 200 OKs through the gateway |
+| `[fire]` damage-type annotations are unsupported | They work. Exploding and reroll notation are the actual gap |
+| `dnd_engine` is "~12% used", so absorbing it is cheap | `Entity` transitively pulls in every block plus `values.py` (2,359 lines) + `modifiers.py` (997) + `conditions.py` (734). **No clean subset exists** — it is ~11,273 lines |
+| `test_full_combat_session` is test-harness wiring | It was reporting a **real 496-round stalemate**. Recorded as environmental here for two audits |
+
+Two of my own test errors are also worth keeping, both instances of §12 rule 6:
+
+- A skip-path test that **passed with the bug reintroduced**, because with one
+  hostile the round index wraps on the *normal* path and the branch under test
+  never ran. Needed a hero followed by two dead hostiles.
+- An empty-prompt guard placed *after* the system prompt was prepended, so
+  `converted` was never empty and the guard could not fire. Caught by my own test.
