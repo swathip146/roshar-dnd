@@ -326,13 +326,28 @@ class TestCombatSessionManagerFunctional:
         assert ended is True
         assert reason == "all_hostiles_defeated"
 
-    def test_check_end_conditions_all_players_defeated(self, session_manager, mock_entities):
-        """Test detecting all players defeated"""
-        # Mark hero as dead
+    def test_check_end_conditions_all_players_defeated(self, session_manager,
+                                                       mock_entities,
+                                                       character_manager):
+        """
+        A player at 0 HP is DYING, not defeated (5e). The encounter continues
+        until they are dead or stably unconscious.
+
+        This previously asserted that 0 HP ended the fight — the bug that meant
+        death saves never ran in play.
+        """
         self._drop_to_zero_hp(mock_entities["hero"])
 
         ended, reason = session_manager._check_end_conditions()
+        assert ended is False, (
+            f"encounter ended while the hero was merely dying ({reason!r})")
 
+        # Real booleans: these flags gate the end condition, and a Mock attribute
+        # would be truthy for every combatant.
+        character_manager.characters["hero"].is_dead = True
+        character_manager.characters["hero"].is_stable = False
+
+        ended, reason = session_manager._check_end_conditions()
         assert ended is True
         assert reason == "all_players_defeated"
 

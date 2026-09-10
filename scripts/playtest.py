@@ -20,6 +20,7 @@ Exit code 0 = every check passed.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -187,38 +188,65 @@ def check_dice_and_checks(report: Report, game) -> None:
 
 
 def check_progression(report: Report, game) -> None:
-    """XP, levelling, rests and death saves."""
+    """
+    XP, levelling, rests and death saves.
+
+    These checks are DESTRUCTIVE — they award 6,500 XP and drive HP to 0 to reach
+    the death-save branches. They used to do that to the LIVE character and never
+    restore it, and because every turn autosaves (0.9), the damage persisted:
+    `playtest_save.json` ended up holding a level-5 Aggi at 13/36 HP, so every
+    later run started from a mauled, over-levelled character and an encounter
+    budgeted as "easy" was lethal. A test must not corrupt the artefact it tests.
+
+    Snapshot before, restore after, and verify the restore actually took.
+    """
     print("\n📈 Progression")
+    from components.character_manager import CharacterData
+
     manager = game.character_manager
     actor = game._active_character_id()
     character = manager.characters[actor]
 
-    before_level = character.level
-    before_hp = character.hit_points["maximum"]
-    manager.award_xp(actor, 6500)
-    report.check("XP levels a character up", character.level > before_level,
-                 f"level {before_level} -> {character.level}")
-    report.check("Levelling raises max HP",
-                 character.hit_points["maximum"] > before_hp,
-                 f"{before_hp} -> {character.hit_points['maximum']}")
+    snapshot = copy.deepcopy(character.to_dict())
 
-    character.hit_points["current"] = 1
-    manager.long_rest(actor)
-    report.check("Long rest restores full HP",
-                 character.hit_points["current"] == character.hit_points["maximum"],
-                 f"{character.hit_points['current']}/{character.hit_points['maximum']}")
+    try:
+        before_level = character.level
+        before_hp = character.hit_points["maximum"]
+        manager.award_xp(actor, 6500)
+        report.check("XP levels a character up", character.level > before_level,
+                     f"level {before_level} -> {character.level}")
+        report.check("Levelling raises max HP",
+                     character.hit_points["maximum"] > before_hp,
+                     f"{before_hp} -> {character.hit_points['maximum']}")
 
-    character.hit_points["current"] = 0
-    for _ in range(3):
-        result = manager.roll_death_save(actor, roll=5)
-    report.check("Three failed death saves kill", result.get("dead") is True)
+        character.hit_points["current"] = 1
+        manager.long_rest(actor)
+        report.check("Long rest restores full HP",
+                     character.hit_points["current"] == character.hit_points["maximum"],
+                     f"{character.hit_points['current']}/{character.hit_points['maximum']}")
 
-    manager._reset_death_saves(character)
-    character.is_dead = False
-    character.hit_points["current"] = 0
-    revive = manager.roll_death_save(actor, roll=20)
-    report.check("A natural 20 revives at 1 HP", revive.get("revived") is True)
-    manager.long_rest(actor)
+        character.hit_points["current"] = 0
+        for _ in range(3):
+            result = manager.roll_death_save(actor, roll=5)
+        report.check("Three failed death saves kill", result.get("dead") is True)
+
+        manager._reset_death_saves(character)
+        character.is_dead = False
+        character.hit_points["current"] = 0
+        revive = manager.roll_death_save(actor, roll=20)
+        report.check("A natural 20 revives at 1 HP", revive.get("revived") is True)
+    finally:
+        manager.characters[actor] = CharacterData.from_dict(snapshot)
+
+    restored = manager.characters[actor]
+    report.check(
+        "Progression checks leave the character unchanged",
+        (restored.level == snapshot["level"]
+         and restored.hit_points == snapshot["hit_points"]
+         and restored.experience_points == snapshot["experience_points"]
+         and not getattr(restored, "is_dead", False)),
+        f"L{restored.level} hp {restored.hit_points.get('current')}/"
+        f"{restored.hit_points.get('maximum')} xp {restored.experience_points}")
 
 
 def check_combat(report: Report, game) -> None:
