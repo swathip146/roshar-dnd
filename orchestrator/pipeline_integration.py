@@ -726,13 +726,48 @@ Return your analysis in the required JSON format.
         if not result:
             return None
 
-        outcome = result.get("outcome")
-        logger.info(f"⚔️ Combat resolved: outcome={outcome}, "
-                    f"rounds={result.get('rounds')}")
+        # CombatAgent returns the DTO shape {"response": {...}}, so the outcome
+        # lives one level down. Reading it from the top produced
+        # "⚔️ Combat resolved: outcome=None, rounds=None" on every encounter —
+        # including a real defeat that had just been logged correctly one line
+        # earlier by the agent itself.
+        response = result.get("response") if isinstance(result, dict) else None
+        payload = response if isinstance(response, dict) else result
+        outcome = payload.get("outcome")
+        rounds = payload.get("rounds")
+        logger.info(f"⚔️ Combat resolved: outcome={outcome}, rounds={rounds}")
+
+        # A party wipe ends the campaign — it must not fall through and let the
+        # next turn re-run the same encounter, which is what happened live: turn 1
+        # ended in `defeat`, turn 2 re-rolled the identical authored encounter.
+        if outcome == "defeat":
+            self._record_party_defeat(rounds)
 
         # A resolved encounter can satisfy the campaign's endgame.
         self._check_endgame()
         return result
+
+    def _record_party_defeat(self, rounds: Optional[int]) -> None:
+        """
+        Mark the campaign ended after a total party defeat.
+
+        Without this the loop simply carried on: nothing gated a turn on the party
+        being down, so `force_combat_on_turn` (and any live combat trigger) fired
+        again against characters the record still showed as healthy.
+        """
+        engine = self.game_engine
+        if engine is None:
+            return
+        try:
+            narrative = getattr(engine.game_state, "narrative_context", None)
+            if isinstance(narrative, dict):
+                narrative["campaign_ended"] = True
+                narrative["campaign_ending"] = "party_defeated"
+                narrative["campaign_ending_rounds"] = rounds
+            logger.warning(
+                "💀 Total party defeat — campaign marked ended (party_defeated)")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not record the party defeat: {e}")
 
     def _ensure_party_ids(self, dto: Dict[str, Any]) -> None:
         """Populate player_character_ids from the live roster (D3: the party)."""

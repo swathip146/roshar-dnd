@@ -613,13 +613,25 @@ class HaystackDnDGame:
         is still running. Delegates the decision to the orchestrator, which owns
         the CampaignSchema; the LLM narrates the ending, but code decides IF
         there is one.
+
+        Handles BOTH endings. This used to check victory only, so a total party
+        defeat was not an ending at all — play simply continued and the next turn
+        re-ran the same encounter.
         """
         try:
+            if getattr(self, "_endgame_announced", False):
+                return ""
+
+            # A party wipe is an ending too. The orchestrator records it when
+            # combat resolves as `defeat`.
+            if self._campaign_is_lost():
+                self._endgame_announced = True
+                return ("\n\n💀 **The campaign ends here.** Your party has "
+                        "fallen, and the charge passes to other hands.")
+
             orchestrator = getattr(self, "orchestrator", None)
             check = getattr(orchestrator, "_check_endgame", None)
             if check is None:
-                return ""
-            if getattr(self, "_endgame_announced", False):
                 return ""
             if not check():
                 return ""
@@ -629,6 +641,48 @@ class HaystackDnDGame:
         except Exception as e:
             logger.debug(f"   Endgame check skipped: {e}")
             return ""
+
+    def _campaign_is_lost(self) -> bool:
+        """True once the party has been wiped (set by the orchestrator)."""
+        try:
+            narrative = getattr(self.game_engine.game_state,
+                                "narrative_context", None)
+            if isinstance(narrative, dict) and narrative.get("campaign_ended"):
+                return narrative.get("campaign_ending") == "party_defeated"
+        except Exception:
+            pass
+        return False
+
+    def _party_can_act(self) -> bool:
+        """
+        Is anyone in the party still able to take a turn?
+
+        A character who is dead, or at 0 HP and stable-but-unconscious, cannot
+        act. If nobody can, forcing another encounter is meaningless — which is
+        exactly what happened live when turn 2 re-ran the fight that had already
+        wiped the party on turn 1.
+        """
+        try:
+            manager = self.character_manager
+            npcs = set(manager.get_npcs() or [])
+        except Exception:
+            return True
+
+        party = [cid for cid in getattr(manager, "characters", {}) if cid not in npcs]
+        if not party:
+            return True
+
+        for char_id in party:
+            character = manager.characters[char_id]
+            if getattr(character, "is_dead", False) is True:
+                continue
+            hp = character.hit_points if isinstance(character.hit_points, dict) else {}
+            if hp.get("current", 1) > 0:
+                return True
+            # At 0 HP: dying characters may still be revived, stable ones cannot act.
+            if getattr(character, "is_stable", False) is not True:
+                return True
+        return False
 
     def _durable_loop(self):
         """The campaign's DurableTurnLoop, built once (plan 3.5)."""
@@ -749,9 +803,15 @@ class HaystackDnDGame:
             # a fight. Unset in normal play, where combat_trigger decides.
             forced_turn = getattr(self, "force_combat_on_turn", None)
             if forced_turn is not None and self.turn_counter == forced_turn:
-                logger.info(f"⚔️ Forcing combat on turn {self.turn_counter} "
-                            f"(force_combat_on_turn)")
-                request_dto["force_combat"] = True
+                # Never force a fight onto a party that cannot act. Live, turn 1
+                # ended in a wipe and turn 2 re-ran the identical encounter.
+                if not self._party_can_act():
+                    logger.warning(
+                        "⚠️ Not forcing combat: no party member can act")
+                else:
+                    logger.info(f"⚔️ Forcing combat on turn {self.turn_counter} "
+                                f"(force_combat_on_turn)")
+                    request_dto["force_combat"] = True
 
             logger.info(f"🎯 Processing turn {self.turn_counter} with enhanced response system")
 
