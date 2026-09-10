@@ -198,6 +198,7 @@ class CombatActionResolver:
             kwargs["target_entity_uuid"] = self._get_entity_uuid(action["target"])
 
         # Add additional parameters from metadata
+        missing_required = []
         for param in metadata.get("params", []):
             if param == "target_entity_uuid":
                 continue  # Already handled above
@@ -206,6 +207,32 @@ class CombatActionResolver:
             elif param == "weapon_slot":
                 # Default to main hand
                 kwargs[param] = WeaponSlot.MAIN_HAND
+            else:
+                missing_required.append(param)
+
+        # A declared parameter nobody supplies is a REFUSAL, not a crash.
+        #
+        # `move` declares `end_position`, and nothing in the menu or the NPC AI
+        # ever provides one — tactical movement is not implemented (the combat grid
+        # is a fixed two-row line). So every attempt raised
+        # "1 validation error for Move: end_position Field required", four times in
+        # one live encounter, logged as "Action execution failed" while the actor
+        # silently lost its turn. Refusing states the reason and keeps the fight
+        # moving.
+        if missing_required:
+            self.logger.info(
+                f"   ⛔ {action.get('action_type')} needs "
+                f"{', '.join(missing_required)}, which was not supplied "
+                f"(not implemented for this action yet)")
+            return {
+                "success": False,
+                "event": None,
+                "refused": True,
+                "description": (
+                    f"{action.get('actor', 'The actor')} cannot "
+                    f"{action.get('action_type', 'act')} right now — "
+                    f"that action needs {', '.join(missing_required)}."),
+            }
 
         # Execute via dnd_engine
         try:

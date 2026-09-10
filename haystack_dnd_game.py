@@ -986,7 +986,25 @@ class HaystackDnDGame:
                     description = choice.get("description", "")
                     formatted_response += f"\n• {title}: {description}"
         elif response_data and "response" in response_data:
-            formatted_response = response_data["response"]
+            nested = response_data["response"]
+            # A combat turn's envelope is a DICT, not a string: CombatAgent
+            # returns {"response": {"response_type": "combat_complete",
+            # "narrative": ...}}. Assigning it here made `formatted_response` a
+            # dict, so the player saw a canned line after a real encounter.
+            if isinstance(nested, dict):
+                formatted_response = (nested.get("narrative")
+                                      or nested.get("message")
+                                      or nested.get("response")
+                                      or "")
+                if not formatted_response:
+                    outcome = nested.get("outcome")
+                    rounds = nested.get("rounds")
+                    if outcome:
+                        formatted_response = (
+                            f"The fight ends in {outcome}"
+                            + (f" after {rounds} rounds." if rounds else "."))
+            else:
+                formatted_response = nested
         else:
             formatted_response = "The adventure continues in unexpected ways..."
             logger.warning(f"Unrecognized response format with keys: {list(response_data.keys()) if response_data else 'None'}")

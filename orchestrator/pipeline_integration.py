@@ -801,6 +801,31 @@ Return your analysis in the required JSON format.
 
         # A resolved encounter can satisfy the campaign's endgame.
         self._check_endgame()
+
+        # The game loop gates on `response_dict["success"]`, and CombatAgent
+        # returns only {"response": {...}} — so EVERY combat turn was reported to
+        # the player as "The world seems momentarily confused by your action",
+        # logged as `Processing failed: Unknown error`, even after a clean
+        # `outcome=defeat, rounds=4`. The encounter had run, damage was applied and
+        # the campaign state was updated; only the turn's reply was thrown away.
+        #
+        # That also cost the narrative beat for the turn, since
+        # process_scenario_state_updates() is only reached on the success path —
+        # which is why a live 3-turn run recorded ZERO beats while 2.2 was working.
+        if isinstance(result, dict) and "success" not in result:
+            result["success"] = True
+            # Lift what the game loop reads to the TOP level. `_handle_response`
+            # dispatches on `response_data["response_type"]` and the narration is
+            # taken from `formatted_response`; both live one level down in
+            # CombatAgent's envelope, so leaving them there produced a correct
+            # combat and an empty reply.
+            for key in ("response_type", "outcome", "rounds"):
+                if key in payload and key not in result:
+                    result[key] = payload[key]
+            narrative = payload.get("narrative") or payload.get("message")
+            if narrative and "formatted_response" not in result:
+                result["formatted_response"] = narrative
+
         return result
 
     def _record_party_defeat(self, rounds: Optional[int]) -> None:
