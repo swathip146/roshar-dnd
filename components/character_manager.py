@@ -235,6 +235,32 @@ class CharacterManager:
             # Ensure all required keys exist
             hp_data.setdefault("temporary", 0)
 
+            # `current` must never exceed `maximum` — 5e has no way for it to,
+            # short of temporary HP, which is a SEPARATE field.
+            #
+            # A live run reported `Aggi's current HP (13) is higher than max (8)`
+            # in the DM's own gm_notes, from a stale save whose HP keys did not
+            # match the authored sheet. The DM noticed and worked around it, which
+            # is worse than a crash: the contradiction reached the prompt and the
+            # model had to guess which number to believe.
+            current = hp_data.get("current")
+            maximum = hp_data.get("maximum")
+            if isinstance(current, int) and isinstance(maximum, int):
+                if maximum <= 0 and current > 0:
+                    # A maximum of 0 with positive current means `maximum` was
+                    # never populated; trust `current` rather than killing them.
+                    logger.warning(
+                        f"⚠️ {char_id}: hit_points maximum is {maximum} with "
+                        f"current {current}; setting maximum to {current}")
+                    hp_data["maximum"] = current
+                elif current > maximum:
+                    logger.warning(
+                        f"⚠️ {char_id}: hit_points current ({current}) exceeds "
+                        f"maximum ({maximum}); clamping to maximum")
+                    hp_data["current"] = maximum
+                elif current < 0:
+                    hp_data["current"] = 0
+
         character = CharacterData(
             character_id=char_id,
             name=character_data.get("name", char_id),
