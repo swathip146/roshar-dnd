@@ -1527,3 +1527,141 @@ class TestADyingAllyCanBeSaved:
     def test_an_unknown_character_is_graceful(self, manager):
         call = self._wire(manager)
         assert "error" in call(actor="nobody_at_all")
+
+
+class TestThePartyCanActuallyRest:
+    """
+    There was NO rest tool. `long_rest`/`short_rest` existed on CharacterManager and
+    the DM could not reach either, so "I make camp and take a long rest" was narrated
+    and nothing happened — the party stayed wounded and the in-world clock never
+    moved.
+
+    Measured in a live 6-turn run that included an explicit rest turn AND a travel
+    turn: the clock advanced by **zero hours**. That is what exposed this.
+    """
+
+    def _wire(self):
+        from agents import dm_tools
+
+        engine = GameEngine()
+        engine.add_character(_sheet("Aggi", hit_points={"current": 2,
+                                                       "maximum": 8,
+                                                       "temporary": 0}))
+        dm_tools.clear_dm_tool_context()
+        dm_tools.set_dm_tool_context(character_manager=engine.character_manager,
+                                     game_engine=engine)
+        call = getattr(dm_tools.take_rest, "function", dm_tools.take_rest)
+        return call, engine
+
+    def test_the_tool_is_registered(self):
+        from agents import dm_tools
+
+        assert "take_rest" in dm_tools.dm_tool_names(), (
+            "the DM cannot rest the party it cannot call")
+
+    def test_a_long_rest_restores_full_hp(self):
+        call, engine = self._wire()
+        call(kind="long")
+        hp = engine.character_manager.characters["Aggi"].hit_points
+        assert hp["current"] == hp["maximum"]
+
+    def test_a_long_rest_advances_the_clock_by_eight_hours(self):
+        """A rest that costs no time is not a rest; the highstorm cycle depends on it."""
+        call, engine = self._wire()
+        before = engine.game_state.environment.get("elapsed_hours", 0)
+        call(kind="long")
+        assert engine.game_state.environment["elapsed_hours"] == before + 8
+
+    def test_a_short_rest_costs_one_hour(self):
+        call, engine = self._wire()
+        before = engine.game_state.environment.get("elapsed_hours", 0)
+        call(kind="short")
+        assert engine.game_state.environment["elapsed_hours"] == before + 1
+
+    def test_a_short_rest_does_not_fully_heal(self):
+        """Otherwise a short rest is a strictly better long rest."""
+        call, engine = self._wire()
+        call(kind="short")
+        hp = engine.character_manager.characters["Aggi"].hit_points
+        assert hp["current"] <= hp["maximum"]
+
+    def test_the_whole_party_rests_by_default(self):
+        """A party that camps together rests together."""
+        from agents import dm_tools
+
+        call, engine = self._wire()
+        engine.add_character(_sheet("Kali", hit_points={"current": 1,
+                                                       "maximum": 10,
+                                                       "temporary": 0}))
+        dm_tools.set_dm_tool_context(character_manager=engine.character_manager,
+                                     game_engine=engine)
+        result = call(kind="long")
+        assert set(result["rested"]) == {"Aggi", "Kali"}, result["rested"]
+        assert engine.character_manager.characters["Kali"].hit_points["current"] == 10
+
+    def test_naming_an_actor_rests_only_them(self):
+        from agents import dm_tools
+
+        call, engine = self._wire()
+        engine.add_character(_sheet("Kali", hit_points={"current": 1,
+                                                       "maximum": 10,
+                                                       "temporary": 0}))
+        dm_tools.set_dm_tool_context(character_manager=engine.character_manager,
+                                     game_engine=engine)
+        call(kind="long", actor="Aggi")
+        assert engine.character_manager.characters["Kali"].hit_points["current"] == 1
+
+    def test_the_result_reports_before_and_after(self):
+        """The narrator needs the numbers to describe the rest truthfully."""
+        call, _ = self._wire()
+        entry = call(kind="long")["rested"]["Aggi"]
+        assert entry["hp_before"] == 2 and entry["hp_after"] == 8
+
+    def test_an_unknown_actor_does_not_raise(self):
+        call, _ = self._wire()
+        assert "error" not in call(kind="long", actor="nobody")
+
+
+class TestTheAdjudicationPromptDemandsToolUse:
+    """
+    The DM read state and rolled dice but never called a MUTATING world tool across
+    six live turns — no travel, no rest, no XP. Step 4 read as optional, so it
+    narrated consequences instead of applying them.
+    """
+
+    def _prompt(self):
+        import inspect
+
+        from agents import scenario_generator_agent
+
+        return inspect.getsource(
+            scenario_generator_agent.create_scenario_generator_agent)
+
+    def test_applying_consequences_is_not_optional(self):
+        prompt = self._prompt()
+        assert "NOT optional" in prompt
+
+    def test_the_prompt_maps_actions_to_tools(self):
+        """A list of tool names is not guidance; the model needs the mapping."""
+        prompt = self._prompt()
+        for tool in ("travel_to_location", "take_rest", "apply_healing",
+                     "award_experience", "stabilize_dying"):
+            assert tool in prompt, f"{tool} is not mentioned in the prompt"
+
+    def test_every_named_tool_actually_exists(self):
+        """
+        A prompt naming a tool that is not registered teaches the model to call
+        something that will fail — how the missing rest tool was found.
+        """
+        from agents.dm_tools import dm_tool_names
+
+        prompt = self._prompt()
+        registered = set(dm_tool_names())
+        for candidate in ("travel_to_location", "take_rest", "apply_healing",
+                          "apply_damage", "award_experience", "advance_quest",
+                          "spend_stormlight", "stabilize_dying",
+                          "roll_skill_check", "query_rules"):
+            if candidate in prompt:
+                assert candidate in registered, (
+                    f"the prompt tells the model to call {candidate!r}, "
+                    f"which is not registered")
