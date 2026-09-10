@@ -440,14 +440,45 @@ class DnDEngineWrapper:
 
         Always go through this rather than assigning `entity.position` directly,
         so the sense maps stay consistent with the grid.
+
+        `entity.position = ...` is NOT enough, and this method used to do exactly
+        that. Entity keeps a CLASS-LEVEL index, `Entity._entity_by_position`, and
+        sense computation resolves who is visible through
+        `get_all_entities_at_position()`, which reads that index — not the
+        attribute. Assigning the attribute directly leaves the index pointing at
+        the entity's *creation* position forever, so the two disagree.
+
+        The visible symptom is not "cannot see" but silent, permanent misses.
+        With two hostiles placed at (0,1) and (1,1), the index still held both at
+        y=0; the second one was therefore absent from every sense map, and every
+        attack to or from it cancelled before rolling — `attack_outcome` was None
+        20/20 in both directions, which the narrator rendered as "Miss!". A live
+        5-round encounter produced ~13 attacks and zero hits with correct dice,
+        correct AC and correct damage code.
+
+        `Entity.update_entity_position()` is the only correct mover: it removes
+        the entity from the old index bucket, adds it to the new one, and then
+        sets the attribute.
         """
         entity = self.entities.get(char_id)
         if entity is None:
             logger.warning(f"⚠️ Cannot position unknown entity: {char_id}")
             return False
-        entity.position = tuple(position)
+
+        target = tuple(position)
+        try:
+            Entity.update_entity_position(entity, target)
+        except (KeyError, ValueError) as e:
+            # The index can disagree with the attribute if anything ever assigned
+            # `position` directly (see above). Re-register at the target rather
+            # than leaving the entity unplaced.
+            logger.warning(
+                f"⚠️ Position index out of sync for {char_id} ({e}); re-registering")
+            entity.position = target
+            Entity._entity_by_position[target].append(entity)
+
         self.refresh_senses()
-        logger.debug(f"📍 {char_id} -> {tuple(position)}")
+        logger.debug(f"📍 {char_id} -> {target}")
         return True
 
     def _sync_characters_to_entities(self):

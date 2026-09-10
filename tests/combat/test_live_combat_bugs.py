@@ -710,3 +710,246 @@ class TestDisplayedHPTracksReality:
             input_provider=lambda prompt="": "1")
         session._sync_hp_from_engine()  # must not raise
         assert state["combatant_states"]["ghost"]["hp_current"] == 5
+
+
+class TestEveryCombatantIsReachable:
+    """
+    A live 5-round encounter produced ~13 attacks and ZERO hits, on both sides,
+    with correct dice, correct AC, correct proficiency and correct damage code.
+
+    The cause was positioning, not combat. Entity keeps a CLASS-LEVEL index,
+    `Entity._entity_by_position`, and sense computation resolves who is visible
+    through `get_all_entities_at_position()`, which reads that index — NOT
+    `entity.position`. `_position_combatants` assigned the attribute directly, so
+    the index kept every entity at its creation position.
+
+    With ONE hostile the two happened to agree often enough to look fine, which
+    is exactly why the existing suites missed it: every fixture placed a single
+    hostile. With TWO hostiles the second sat at (1,1) while the index still held
+    it at y=0, so it was absent from every sense map and every attack to or from
+    it cancelled BEFORE rolling — attack_outcome was None 20/20 in both
+    directions, which the narrator rendered as "Miss!".
+
+    These tests therefore use TWO hostiles, and assert on the LAST one.
+    """
+
+    def _party(self, hostiles=2):
+        engine = GameEngine()
+        engine.add_character(_character("Aggi"))
+        ids = []
+        for i in range(hostiles):
+            cid = f"scout_{i + 1}"
+            engine.add_character(_character(cid, hp=9))
+            ids.append(cid)
+        wrapper = DnDEngineWrapper(game_engine=engine,
+                                   character_manager=engine.character_manager)
+        return engine, wrapper, ids
+
+    def _place_via_initializer(self, wrapper, hostiles):
+        """Use the production placement path, not a hand-rolled one."""
+        from components.combat.combat_initializer import CombatInitializer
+
+        init = CombatInitializer.__new__(CombatInitializer)
+        init.dnd_wrapper = wrapper
+        from config.logging_config import get_logger
+        init.logger = get_logger("test")
+        init._position_combatants(["Aggi"], hostiles)
+
+    def _outcomes(self, wrapper, resolver, actor, target, trials=25):
+        from collections import Counter
+        counts = Counter()
+        for _ in range(trials):
+            wrapper.entities[actor].action_economy.reset_all_costs()
+            result = resolver.resolve_action(
+                {"actor": actor, "action_type": "attack", "target": target})
+            counts[str(result.get("attack_outcome"))] += 1
+        return counts
+
+    def _resolver(self, engine, wrapper, ids):
+        state = {"combatant_states": {
+            "Aggi": {"is_hostile": False, "hp_current": 30, "hp_max": 30}}}
+        for cid in ids:
+            state["combatant_states"][cid] = {"is_hostile": True,
+                                              "hp_current": 9, "hp_max": 9}
+        return CombatActionResolver(
+            dnd_engine_wrapper=wrapper,
+            character_manager=engine.character_manager,
+            combat_state=state), state
+
+    # ------------------------------------------------------------- the index
+
+    def test_position_index_agrees_with_the_attribute(self):
+        """The two must never diverge — divergence is the whole bug."""
+        from dnd.entity import Entity
+
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+
+        for cid in ["Aggi"] + ids:
+            entity = wrapper.entities[cid]
+            at_position = Entity.get_all_entities_at_position(entity.position)
+            assert entity in at_position, (
+                f"{cid} claims position {entity.position} but the class index "
+                f"does not list it there; sense checks will not see it")
+
+    def test_every_hostile_appears_in_the_players_sense_map(self):
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+
+        seen = wrapper.entities["Aggi"].senses.entities
+        for cid in ids:
+            assert wrapper.entities[cid].uuid in seen, (
+                f"{cid} is invisible to Aggi, so every attack against it "
+                f"cancels before rolling")
+
+    def test_sense_map_positions_match_actual_positions(self):
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+
+        seen = wrapper.entities["Aggi"].senses.entities
+        for cid in ids:
+            entity = wrapper.entities[cid]
+            assert seen.get(entity.uuid) == entity.position, (
+                f"{cid} is sensed at {seen.get(entity.uuid)} but actually "
+                f"stands at {entity.position}")
+
+    # ----------------------------------------------------------- the outcome
+
+    def test_the_last_hostile_can_be_attacked(self):
+        """
+        The regression test proper. The SECOND hostile is the one that was
+        unreachable; attacking it produced attack_outcome None every time.
+        """
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+        resolver, _ = self._resolver(engine, wrapper, ids)
+
+        counts = self._outcomes(wrapper, resolver, "Aggi", ids[-1])
+        assert counts["None"] == 0, (
+            f"{counts['None']} of 25 attacks on {ids[-1]} produced no roll at "
+            f"all (cancelled, not missed): {dict(counts)}")
+
+    def test_the_last_hostile_can_attack_back(self):
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+        resolver, _ = self._resolver(engine, wrapper, ids)
+
+        counts = self._outcomes(wrapper, resolver, ids[-1], "Aggi")
+        assert counts["None"] == 0, (
+            f"{ids[-1]} could not attack at all: {dict(counts)}")
+
+    def test_every_hostile_lands_some_damage(self):
+        """
+        Statistical and two-sided: +2 vs AC 13 hits ~50%, so 25 swings landing
+        NOTHING means the attack is cancelling rather than missing.
+        """
+        engine, wrapper, ids = self._party(hostiles=3)
+        self._place_via_initializer(wrapper, ids)
+        resolver, _ = self._resolver(engine, wrapper, ids)
+
+        for cid in ids:
+            counts = self._outcomes(wrapper, resolver, "Aggi", cid)
+            hits = counts["AttackOutcome.HIT"] + counts["AttackOutcome.CRIT"]
+            assert hits > 0, (
+                f"25 attacks on {cid} produced zero hits: {dict(counts)}")
+
+    def test_moving_keeps_the_index_consistent(self):
+        """set_entity_position must stay correct across repeated moves."""
+        from dnd.entity import Entity
+
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+
+        for position in ((3, 3), (0, 1), (2, 0), (1, 1)):
+            wrapper.set_entity_position(ids[-1], position)
+            entity = wrapper.entities[ids[-1]]
+            assert entity.position == position
+            assert entity in Entity.get_all_entities_at_position(position), (
+                f"index lost {ids[-1]} after moving to {position}")
+
+    def test_stale_attribute_assignment_is_recovered(self):
+        """
+        If anything ever assigns `position` directly again, the next call to
+        set_entity_position must repair the index rather than raise.
+        """
+        from dnd.entity import Entity
+
+        engine, wrapper, ids = self._party()
+        self._place_via_initializer(wrapper, ids)
+
+        victim = wrapper.entities[ids[-1]]
+        victim.position = (9, 9)          # the original bug, done on purpose
+        assert wrapper.set_entity_position(ids[-1], (1, 1)) is True
+        assert victim.position == (1, 1)
+        assert victim in Entity.get_all_entities_at_position((1, 1))
+
+
+class TestEveryoneStartsWithinReach:
+    """
+    The SECOND cause of the all-misses encounter, independent of the index bug.
+
+    Both lines used to count columns up from x=0, so they drifted apart at the
+    far end. One player vs three hostiles put the third hostile at (2,1) — two
+    tiles from the player at (0,0), outside a melee weapon's 5 ft reach. The
+    engine correctly refused with "Target entity not in reach for Attack", and
+    since nothing in the combat loop ever repositions anyone, that combatant was
+    permanently unable to fight.
+
+    Interleaving columns around 0 keeps the lines centred on each other.
+    """
+
+    def test_columns_spread_outward_from_zero(self):
+        from components.combat.combat_initializer import CombatInitializer
+
+        assert [CombatInitializer._column(i) for i in range(5)] == [0, -1, 1, -2, 2]
+
+    @pytest.mark.parametrize("players,hostiles", [(1, 1), (1, 2), (1, 3),
+                                                  (2, 3), (3, 3), (2, 1)])
+    def test_every_hostile_is_adjacent_to_a_player(self, players, hostiles):
+        """Chebyshev distance 1 is what 5 ft of melee reach means on this grid."""
+        from components.combat.combat_initializer import CombatInitializer
+
+        columns_p = [CombatInitializer._column(i) for i in range(players)]
+        columns_h = [CombatInitializer._column(i) for i in range(hostiles)]
+
+        for hx in columns_h:
+            nearest = min(max(abs(hx - px), 1) for px in columns_p)
+            assert nearest <= 1, (
+                f"a hostile at x={hx} is {nearest} tiles from the nearest "
+                f"player (players at {columns_p}) — out of melee reach, and "
+                f"nothing repositions it")
+
+    def test_the_third_hostile_can_be_reached(self):
+        """The exact configuration that failed: one player, three hostiles."""
+        from components.combat.combat_initializer import CombatInitializer
+        from config.logging_config import get_logger
+        from dnd.actions import Attack
+        from dnd.blocks.equipment import WeaponSlot
+
+        engine = GameEngine()
+        engine.add_character(_character("Aggi"))
+        ids = []
+        for i in range(3):
+            cid = f"scout_{i + 1}"
+            engine.add_character(_character(cid, hp=9))
+            ids.append(cid)
+        wrapper = DnDEngineWrapper(game_engine=engine,
+                                   character_manager=engine.character_manager)
+
+        init = CombatInitializer.__new__(CombatInitializer)
+        init.dnd_wrapper = wrapper
+        init.logger = get_logger("test")
+        init._position_combatants(["Aggi"], ids)
+
+        attacker = wrapper.entities["Aggi"]
+        for cid in ids:
+            attacker.action_economy.reset_all_costs()
+            event = Attack(source_entity_uuid=attacker.uuid,
+                           target_entity_uuid=wrapper.entities[cid].uuid,
+                           weapon_slot=WeaponSlot.MAIN_HAND).apply(parent_event=None)
+            message = str(getattr(event, "status_message", "") or "")
+            assert "not in reach" not in message, (
+                f"{cid} at {wrapper.entities[cid].position} is out of reach of "
+                f"Aggi at {attacker.position}")
+            assert getattr(event, "attack_outcome", None) is not None, (
+                f"attack on {cid} did not roll at all: {message}")
