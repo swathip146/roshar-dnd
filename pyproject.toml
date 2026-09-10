@@ -28,6 +28,7 @@ markers = [
     "llm: makes a REAL LLM call — costs money and needs GEMINI_API_KEY",
     "slow: takes more than a few seconds",
     "combat: combat subsystem (tests/combat/)",
+    "deterministic: 5e mechanics with NO LLM and no network — the game-flow oracle",
 ]
 # Every test gets a hard ceiling. Combat used to hang CI to zero output on a
 # blocking input() (fixed in 1.8); this makes a regression fail instead of hang.
