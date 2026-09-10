@@ -659,7 +659,7 @@ class GeminiChatGenerator:
             Combined prompt string
         """
         prompt_parts = []
-        
+
         for message in messages:
             # Get message content (prefer text for newer Haystack API).
             #
@@ -677,7 +677,28 @@ class GeminiChatGenerator:
                 content = message.text
             elif hasattr(message, 'content') and message.content:
                 content = message.content
-            
+
+            # TOOL CALLS AND TOOL RESULTS HAVE NO .text AT ALL.
+            #
+            # This is why the DM agent asked for the same state over and over: a
+            # `ChatMessage.from_tool(...)` carries its payload in
+            # `.tool_call_results`, and an assistant's request carries it in
+            # `.tool_calls` — BOTH have `.text is None`. So every tool result was
+            # converted to "" and dropped, and the model's own request vanished
+            # too. From the model's point of view it had never asked, so it asked
+            # again; measured in a live turn: **30 function calls, 0 function
+            # responses**, until it exhausted max_agent_steps with no scene
+            # written and the player got a canned fallback.
+            #
+            # The `_cached_read` "stop-polling directive" in dm_tools.py was built
+            # to suppress this loop. It works because a directive is returned as a
+            # tool RESULT — but that result was being dropped too; it only helped
+            # because the loop counter lives in Python, not in the conversation.
+            # With the exchange actually reaching the model, the guard becomes a
+            # backstop rather than the mechanism.
+            if not content:
+                content = self._describe_tool_exchange(message)
+
             if content:
                 # Role prefix, from a dict key or an attribute. A dict has no
                 # .role either, so reading only the attribute would drop the
@@ -689,10 +710,55 @@ class GeminiChatGenerator:
                 role = str(getattr(role, "value", role)).lower()
 
                 label = {"user": "User", "assistant": "Assistant",
-                         "system": "System"}.get(role)
+                         "system": "System",
+                         # Without a label the model cannot tell a tool's answer
+                         # from the player speaking, and may narrate the JSON.
+                         "tool": "Tool result"}.get(role)
                 prompt_parts.append(f"{label}: {content}" if label else content)
-        
+
         return "\n\n".join(prompt_parts)
+
+    @staticmethod
+    def _describe_tool_exchange(message) -> str:
+        """
+        Render a tool call or a tool result as text.
+
+        Needed because this transport flattens the conversation into ONE prompt
+        string, so there is nowhere structural for `tool_calls`/`tool_call_results`
+        to live. Both carry `.text is None`, so without this they are dropped
+        entirely — and dropping them is what made the DM agent re-request the same
+        state on every step until it ran out of steps (30 calls, 0 responses).
+
+        Rendering as text is the right fix for THIS transport, not a workaround:
+        the model needs to see that it asked and what came back. A structured
+        `function_response` part would be better still, and is the natural next
+        step if this path ever stops flattening.
+        """
+        # A tool's answer: ChatMessage.from_tool(...)
+        results = getattr(message, "tool_call_results", None) or []
+        if results:
+            rendered = []
+            for result in results:
+                origin = getattr(result, "origin", None)
+                name = getattr(origin, "tool_name", "tool")
+                payload = getattr(result, "result", "")
+                if getattr(result, "error", False):
+                    rendered.append(f"{name} FAILED: {payload}")
+                else:
+                    rendered.append(f"{name} returned: {payload}")
+            return "\n".join(rendered)
+
+        # The model's own request: ChatMessage.from_assistant(tool_calls=[...])
+        calls = getattr(message, "tool_calls", None) or []
+        if calls:
+            rendered = [
+                f"called {getattr(call, 'tool_name', 'tool')}"
+                f"({getattr(call, 'arguments', {})})"
+                for call in calls
+            ]
+            return "(" + "; ".join(rendered) + ")"
+
+        return ""
     
     def _convert_tool_to_function_declaration(self, tool) -> Optional[Dict[str, Any]]:
         """
@@ -807,17 +873,32 @@ class GeminiChatGenerator:
                 elif hasattr(message, 'content') and message.content:
                     content = message.content
 
+                # Tool calls and tool results carry no .text — see
+                # _describe_tool_exchange. Dropping them here silently removed the
+                # model's own request and the answer to it from the conversation.
+                if not content:
+                    content = self._describe_tool_exchange(message)
+
                 if not content:
                     continue
 
                 # Map Haystack roles to Gemini roles
                 role = "user"  # Default
                 if hasattr(message, 'role'):
-                    if message.role == "assistant" or message.role == "model":
+                    role_name = str(getattr(message.role, "value",
+                                            message.role)).lower()
+                    if role_name in ("assistant", "model"):
                         role = "model"
-                    elif message.role == "system":
+                    elif role_name == "system":
                         # Gemini doesn't have system role, prepend to first user message
                         content = f"System Instructions: {content}"
+                        role = "user"
+                    elif role_name == "tool":
+                        # Gemini accepts only user/model here, so a tool's answer
+                        # is sent as user text — but LABELLED, or the model cannot
+                        # tell its own tool result from the player speaking and may
+                        # narrate the raw JSON back at them.
+                        content = f"Tool result: {content}"
                         role = "user"
                     else:
                         role = "user"
