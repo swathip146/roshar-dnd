@@ -576,22 +576,55 @@ def _check_combat_and_quests(report: Report, game, combat_was_forced: bool) -> N
 
 
 def check_logs(report: Report) -> None:
-    """The run's own log should be clean."""
+    """
+    THIS RUN's log should be clean.
+
+    Reviewing `logs[-1]` — the newest file by name — reads whatever process wrote
+    last, which is not necessarily this one. A concurrent `pytest` run put 19
+    errors into a different log file and the playtest reported them as its own:
+    HTTP 403s from real-LLM tests plus DELIBERATE negative-path assertions
+    (`Unknown actor: invalid_char`, `Unknown action type: unknown_action`,
+    `character nobody not found`). All expected, none this run's.
+
+    So pin the file this process is actually writing to, via the live handler.
+    """
     print("\n📋 Log review")
-    logs = sorted((PROJECT_ROOT / "logs").glob("dnd_game_*.log"))
-    if not logs:
-        report.skip("Log review", "no log file")
+
+    log_path = _own_log_path()
+    if log_path is None or not log_path.exists():
+        report.skip("Log review", "could not identify this run's log file")
         return
-    lines = logs[-1].read_text(errors="ignore").splitlines()
+
+    lines = log_path.read_text(errors="ignore").splitlines()
     errors = [l for l in lines if " - ERROR - " in l]
     # No whitelist. An earlier version treated "Gemini API error" and
     # "403 Forbidden" as benign, which suppressed exactly the failures that
     # mattered: the run that found the tools+JSON-mode 400 reported a clean log
     # while every scenario turn was falling back to a canned scene.
     report.check("No errors logged", not errors,
-                 f"{len(errors)} in {logs[-1].name}")
+                 f"{len(errors)} in {log_path.name}")
     for line in errors[:5]:
         print(f"      {line[-160:]}")
+
+
+def _own_log_path():
+    """
+    The log file THIS process is writing to, from the live logging handlers.
+
+    Falls back to the newest `dnd_game_*.log` only if no file handler is found —
+    better than skipping the check entirely, but it is the fallback precisely
+    because it can pick up another process's file.
+    """
+    import logging
+
+    for logger in (logging.getLogger(), logging.getLogger("haystack_dnd_game")):
+        for handler in getattr(logger, "handlers", []):
+            filename = getattr(handler, "baseFilename", None)
+            if filename and "dnd_game_" in filename:
+                return Path(filename)
+
+    logs = sorted((PROJECT_ROOT / "logs").glob("dnd_game_*.log"))
+    return logs[-1] if logs else None
 
 
 # ------------------------------------------------------------- scripted input
