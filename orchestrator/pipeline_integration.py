@@ -254,6 +254,7 @@ class PipelineOrchestrator:
                     srd_rules=get_srd_rules(),
                     cosmere_rules=get_cosmere_rules(),
                     gap_tracker=get_gap_tracker(),
+                    rules_judge=self._build_rules_judge(),
                 )
                 logger.info("🔧 DM tools wired to live game components")
             except Exception as e:
@@ -840,6 +841,50 @@ Return your analysis in the required JSON format.
         party = [cid for cid in manager.characters if cid not in npcs]
         dto["player_character_ids"] = party
         dto["player_character_id"] = party[0] if party else "unknown_player"
+
+    def _build_rules_judge(self):
+        """
+        Build the D5 Tier-3 rules judge, or None if it cannot be grounded.
+
+        Why this exists: `RulesJudge`/`RulingStore` were built, tested, and never
+        instantiated in production — the last unwired subsystem found by the
+        unwired-component sweep. `query_rules` recorded the gap and told the DM
+        "you may improvise", so an improvised ruling was inconsistent from one turn
+        to the next even though `find_precedent()` existed to prevent exactly that.
+
+        Returns None rather than a half-wired judge when the pieces are missing.
+        The judge already degrades to Tier 4 (narrative) without grounding, and an
+        ungrounded ruling is worse than admitting there is no rule (D5).
+        """
+        try:
+            from components.cosmere_rules import get_cosmere_rules
+            from components.rules_gap_tracker import get_gap_tracker
+            from components.rules_judge import RulesJudge, RulingStore
+            from components.srd_rules import get_srd_rules
+
+            # A generator with structured output; without one the judge refuses to
+            # rule rather than guessing.
+            generator = None
+            try:
+                manager = get_global_config_manager()
+                generator = manager.create_generator("main_interface")
+            except Exception as e:
+                logger.warning(f"⚠️ Rules judge has no generator ({e}); it will "
+                               f"degrade to narrative-only")
+
+            judge = RulesJudge(
+                chat_generator=generator,
+                srd_rules=get_srd_rules(),
+                cosmere_rules=get_cosmere_rules(),
+                gap_tracker=get_gap_tracker(),
+                store=RulingStore(),
+                retriever=getattr(self, "document_store", None),
+            )
+            logger.info("⚖️  Rules judge wired (D5 Tier 3, precedent-binding)")
+            return judge
+        except Exception as e:
+            logger.warning(f"⚠️ Could not build the rules judge: {e}")
+            return None
 
     def _campaign_schema(self):
         """The current campaign's CampaignSchema, loaded once."""

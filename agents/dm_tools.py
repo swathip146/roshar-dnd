@@ -35,7 +35,8 @@ _CONTEXT: Dict[str, Any] = {}
 
 def set_dm_tool_context(*, game_engine=None, character_manager=None,
                         dnd_engine_wrapper=None, srd_rules=None,
-                        cosmere_rules=None, gap_tracker=None) -> None:
+                        cosmere_rules=None, gap_tracker=None,
+                        rules_judge=None) -> None:
     """Wire the live components the tools adjudicate against (plan 3.1)."""
     _CONTEXT.update({
         k: v for k, v in {
@@ -45,6 +46,7 @@ def set_dm_tool_context(*, game_engine=None, character_manager=None,
             "srd_rules": srd_rules,
             "cosmere_rules": cosmere_rules,
             "gap_tracker": gap_tracker,
+            "rules_judge": rules_judge,
         }.items() if v is not None
     })
     logger.info(f"🔧 DM tool context set: {sorted(_CONTEXT)}")
@@ -418,7 +420,42 @@ def query_rules(topic: str, kind: str = "auto") -> Dict[str, Any]:
                     return {"found": True, "tier": 1, "source": "SRD 5e (OGL 1.0a)",
                             "kind": kind, "data": entry}
 
-        # Nothing canonical — record the gap so it ranks into the backlog (2.11).
+        # Nothing canonical (Tier 1/2). Before telling the DM to improvise, let
+        # the rules judge try to rule from RETRIEVED text (D5 Tier 3).
+        #
+        # This branch used to record the gap and return "you may improvise, but
+        # say so openly" — with no grounded judgment and no precedent lookup. So
+        # `RulesJudge.judge()` and `find_precedent()`, both built and tested,
+        # never ran in production, and an improvised ruling was inconsistent from
+        # one turn to the next. The gap tracker WAS wired, so a missing rule was
+        # counted but never ruled on.
+        judge = _CONTEXT.get("rules_judge")
+        if judge is not None:
+            try:
+                ruling = judge.judge(f"rules lookup: {topic}")
+                if ruling and ruling.get("tier") == 3:
+                    logger.info(f"⚖️  Tier 3 ruling for '{topic}' "
+                                f"(precedent={ruling.get('followed_precedent')})")
+                    return {"found": True, "tier": 3,
+                            "source": "rules judge (grounded, cited)",
+                            "kind": "ruling", "data": ruling,
+                            "followed_precedent": ruling.get("followed_precedent",
+                                                            False),
+                            "cites": ruling.get("cites", []),
+                            "note": ("This is an adjudicated ruling, not published "
+                                     "text. It is grounded in the cited passages "
+                                     "and binds future turns.")}
+                # Tier 4 (narrative): the judge declined for want of grounding.
+                # That is the correct outcome, not a failure — fall through to the
+                # honest "no rule" answer below.
+                if ruling:
+                    logger.info(f"   ⚖️  Judge declined to rule on '{topic}': "
+                                f"{ruling.get('reason', 'no grounding')}")
+            except Exception as e:
+                # Never let adjudication break the turn.
+                logger.warning(f"⚠️ Rules judge failed on '{topic}': {e}")
+
+        # Record the gap so it ranks into the backlog (2.11).
         tracker = _CONTEXT.get("gap_tracker")
         if tracker is not None:
             tracker.record(f"rules lookup: {topic}", 3)
