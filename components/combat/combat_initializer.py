@@ -963,6 +963,15 @@ Return JSON array of enemies:"""
             )
 
             # Get HP from character data
+            # Combat is where an incoherent sheet becomes visible to the player,
+            # so correct it here rather than initialising a fight from
+            # `current 13 / maximum 8` — which a live run did, and the DM wrote
+            # about the contradiction in its own gm_notes.
+            try:
+                self.character_manager.enforce_hp_invariant(char)
+            except Exception:
+                pass
+
             hp_data = char.hit_points
             if isinstance(hp_data, dict):
                 hp_current = hp_data.get('current', hp_data.get('maximum', 1))

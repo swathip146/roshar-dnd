@@ -716,7 +716,9 @@ class CharacterManager:
         hp_gain = max(1, hit_die // 2 + 1 + con_mod)
 
         character.hit_points["maximum"] = character.hit_points.get("maximum", 0) + hp_gain
-        character.hit_points["current"] = character.hit_points.get("current", 0) + hp_gain
+        character.hit_points["current"] = min(
+            character.hit_points["maximum"],
+            character.hit_points.get("current", 0) + hp_gain)
         character.proficiency_bonus = self._calculate_proficiency_bonus(character.level)
         character.hit_dice_remaining = character.level
 
@@ -926,6 +928,43 @@ class CharacterManager:
         character.is_stable = True
         logger.info(f"🛡️  {character.name} has been stabilised")
         return True
+
+    @staticmethod
+    def enforce_hp_invariant(character) -> bool:
+        """
+        Hold `0 <= current <= maximum`. Returns True if anything was corrected.
+
+        `add_character()` enforces this on LOAD, which was not enough: HP is mutated
+        in a dozen places, and a live run reached combat with `current 13 / maximum
+        8` — the DM noticed the contradiction and wrote about it in its own notes.
+        An inconsistency that reaches the prompt makes the model guess which number
+        to believe.
+
+        Call this after any bulk HP mutation. Cheap, idempotent, and the only place
+        the rule is expressed.
+        """
+        hp = getattr(character, "hit_points", None)
+        if not isinstance(hp, dict):
+            return False
+
+        current, maximum = hp.get("current"), hp.get("maximum")
+        if not (isinstance(current, int) and isinstance(maximum, int)):
+            return False
+
+        if maximum <= 0 and current > 0:
+            # `maximum` was never populated; trust current rather than killing them.
+            hp["maximum"] = current
+            return True
+        if current > maximum:
+            logger.warning(
+                f"⚠️ {getattr(character, 'name', '?')}: HP current ({current}) "
+                f"exceeded maximum ({maximum}); clamped")
+            hp["current"] = maximum
+            return True
+        if current < 0:
+            hp["current"] = 0
+            return True
+        return False
 
     def _calculate_proficiency_bonus(self, level: int) -> int:
         """Calculate proficiency bonus from character level"""
