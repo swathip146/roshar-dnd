@@ -329,15 +329,21 @@ class CombatSessionManager:
         # Log action
         self._log_combat_action(action, result)
 
-        # Generate narrative
-        narrative = self.narrative_gen.generate_action_narrative(
-            action=action,
-            result=result,
-            combat_state=self.combat_state
-        )
-
-        # Display narrative
-        print(f"\n{narrative}")
+        # A REFUSED action did not happen, so do not narrate it. The engine
+        # returns refused=True when it declines (usually: no action left), and a
+        # live combat printed a vivid missed sword swing for every one of them —
+        # fiction contradicting mechanics, which is the exact drift the DM tools
+        # exist to prevent.
+        if result.get("refused"):
+            self.logger.debug(
+                f"   (not narrating a refused {action.get('action_type')})")
+        else:
+            narrative = self.narrative_gen.generate_action_narrative(
+                action=action,
+                result=result,
+                combat_state=self.combat_state
+            )
+            print(f"\n{narrative}")
 
         # Consume action
         self._consume_action(player_char_id, action["action_type"])
@@ -385,15 +391,21 @@ class CombatSessionManager:
         # Log action
         self._log_combat_action(action, result)
 
-        # Generate narrative
-        narrative = self.narrative_gen.generate_action_narrative(
-            action=action,
-            result=result,
-            combat_state=self.combat_state
-        )
-
-        # Display narrative
-        print(f"\n{narrative}")
+        # A REFUSED action did not happen, so do not narrate it. The engine
+        # returns refused=True when it declines (usually: no action left), and a
+        # live combat printed a vivid missed sword swing for every one of them —
+        # fiction contradicting mechanics, which is the exact drift the DM tools
+        # exist to prevent.
+        if result.get("refused"):
+            self.logger.debug(
+                f"   (not narrating a refused {action.get('action_type')})")
+        else:
+            narrative = self.narrative_gen.generate_action_narrative(
+                action=action,
+                result=result,
+                combat_state=self.combat_state
+            )
+            print(f"\n{narrative}")
 
         # Consume action
         self._consume_action(npc_char_id, action["action_type"])
@@ -744,8 +756,18 @@ class CombatSessionManager:
         """
         entity = self.dnd_wrapper.entities[char_id]
         # Plan 1.2: `.value` does not exist on ModifiableValue (see above).
-        return (entity.action_economy.actions.normalized_score > 0 or
-                entity.action_economy.bonus_actions.normalized_score > 0)
+        #
+        # ONLY the action pool. This used to be `actions OR bonus_actions`, and
+        # since every action offered by the menu costs an ACTION, spending it
+        # left bonus_actions untouched at 1 — so this returned True forever and
+        # the turn never ended. A live combat ran 355 iterations across 30 rounds
+        # with the stall-breaker firing on every single turn.
+        #
+        # Bonus actions are not yet offered as separate choices, so counting
+        # them here can only ever produce a turn that cannot end. When bonus
+        # actions become selectable this needs to consider whether an
+        # AFFORDABLE action of either kind actually remains.
+        return entity.action_economy.actions.normalized_score > 0
 
     def _advance_turn(self):
         """
