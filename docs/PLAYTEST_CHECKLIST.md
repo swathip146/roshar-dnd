@@ -25,8 +25,9 @@ rediscover whatever it caught.
 
 | Check | How | Expected |
 |---|---|---|
-| Tests pass | `pytest tests/ -q --ignore=tests/combat -k "not test_gemini_ and not test_tool_calling and not test_api_connection and not test_game_"` | 886 passed |
+| Tests pass | `pytest tests/ -q --ignore=tests/combat -k "not test_gemini_ and not test_tool_calling and not test_api_connection and not test_game_"` | 905 passed |
 | Combat tests pass | `pytest tests/combat/ -q` | 388 passed, 4 failed (all environmental — see below) |
+| **Don't run both at once** | `pytest` and the playtest share `logs/dnd_game_*.log` | run them sequentially |
 | Automated gate | `LLM_PROVIDER=gateway ./scripts/playtest.py --turns 6` | all checks pass, **0 errors logged** |
 | Transport | `python -c "from config.gateway import describe; print(describe())"` | prints the active provider, no secrets |
 
@@ -94,7 +95,7 @@ something different, that is a bug worth reporting.
 | E1 | `Where can I go from here?` | Named exits |
 | E2 | `I travel onwards to the next location.` | Location **changes**, and time advances (~4 hours) |
 | E3 | `What time is it, and when is the next highstorm?` | A day number, part of day, and a countdown that **decreases** as you travel |
-| E4 | `I make camp and take a long rest to recover.` | HP restored to maximum; the day advances |
+| E4 | `I make camp and take a long rest to recover.` | HP restored to maximum **and the clock advances 8 hours**. Narrated-but-not-applied rests were a real bug: there was no rest tool at all until 2026-09-10 |
 
 ### F. NPCs and quests
 
@@ -119,6 +120,32 @@ something different, that is a bug worth reporting.
 | H1 | `save` | Confirmation |
 | H2 | `quit`, restart, `load` | HP, level, XP, equipment, location, quests and Ideal **all preserved** |
 | H3 | `party` | Class is the real class, HP is what it was. Not "Unknown"/0 HP |
+
+---
+
+## 2b. The single most useful thing to watch
+
+**Does the DM call tools, or just talk?** This one signal caught more defects than
+any other check today.
+
+```bash
+tail -f logs/dnd_game_*.log | grep "FUNCTION CALL"
+```
+
+A healthy turn where something *changes* shows a **mutating** tool, not only reads:
+
+```
+FUNCTION CALL: get_world_state          <- reads are fine, but not enough
+FUNCTION CALL: roll_skill_check         <- good: the dice decided
+FUNCTION CALL: travel_to_location       <- good: the world actually changed
+FUNCTION CALL: take_rest                <- good: HP and the clock moved
+```
+
+If you only ever see `get_*` and `retrieve_documents`, the DM is **narrating
+consequences instead of applying them** — the fiction will drift from the sheets and
+you will notice it a turn or two later as HP that never changes or time that never
+passes. That exact pattern was measured across six live turns on 2026-09-10:
+15 read calls, 1 roll, and **zero** mutating calls.
 
 ---
 
