@@ -260,12 +260,28 @@ class TestCombatSessionManager:
         assert reason == "all_hostiles_defeated"
 
     def test_check_end_conditions_all_players_defeated(self, session_manager, mock_dnd_wrapper):
-        """Test checking end conditions when all players defeated"""
-        # Mark player as dead
+        """
+        A player at 0 HP is DYING, not defeated (5e): they still get a death
+        saving throw each turn and a natural 20 revives them, so the encounter
+        must continue. It ends only once they are dead or stably unconscious.
+
+        This test previously asserted the opposite — that 0 HP ended the fight —
+        which is exactly the bug that meant death saves never ran in play.
+        """
         self._drop_to_zero_hp(mock_dnd_wrapper.entities["player_001"])
 
         ended, reason = session_manager._check_end_conditions()
+        assert ended is False, (
+            f"encounter ended while the player was merely dying (reason {reason!r})")
 
+        # Now actually kill them: three failed death saves.
+        character = session_manager.character_manager.characters["player_001"]
+        character.hit_points["current"] = 0
+        for _ in range(3):
+            session_manager.character_manager.roll_death_save("player_001", roll=5)
+        assert character.is_dead is True, "test setup failed to kill the player"
+
+        ended, reason = session_manager._check_end_conditions()
         assert ended is True
         assert reason == "all_players_defeated"
 

@@ -189,9 +189,14 @@ class CombatSessionManager:
                 consecutive_same_actor = 0
                 last_actor_id = current_actor_id
 
-            # Check if actor is alive
+            # Check if actor is alive. At 0 HP a PLAYER is *dying*, not out: 5e
+            # gives them a death saving throw at the start of each of their turns.
+            # This used to skip straight past, so the encounter ended the instant
+            # anyone dropped and death saves never ran in play at all.
             if self._is_combatant_dead(current_actor_id):
-                self.logger.warning(f"   ⚠️ Current actor {current_actor_id} is dead, advancing turn")
+                self._roll_death_save_for(current_actor_id)
+                self.logger.info(
+                    f"   ⚠️ {current_actor_id} is down, advancing turn")
                 self._advance_turn()
                 consecutive_same_actor = 0
                 continue
@@ -771,13 +776,36 @@ class CombatSessionManager:
         self._sync_hp_from_engine()
 
     def _sync_hp_from_engine(self) -> None:
-        """Copy every combatant's live HP from dnd_engine into combat_state."""
+        """
+        Copy every combatant's live HP from dnd_engine into combat_state AND
+        back onto CharacterData.
+
+        The CharacterData half was missing, and that produced two visible bugs:
+
+        1. A 7-round fight that ended in `defeat` left the character untouched on
+           record (still 13/36), so the next turn re-initialised the same
+           encounter against a nominally healthy character and combat restarted.
+        2. `roll_death_save()` reads `character.hit_points["current"]` and returns
+           `{"skipped": "character is conscious"}` for anything above 0 — so even
+           once death saves were wired, they could never fire while the record
+           said the character was at full health.
+
+        `combat_state` is the DISPLAY; `CharacterData` is the RECORD. Writing only
+        the display is what let the damage vanish at the end of the encounter.
+        """
         for cid, state in self.combat_state["combatant_states"].items():
             entity = self.dnd_wrapper.entities.get(cid)
             if entity is None:
                 continue
             try:
-                state["hp_current"] = self.dnd_wrapper.get_entity_current_hp(entity)
+                current = self.dnd_wrapper.get_entity_current_hp(entity)
+                state["hp_current"] = current
+
+                character = self.character_manager.characters.get(cid)
+                if character is not None and isinstance(character.hit_points, dict):
+                    # Never let HP display below 0; 5e treats excess damage as 0
+                    # (barring instant death, which is handled separately).
+                    character.hit_points["current"] = max(0, current)
             except Exception as e:
                 self.logger.debug(f"   Could not sync HP for {cid}: {e}")
 
@@ -846,10 +874,28 @@ class CombatSessionManager:
             print(f"  🔄 ROUND {self.combat_state['round_number']}")
             print(f"{'='*60}")
 
-        # Skip unconscious/dead combatants
-        while self._is_combatant_dead(self._get_current_actor()):
-            self.combat_state["current_turn_index"] += 1
+        # Skip combatants who are down — but a DYING PLAYER still gets its death
+        # saving throw at the start of its turn, so it must not be skipped
+        # silently. This loop used to advance past anyone at 0 HP, which bypassed
+        # the death-save hook in the main loop entirely.
+        #
+        # Bounded, because "everyone still standing is down" is reachable (a lone
+        # hero drops while a hostile lives) and an unbounded while-loop then spins
+        # forever: this cost 1001 iterations and an "unknown" outcome the first
+        # time death saves were wired without touching it.
+        for _ in range(len(self.combat_state["initiative_order"]) + 1):
+            actor = self._get_current_actor()
+            if not self._is_combatant_dead(actor):
+                return
 
+            # Dying player: roll the save, then move on. Once dead or stable the
+            # save is a no-op and this simply advances.
+            self._roll_death_save_for(actor)
+            if not self._is_combatant_dead(actor):
+                # A natural 20 revived them mid-skip; it is their turn.
+                return
+
+            self.combat_state["current_turn_index"] += 1
             if self.combat_state["current_turn_index"] >= len(self.combat_state["initiative_order"]):
                 self.combat_state["current_turn_index"] = 0
                 self.combat_state["round_number"] += 1
@@ -870,11 +916,16 @@ class CombatSessionManager:
 
     def _check_end_conditions(self) -> Tuple[bool, Optional[str]]:
         """
-        Check end conditions using dnd_engine health system.
+        Check end conditions.
 
-        **OPTIMIZED (2026-01-03):** Uses entity.health.is_dead()/is_unconscious() instead
-        of manual HP checking. Enables proper D&D 5e death saves, temporary HP, and
-        damage resistance tracking.
+        Hostiles: out at 0 HP. Players: out only once DEAD or STABLE — at 0 HP
+        they are dying and a natural 20 or an ally's heal can still bring them
+        back, so ending the encounter there is wrong and skipped death saves
+        entirely.
+
+        (An earlier docstring here claimed dnd_engine "enables proper D&D 5e death
+        saves". It does not — its Health block has no death-save API at all.
+        `CharacterManager.roll_death_save()` is the authority.)
 
         Returns:
             (combat_ended: bool, reason: str)
@@ -905,7 +956,7 @@ class CombatSessionManager:
         if all_hostiles_dead and hostile_ids:  # Added check for empty hostile_ids
             return (True, "all_hostiles_defeated")
 
-        # Check all players defeated
+        # Check all players out of the fight (dead or stable — NOT merely at 0 HP)
         player_ids = [
             cid for cid, state in self.combat_state["combatant_states"].items()
             if not state["is_hostile"]
@@ -913,17 +964,17 @@ class CombatSessionManager:
 
         self.logger.debug(f"   Players: {player_ids}")
 
-        player_dead_status = {}
+        player_out_status = {}
         for pid in player_ids:
-            is_dead = self._is_combatant_dead(pid)
-            player_dead_status[pid] = is_dead
-            self.logger.debug(f"      {pid}: dead={is_dead}")
+            is_out = self._is_out_of_the_fight(pid)
+            player_out_status[pid] = is_out
+            self.logger.debug(f"      {pid}: out={is_out}")
 
-        all_players_dead = all(player_dead_status.values()) if player_ids else False
+        all_players_out = all(player_out_status.values()) if player_ids else False
 
-        self.logger.debug(f"   All players dead: {all_players_dead}")
+        self.logger.debug(f"   All players out: {all_players_out}")
 
-        if all_players_dead and player_ids:  # Added check for empty player_ids
+        if all_players_out and player_ids:  # Added check for empty player_ids
             return (True, "all_players_defeated")
 
         return (False, None)
@@ -952,13 +1003,18 @@ class CombatSessionManager:
 
     def _is_combatant_dead(self, char_id: str) -> bool:
         """
-        Check if combatant is dead/unconscious using dnd_engine.
+        Is this combatant at 0 HP?
 
-        **SIMPLIFIED (2026-01-03):** Uses entity.health system exclusively. No fallback.
-        D&D 5e death save mechanics are handled entirely by dnd_engine.
+        The name is historical and slightly wrong: for a PLAYER, 0 HP means
+        *dying*, not dead. Use `_is_out_of_the_fight()` when deciding whether the
+        encounter is over.
+
+        (A previous docstring claimed "D&D 5e death save mechanics are handled
+        entirely by dnd_engine". They are not — the engine has no death-save API.
+        See `_roll_death_save_for()`.)
 
         Returns:
-            True if combatant is unconscious or dead, False otherwise
+            True if the combatant is at or below 0 HP.
         """
         entity = self.dnd_wrapper.entities[char_id]
         # Get constitution modifier from entity (modifier is a property, not a method)
@@ -975,6 +1031,101 @@ class CombatSessionManager:
 
         # Dead/unconscious if current HP <= 0
         return current_hp <= 0
+
+    def _roll_death_save_for(self, char_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Roll one death saving throw for a downed PLAYER (5e: start of its turn).
+
+        Monsters do not make death saves — a monster at 0 HP is simply dead — so
+        this is players only.
+
+        Authority is `CharacterManager.roll_death_save()`, which implements RAW:
+        DC 10, three successes stabilise, three failures kill, natural 20 revives
+        at 1 HP, natural 1 counts as two failures. Note that `dnd_engine` has NO
+        death-save support whatsoever (grep its Health block) — two docstrings in
+        this file claimed "death saves are handled entirely by dnd_engine", which
+        was simply untrue and is why the mechanic silently did not exist.
+
+        It reads `character.hit_points["current"]`, so `_sync_hp_from_engine()`
+        must have written the record first, or every call returns
+        `{"skipped": "character is conscious"}`.
+        """
+        if self.combat_state["combatant_states"].get(char_id, {}).get("is_hostile"):
+            return None
+
+        character = self.character_manager.characters.get(char_id)
+        if character is None:
+            return None
+        # `is True` — see _is_out_of_the_fight on the Mock() hazard.
+        if (getattr(character, "is_dead", False) is True
+                or getattr(character, "is_stable", False) is True):
+            return None
+        if not isinstance(getattr(character, "hit_points", None), dict):
+            # A Mock or a malformed character: no sheet to roll against.
+            return None
+
+        # The record must reflect the engine before the save can fire.
+        self._sync_hp_from_engine()
+
+        result = self.character_manager.roll_death_save(char_id)
+        if not isinstance(result, dict) or "roll" not in result:
+            return result
+
+        state = self.combat_state["combatant_states"].get(char_id, {})
+        if result.get("revived"):
+            # Back on 1 HP: tell the engine too, or it still reports 0 and the
+            # combatant is skipped again next turn.
+            self._heal_engine_to(char_id, 1)
+            state["hp_current"] = 1
+            print(f"\n✨ {character.name} rolls a 20 and rises at 1 HP!")
+        elif result.get("dead"):
+            print(f"\n☠️  {character.name} has died "
+                  f"({result.get('failures')} failed death saves).")
+        elif result.get("stable"):
+            print(f"\n🛡️  {character.name} is stable but unconscious.")
+        else:
+            print(f"\n🎲 {character.name} death save: rolled {result['roll']} — "
+                  f"{result.get('successes', 0)}✓ / {result.get('failures', 0)}✗")
+
+        self.combat_state.setdefault("death_saves", []).append(
+            {"round": self.combat_state["round_number"], "actor": char_id, **result})
+        return result
+
+    def _heal_engine_to(self, char_id: str, hp: int) -> None:
+        """Set a combatant's engine HP to `hp` (used when a nat 20 revives)."""
+        entity = self.dnd_wrapper.entities.get(char_id)
+        if entity is None:
+            return
+        try:
+            current = self.dnd_wrapper.get_entity_current_hp(entity)
+            if current < hp:
+                entity.health.heal(hp - current)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Could not revive {char_id} in the engine: {e}")
+
+    def _is_out_of_the_fight(self, char_id: str) -> bool:
+        """
+        Can this combatant no longer influence the encounter?
+
+        Distinct from `_is_combatant_dead()` (which is really "is at 0 HP"): a
+        player at 0 HP is *dying* and can still be revived by a nat 20 or a heal,
+        so the encounter is NOT over. It is over for them only once they are dead
+        or stably unconscious.
+        """
+        if self.combat_state["combatant_states"].get(char_id, {}).get("is_hostile"):
+            return self._is_combatant_dead(char_id)
+
+        character = self.character_manager.characters.get(char_id)
+        if character is not None:
+            # `is True`, not truthiness: these flags must be real booleans. A
+            # Mock() character auto-creates `is_dead` as a truthy Mock attribute,
+            # which silently reported every player as dead and ended combat on
+            # round 1 — the same mock hazard plan 1.3 exists to eliminate.
+            if getattr(character, "is_dead", False) is True:
+                return True
+            if getattr(character, "is_stable", False) is True:
+                return True
+        return False
 
     def _log_combat_action(self, action: Dict, result: Dict):
         """Log action to combat log"""
