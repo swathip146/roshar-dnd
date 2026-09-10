@@ -134,7 +134,7 @@ class TestAgentStepBudgets:
 
     The playtest log shows "Agent reached maximum agent steps of 1, stopping."
     once per turn, which looks alarming but is the INTERFACE agent doing its
-    single classification call by design. The scenario agent has 6 steps and 13
+    single classification call by design. The scenario agent has a real step budget and all
     tools and does not hit its ceiling. These assertions make a real regression
     (the scenario agent silently dropping to one step, which would disable the
     Phase 3.1/3.2 tool loop) fail loudly instead of hiding in the same warning.
@@ -143,7 +143,13 @@ class TestAgentStepBudgets:
     def test_scenario_agent_has_a_real_tool_loop(self):
         from agents.scenario_generator_agent import create_scenario_generator_agent
         agent = create_scenario_generator_agent()
-        assert len(agent.tools) == 13, "DM tools missing — the loop is decorative"
+        # Against the registry, not a hardcoded count — see the same fix in
+        # test_two_phase_turn.py.
+        from agents.dm_tools import DM_TOOLS
+
+        assert agent.tools, "DM tools missing — the loop is decorative"
+        assert len(agent.tools) == len(DM_TOOLS), (
+            f"agent has {len(agent.tools)} tools, registry has {len(DM_TOOLS)}")
         assert agent.max_agent_steps >= 6, (
             "the scenario agent needs several steps to inspect state, look up a "
             "rule, roll, then narrate")

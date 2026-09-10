@@ -68,7 +68,15 @@ class TestPhasesAreSeparated:
         from agents.scenario_generator_agent import create_scenario_generator_agent
 
         agent = create_scenario_generator_agent()
-        assert len(agent.tools) == 13, "adjudication needs the DM tools"
+        # Assert against the REGISTRY, not a hardcoded count: pinning "== 13" made
+        # this fail the moment a tool was added (stabilize_dying), with the
+        # misleading message "adjudication needs the DM tools" while the agent had
+        # all of them. The invariant is "the agent gets every registered tool".
+        from agents.dm_tools import DM_TOOLS
+
+        assert agent.tools, "adjudication needs the DM tools"
+        assert len(agent.tools) == len(DM_TOOLS), (
+            f"agent has {len(agent.tools)} tools, registry has {len(DM_TOOLS)}")
         config = agent.chat_generator.generation_config
         assert "response_schema" not in config, \
             "a schema here makes every tool call 400"
