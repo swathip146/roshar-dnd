@@ -598,6 +598,51 @@ def apply_healing(amount: int, actor: str = "") -> Dict[str, Any]:
 
 
 @tool
+def stabilize_dying(actor: str = "") -> Dict[str, Any]:
+    """
+    Stabilise a dying character, e.g. after a successful Medicine check (DC 10).
+
+    Use this when someone tends a companion who is at 0 hit points. A stabilised
+    character stops rolling death saves and is no longer at risk of dying, but
+    remains unconscious at 0 HP until healed.
+
+    Args:
+        actor: Character id; defaults to the acting party member
+
+    Returns:
+        stabilized, is_stable, is_dead, hit_points
+    """
+    try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
+        manager = _need("character_manager")
+        actor_id = _active_actor(actor)
+        character = manager.characters.get(actor_id)
+        if character is None:
+            return {"error": f"unknown character {actor_id!r}"}
+
+        if character.hit_points.get("current", 0) > 0:
+            return {"stabilized": False,
+                    "note": f"{character.name} is conscious and does not need "
+                            f"stabilising."}
+        if getattr(character, "is_dead", False) is True:
+            return {"stabilized": False,
+                    "note": f"{character.name} is already dead; stabilising "
+                            f"cannot help."}
+
+        stabilized = manager.stabilize(actor_id)
+        return {"actor": actor_id, "name": character.name,
+                "stabilized": bool(stabilized),
+                "is_stable": getattr(character, "is_stable", False),
+                "is_dead": getattr(character, "is_dead", False),
+                "hit_points": dict(character.hit_points),
+                "note": ("Stabilised: no more death saves, but still "
+                         "unconscious at 0 HP until healed.")}
+    except Exception as e:
+        logger.warning(f"⚠️ stabilize_dying failed: {e}")
+        return {"error": str(e)}
+
+
+@tool
 def spend_stormlight(amount: int, actor: str = "") -> Dict[str, Any]:
     """
     Spend Stormlight, refusing the spend if the character cannot afford it.
@@ -726,6 +771,7 @@ DM_TOOLS = [
     search_lore,
     apply_damage,
     apply_healing,
+    stabilize_dying,
     spend_stormlight,
     advance_quest,
     award_experience,

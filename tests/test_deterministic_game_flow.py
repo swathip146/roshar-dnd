@@ -1441,3 +1441,89 @@ class TestRollingSummarization:
         assert "narrative_chronicle" in engine.game_state.narrative_context
         restored = dict(engine.game_state.narrative_context)
         assert restored["narrative_chronicle"] == before
+
+
+class TestADyingAllyCanBeSaved:
+    """
+    `CharacterManager.stabilize()` had ZERO callers anywhere — the sixth mechanic
+    found built-but-unreachable. 5e lets a companion tend someone at 0 HP with a
+    DC 10 Medicine check; without a caller the only escape from dying was a natural
+    20 on your own death save, so an unconscious ally was effectively doomed.
+
+    `stabilize_dying` is now a DM tool, so the model can reach it when the fiction
+    calls for it.
+    """
+
+    def _wire(self, manager):
+        from agents import dm_tools
+
+        dm_tools.clear_dm_tool_context()
+        dm_tools.set_dm_tool_context(character_manager=manager)
+        return getattr(dm_tools.stabilize_dying, "function",
+                       dm_tools.stabilize_dying)
+
+    def test_the_tool_is_registered(self):
+        from agents import dm_tools
+
+        assert "stabilize_dying" in dm_tools.dm_tool_names(), (
+            "the model cannot stabilise anyone it cannot call")
+
+    def test_a_dying_character_is_stabilised(self, manager):
+        call = self._wire(manager)
+        manager.characters["Aggi"].hit_points["current"] = 0
+        manager.roll_death_save("Aggi", roll=5)
+
+        result = call()
+        assert result["stabilized"] is True
+        assert manager.characters["Aggi"].is_stable is True
+
+    def test_stabilising_clears_failed_death_saves(self, manager):
+        """Otherwise a later hit resumes the count from where it left off."""
+        call = self._wire(manager)
+        character = manager.characters["Aggi"]
+        character.hit_points["current"] = 0
+        manager.roll_death_save("Aggi", roll=5)
+        manager.roll_death_save("Aggi", roll=5)
+        assert character.death_save_failures == 2
+
+        call()
+        assert character.death_save_failures == 0
+
+    def test_a_stabilised_character_stays_unconscious(self):
+        """
+        5e: stabilised is not healed. Waking them up would make the mechanic a
+        free full heal.
+        """
+        manager = CharacterManager()
+        manager.add_character(_sheet("Aggi"))
+        call = self._wire(manager)
+        manager.characters["Aggi"].hit_points["current"] = 0
+        call()
+        assert manager.characters["Aggi"].hit_points["current"] == 0
+
+    def test_a_conscious_character_is_refused(self):
+        """Both directions — this must not be usable as a buff."""
+        manager = CharacterManager()
+        manager.add_character(_sheet("Aggi"))
+        call = self._wire(manager)
+        result = call()
+        assert result["stabilized"] is False
+        assert "conscious" in result["note"]
+
+    def test_a_dead_character_cannot_be_stabilised(self):
+        manager = CharacterManager()
+        manager.add_character(_sheet("Aggi"))
+        call = self._wire(manager)
+        character = manager.characters["Aggi"]
+        character.hit_points["current"] = 0
+        for _ in range(3):
+            manager.roll_death_save("Aggi", roll=5)
+        assert character.is_dead is True
+
+        result = call()
+        assert result["stabilized"] is False
+        assert "dead" in result["note"].lower()
+
+    def test_an_unknown_character_is_graceful(self, manager):
+        call = self._wire(manager)
+        assert "error" in call(actor="nobody_at_all")
