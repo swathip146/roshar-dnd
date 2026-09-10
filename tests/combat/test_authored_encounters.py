@@ -215,3 +215,94 @@ class TestGeneratorEmitsTheNewSchema:
 
         source = inspect.getsource(campaign_generator)
         assert '"enemies": []' in source
+
+
+class TestAForcedEncounterAlwaysFindsARoster:
+    """
+    `force_combat` skipped the trigger check but was never passed down to enemy
+    parsing. So a forced fight in a PEACEFUL scene asked the LLM to extract enemies
+    from prose containing none — "✅ Successfully extracted 0 enemy types" — and the
+    encounter was abandoned with "Combat initialization failed or no combat
+    trigger". A live run forced combat on turn 2 and no fight happened, while the
+    log said "4 authored encounter(s) available".
+
+    Keyword matching stays strict for ORGANIC play: an encounter must not fire
+    merely for being in the right place. But when the caller has already decided
+    there IS a fight, falling back to an authored roster beats failing.
+    """
+
+    def _initializer(self, source="data/current_campaign/shards_of_honor.json"):
+        from components.combat.combat_initializer import CombatInitializer
+        from components.game_engine import GameEngine
+        from config.logging_config import get_logger
+
+        class _Campaign:
+            source_file = source
+
+        initializer = CombatInitializer.__new__(CombatInitializer)
+        initializer.game_engine = GameEngine()
+        initializer.game_engine.campaign_config = _Campaign()
+        initializer._encounters_cache = None
+        initializer.logger = get_logger("test")
+        return initializer
+
+    PEACEFUL = {"scene": "A quiet starlit ridge. Nothing stirs.",
+                "gm_notes": "", "choices": []}
+
+    def test_a_forced_encounter_yields_enemies(self):
+        enemies = self._initializer()._parse_enemies_from_scenario(
+            self.PEACEFUL, force_combat=True)
+        assert enemies, (
+            "a forced encounter found no roster in a peaceful scene — combat "
+            "would be abandoned")
+
+    def test_the_roster_comes_from_the_campaign(self):
+        """Not invented by the LLM: an authored roster cannot drift."""
+        enemies = self._initializer()._parse_enemies_from_scenario(
+            self.PEACEFUL, force_combat=True)
+        assert any("voidbringer" in (e.get("name") or "").lower()
+                   for e in enemies), enemies
+
+    def test_the_authored_cr_is_preserved(self):
+        """The whole point of authoring: difficulty stays as designed."""
+        enemies = self._initializer()._parse_enemies_from_scenario(
+            self.PEACEFUL, force_combat=True)
+        assert all(e.get("estimated_cr") for e in enemies)
+        assert max(e["estimated_cr"] for e in enemies) <= 1, (
+            f"the fallback picked a hard encounter: {enemies}")
+
+    def test_the_fallback_prefers_an_encounter_with_enemies(self):
+        """A social/non-combat encounter is useless for a forced fight."""
+        encounter = self._initializer()._fallback_authored_encounter()
+        assert encounter is not None
+        assert encounter.get("enemies"), encounter
+
+    def test_organic_play_is_unaffected(self):
+        """
+        Both directions. Without force_combat a peaceful scene must NOT summon an
+        authored encounter — otherwise a fight breaks out for being in the right
+        place, which is what the keyword requirement exists to prevent.
+        """
+        initializer = self._initializer()
+        matched = initializer._match_authored_encounter(self.PEACEFUL)
+        assert matched is None, (
+            f"a peaceful scene matched encounter {matched.get('id')} by keyword")
+
+    def test_a_campaign_with_no_encounters_returns_none(self):
+        """Must degrade, not raise, if the campaign authored no fights."""
+        initializer = self._initializer(source="does/not/exist.json")
+        assert initializer._fallback_authored_encounter() is None
+        assert initializer._parse_enemies_from_scenario(
+            self.PEACEFUL, force_combat=True) is not None
+
+    def test_a_keyword_match_still_wins(self):
+        """The fallback must not override a real, specific match."""
+        initializer = self._initializer()
+        combat_scene = {
+            "scene": "Voidbringers ambush the border town! Civilians scatter.",
+            "gm_notes": "voidbringer attack on the border town",
+            "choices": [{"title": "Defend the civilians",
+                         "combat_trigger": True}]}
+        enemies = initializer._parse_enemies_from_scenario(
+            combat_scene, force_combat=True)
+        assert enemies, "a keyword-matching scene produced no enemies"
