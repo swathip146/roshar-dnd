@@ -847,32 +847,7 @@ class CombatSessionManager:
 
         # Check if new round
         if self.combat_state["current_turn_index"] >= len(self.combat_state["initiative_order"]):
-            self.combat_state["current_turn_index"] = 0
-            self.combat_state["round_number"] += 1
-
-            # Reset action economy for all combatants via dnd_engine
-            for char_id in self.combat_state["active_combatants"]:
-                entity = self.dnd_wrapper.entities.get(char_id)
-                if entity and hasattr(entity, 'action_economy'):
-                    # Plan 1.2: ActionEconomy has no reset(); it is
-                    # reset_all_costs(). This raised AttributeError on EVERY
-                    # round transition.
-                    entity.action_economy.reset_all_costs()
-
-                    # TODO: Trigger TURN_START events for conditions
-                    # This is where dnd_engine's event system would fire TURN_START events
-                    # for conditions that have turn-based duration (e.g., Blinded, Stormlight Infused)
-
-                # Sync to combat state
-                char_state = self.combat_state["combatant_states"][char_id]
-                char_state["actions_remaining"] = 1
-                char_state["bonus_actions_remaining"] = 1
-                char_state["reaction_available"] = True
-
-            self.logger.info(f"🔄 Round {self.combat_state['round_number']} begins")
-            print(f"\n{'='*60}")
-            print(f"  🔄 ROUND {self.combat_state['round_number']}")
-            print(f"{'='*60}")
+            self._begin_new_round()
 
         # Skip combatants who are down — but a DYING PLAYER still gets its death
         # saving throw at the start of its turn, so it must not be skipped
@@ -897,8 +872,46 @@ class CombatSessionManager:
 
             self.combat_state["current_turn_index"] += 1
             if self.combat_state["current_turn_index"] >= len(self.combat_state["initiative_order"]):
-                self.combat_state["current_turn_index"] = 0
-                self.combat_state["round_number"] += 1
+                # A round boundary crossed while SKIPPING must reset the economy
+                # too. My first version only bumped `round_number` here, so once a
+                # combatant died and the skip loop started wrapping the round,
+                # nothing was ever reset again: every survivor's attack was refused
+                # for "no action available" forever. Measured: 496 rounds, 978
+                # refusals, outcome `unknown`, with a live goblin and a 12 HP hero
+                # unable to touch each other.
+                self._begin_new_round()
+
+    def _begin_new_round(self) -> None:
+        """
+        Start a new round: reset every combatant's action economy.
+
+        Extracted because there are TWO paths that cross a round boundary — the
+        normal advance and the skip loop above — and only one of them used to
+        reset. A round that begins without resetting the economy is a permanent
+        stalemate.
+        """
+        self.combat_state["current_turn_index"] = 0
+        self.combat_state["round_number"] += 1
+
+        for char_id in self.combat_state["active_combatants"]:
+            entity = self.dnd_wrapper.entities.get(char_id)
+            if entity and hasattr(entity, 'action_economy'):
+                # Plan 1.2: ActionEconomy has no reset(); it is reset_all_costs().
+                entity.action_economy.reset_all_costs()
+
+                # TODO: Trigger TURN_START events for conditions with turn-based
+                # duration (e.g. Blinded, Stormlight Infused).
+
+            char_state = self.combat_state["combatant_states"].get(char_id)
+            if char_state is not None:
+                char_state["actions_remaining"] = 1
+                char_state["bonus_actions_remaining"] = 1
+                char_state["reaction_available"] = True
+
+        self.logger.info(f"🔄 Round {self.combat_state['round_number']} begins")
+        print(f"\n{'='*60}")
+        print(f"  🔄 ROUND {self.combat_state['round_number']}")
+        print(f"{'='*60}")
 
     def _is_combat_over(self) -> bool:
         """Check if combat should end"""
