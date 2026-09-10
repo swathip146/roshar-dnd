@@ -277,14 +277,24 @@ class TestFullEncounterReachesOutcome:
             "hit_points": {"current": 40, "maximum": 40, "temporary": 0},
             "armor_class": 16, "character_class": "Fighter",
             "race": "Human", "background": "Soldier",
+            # A real weapon and proficiency: without these the hero fights
+            # unarmed at ability modifier alone (~30% vs AC 14), which turns a
+            # decisive encounter into a grind and makes timing assertions flaky.
+            "equipment": ["Longsword"], "proficiency_bonus": 3,
         })
+        # 22 HP / AC 14, matching the Voidbringer Scouts of a live encounter.
+        # This was 4 HP / AC 10, which DIED TO ONE HIT — so an encounter ended in
+        # ~2 rounds and the turn-loop stall never had time to show. The live
+        # combat with these numbers ran 355 iterations across 30 rounds while
+        # three tests here reported success.
         mgr.add_character({
-            "character_id": "goblin", "name": "Goblin", "level": 1,
-            "ability_scores": {"strength": 8, "dexterity": 14, "constitution": 10,
-                               "intelligence": 10, "wisdom": 8, "charisma": 8},
-            "hit_points": {"current": 4, "maximum": 4, "temporary": 0},
-            "armor_class": 10, "character_class": "Goblin",
+            "character_id": "goblin", "name": "Goblin", "level": 2,
+            "ability_scores": {"strength": 10, "dexterity": 14, "constitution": 12,
+                               "intelligence": 10, "wisdom": 10, "charisma": 8},
+            "hit_points": {"current": 22, "maximum": 22, "temporary": 0},
+            "armor_class": 14, "character_class": "Goblin",
             "race": "Goblin", "background": "Raider",
+            "equipment": ["Spear"], "proficiency_bonus": 2,
         })
 
         class _StubEngine:
@@ -308,7 +318,7 @@ class TestFullEncounterReachesOutcome:
                 "hero": {"hp_current": 40, "hp_max": 40, "is_hostile": False,
                          "actions_remaining": 1, "bonus_actions_remaining": 1,
                          "reaction_available": True},
-                "goblin": {"hp_current": 4, "hp_max": 4, "is_hostile": True,
+                "goblin": {"hp_current": 22, "hp_max": 22, "is_hostile": True,
                            "actions_remaining": 1, "bonus_actions_remaining": 1,
                            "reaction_available": True},
             },
@@ -673,3 +683,72 @@ class TestRosharState:
     def test_normal_engine_behaviour_is_unaffected(self, radiant):
         """The Roshar mirror must not break ordinary HP handling."""
         assert radiant.get_entity_current_hp(radiant.entities["kal"]) == 40
+
+
+class TestEncounterIsEfficientNotJustTerminating:
+    """
+    The three tests above passed while a live combat ran 355 iterations across
+    30 rounds without resolving. Two reasons they could not fail:
+
+      1. The stall-breaker force-advances a stuck turn, so combat ALWAYS
+         terminates — just 4x slower. `rounds < 100` cannot tell "working" from
+         "limping"; the live stall was 30 rounds, comfortably under 100.
+      2. The fixture used a 4 HP / AC 10 goblin that died to one hit, so the
+         encounter ended before wasted turns accumulated visibly.
+
+    Verified by reintroducing the `actions OR bonus_actions` bug: all three
+    passed. These assert on efficiency instead, so the same bug fails here.
+    """
+
+    def test_the_stall_breaker_never_fires(self, monkeypatch):
+        """
+        It is a PRODUCTION safety net. If it fires in a test, some actor's
+        economy is not decreasing and the turn logic is broken.
+        """
+        manager, _ = TestFullEncounterReachesOutcome()._build(monkeypatch)
+        result = manager.run_combat_loop()
+        assert result["stall_breaks"] == 0, (
+            f"the stall-breaker fired {result['stall_breaks']}x — a turn is not "
+            f"ending on its own")
+
+    def test_iterations_match_rounds_times_combatants(self, monkeypatch):
+        """
+        A healthy encounter runs about one iteration per combatant per round.
+        The live stall ran ~4x that. Allow 2x headroom for a final partial round
+        and for an actor legitimately acting twice.
+        """
+        manager, _ = TestFullEncounterReachesOutcome()._build(monkeypatch)
+        result = manager.run_combat_loop()
+        combatants = len(manager.combat_state["active_combatants"])
+        budget = max(4, result["rounds"] * combatants * 2)
+        assert result["iterations"] <= budget, (
+            f"{result['iterations']} iterations for {result['rounds']} rounds "
+            f"and {combatants} combatants — roughly "
+            f"{result['iterations'] / max(1, result['rounds'] * combatants):.1f}x "
+            f"the expected work")
+
+    def test_a_real_enemy_still_dies(self, monkeypatch):
+        """
+        The old fixture's 4 HP goblin proved nothing. 22 HP / AC 14 needs several
+        connecting hits, so this fails if attacks cannot land — the unarmed and
+        missing-proficiency bugs both showed up as an unkillable enemy.
+        """
+        manager, wrapper = TestFullEncounterReachesOutcome()._build(monkeypatch)
+        result = manager.run_combat_loop()
+        assert result["outcome"] in ("victory", "defeat")
+        goblin = manager.combat_state["combatant_states"]["goblin"]
+        hero = manager.combat_state["combatant_states"]["hero"]
+        assert goblin["hp_current"] <= 0 or hero["hp_current"] <= 0, (
+            f"nobody was defeated: goblin {goblin['hp_current']}, "
+            f"hero {hero['hp_current']}")
+
+    def test_rounds_are_plausible_for_the_matchup(self, monkeypatch):
+        """
+        A +4 attacker against AC 14 hits ~55%, so 22 HP falls in a handful of
+        rounds. Ten-plus rounds means attacks are not connecting.
+        """
+        manager, _ = TestFullEncounterReachesOutcome()._build(monkeypatch)
+        result = manager.run_combat_loop()
+        assert result["rounds"] <= 12, (
+            f"{result['rounds']} rounds to resolve a 22 HP enemy — attacks are "
+            f"probably not landing")
