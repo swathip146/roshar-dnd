@@ -1591,3 +1591,29 @@ honest, and `scripts/playtest.py` is what proves the product reaches them.
 - **When a test passes with the bug restored, the test is wrong.** My first
   skip-path test did: with one hostile the index wraps on the *normal* path and the
   skip loop never runs. It needed a hero followed by two dead hostiles.
+
+### Live playtest: green *(2026-09-10)*
+
+```
+PLAYTEST: 48 passed, 0 failed, 0 skipped
+```
+
+Up from 44/4 at the start of this session, and 0 errors in the log (was 11). The
+run that produced it is the first in which the mechanics are visibly correct in
+play, not merely in tests:
+
+```
+☠️  Aggi has died (3 failed death saves).
+💀 DEFEAT! You were overwhelmed after 6 rounds...
+```
+
+Death saves ran, resolved over three of Aggi's turns, and killed the character by
+the rules — a mechanic that had zero production callers this morning. Also green
+for the first time: **3 distinct narrations across 3 turns** (combat no longer
+overwrites every turn with the same defeat), **3 narrative beats recorded** (a
+fight now enters the DM's memory), **no placeholder text**, and **no errors
+logged**.
+
+Standing gate for future work: `LLM_PROVIDER=gateway ./scripts/playtest.py
+--turns 3` must stay at 48/48. Four of the five §14e defects were integration
+defects invisible to 1,200 unit tests, so this run is not a formality.
