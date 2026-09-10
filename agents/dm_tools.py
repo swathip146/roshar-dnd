@@ -54,7 +54,11 @@ def set_dm_tool_context(*, game_engine=None, character_manager=None,
 
 def clear_dm_tool_context() -> None:
     _CONTEXT.clear()
+    # Clear the per-turn read state too. Clearing the cache but NOT the counters
+    # left the stop-polling guard tripped: a fresh context would answer the very
+    # first read with "you have already called this 2 times" and refuse the data.
     _READ_CACHE.clear()
+    _READ_COUNTS.clear()
 
 
 # Per-turn cache for READ-ONLY state tools.
