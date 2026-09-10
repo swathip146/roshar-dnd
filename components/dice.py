@@ -212,6 +212,7 @@ class DiceRoller:
         static_total = 0
         rolls: List[int] = []
         kept_detail: List[str] = []
+        unparsed: List[str] = []
 
         # Split into signed terms: 1d8, +1d6, -1, +3 ...
         terms = re.findall(r"[+-]?[^+-]+", expr_clean) if expr_clean else []
@@ -256,6 +257,38 @@ class DiceRoller:
                 continue
 
             logger.warning(f"🎲 Ignoring unparseable term '{term}' in '{expr}'")
+            unparsed.append(term)
+
+        # An expression NOTHING in it could be parsed is not a 0-damage roll — it
+        # is a bug in the caller or an unsupported notation, and returning 0
+        # silently is the worst possible answer.
+        #
+        # Measured 2026-09-10: `4d6e6` (exploding), `1d20r1` (reroll), `4d6!` and
+        # even the literal string "garbage" all returned total_damage 0 with
+        # rolls=[] and no error. A spell written with exploding dice would deal NO
+        # damage and nothing would report it — the same silent-zero shape as the
+        # `success`-always-True bug that took a whole session to find.
+        #
+        # Supported: NdM, keep-highest/lowest (kh/kl), signed constants, whitespace
+        # and [damage-type] annotations. NOT supported: exploding (e/!), reroll (r),
+        # and anything else d20 handles — see plan 0.11.
+        # Also raise when SOME terms parsed and others did not: `1d6+2d6e6`
+        # silently returned only the 1d6, so a two-part damage expression quietly
+        # lost half its dice. A partly-understood expression is not a usable one.
+        # An EMPTY expression is not zero damage either — `dm_tools.roll_damage`
+        # forwards whatever the LLM wrote, and "" or "0d6" reaching here means the
+        # model omitted the dice, not that the attack was harmless.
+        if not rolls and not static_total and not unparsed:
+            raise ValueError(
+                f"Empty or zero dice expression {damage_dice!r} — no dice to roll. "
+                f"A damage roll must specify dice (e.g. '1d8+3').")
+
+        if unparsed:
+            raise ValueError(
+                f"Unparseable dice expression {damage_dice!r} "
+                f"(unrecognised: {unparsed}). Supported: NdM, kh/kl, +/- "
+                f"constants, [damage-type] annotations. Exploding and reroll "
+                f"notation are not supported — see plan 0.11.")
 
         # `modifier` is an ADDITIONAL caller-supplied bonus, distinct from any
         # constant embedded in the expression.

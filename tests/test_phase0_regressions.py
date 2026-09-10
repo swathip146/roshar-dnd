@@ -391,11 +391,27 @@ class TestDamageRollParser:
     def roller(self):
         return DiceRoller()
 
-    @pytest.mark.parametrize("expr", ["4d6kh3", "1d6 + 2", "2d6[fire]", "4d6kl1", "5", ""])
+    @pytest.mark.parametrize("expr", ["4d6kh3", "1d6 + 2", "2d6[fire]", "4d6kl1", "5"])
     def test_previously_crashing_expressions_parse(self, roller, expr):
         """These raised ValueError before the fix."""
         result = roller.damage_roll(expr)
         assert isinstance(result["total_damage"], int)
+
+    def test_an_empty_expression_now_raises_deliberately(self):
+        """
+        `""` was in the list above, on the principle "must not crash". That was
+        reversed on 2026-09-10 after measuring the alternative: `dm_tools.roll_damage`
+        forwards whatever the LLM wrote, so an empty expression means the model
+        OMITTED the dice — not that the attack was harmless. Returning 0 damage
+        silently is the same failure shape as `success`-always-True.
+
+        The tool wraps this and returns {"error": ...}, so the DM learns the
+        expression was rejected instead of quietly dealing nothing.
+        """
+        roller = DiceRoller()
+        for expr in ("", "0d6", "0"):
+            with pytest.raises(ValueError):
+                roller.damage_roll(expr)
 
     def test_negative_modifier_is_reported_not_hidden(self, roller):
         """

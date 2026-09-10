@@ -186,6 +186,22 @@ def check_dice_and_checks(report: Report, game) -> None:
     report.check("Dice parser handles real 5e notation", ok,
                  "4d6kh3, spaces, [type] annotations, negatives")
 
+    # Unsupported notation must FAIL LOUDLY, not silently deal 0 damage. Measured
+    # before the fix: `4d6e6`, `1d20r1` and even "garbage" all returned
+    # total_damage 0 with no error, so a spell written with exploding dice would
+    # deal nothing and nobody would know.
+    loud = True
+    for expression in ("4d6e6", "1d20r1", "1d6+2d6e6"):
+        try:
+            roller.damage_roll(expression)
+            loud = False
+        except ValueError:
+            pass
+        except Exception:
+            loud = False
+    report.check("Unsupported dice notation fails loudly", loud,
+                 "exploding/reroll notation raises instead of dealing 0 damage")
+
 
 def check_progression(report: Report, game) -> None:
     """
