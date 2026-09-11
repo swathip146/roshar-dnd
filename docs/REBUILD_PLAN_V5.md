@@ -21,8 +21,8 @@
 > |---|---|
 > | Phases 0-4 | ✅ done, except **2.10** and the Avrae automation schema |
 > | Unwired subsystems | ✅ none remain (was 5) |
-> | Tests | **879 non-combat + 378 combat** (was 380 + 174 at the audit) |
-> | Live playtest | ✅ **49/49, 0 errors logged** (was 44/4 with 11 errors) |
+> | Tests | **922 non-combat + 397 combat** (was 380 + 174 at the audit) |
+> | Live playtest | ✅ **53/53, 0 errors logged** (was 44/4 with 11 errors) |
 > | Remaining work | §14a "Ranked open work" — 2 open items, 3 deferred by decision |
 >
 > The live gate is `LLM_PROVIDER=floodgate ./scripts/playtest.py --turns 3`, and it
@@ -865,7 +865,8 @@ before continuing — that is precisely the failure mode v4.1 hit.
 | 2026-09-10 | 844 | 371 | 48 / 0 | stalemate + combat-turn-reporting fixed (§14e); **all green** |
 | 2026-09-10 | 854 | 371 | 48 / 0 | dice fail loudly instead of dealing 0 damage |
 | 2026-09-10 | 873 | 371 | — | **tool results now reach the model** (§14g) — the tool-call loop was a transport bug |
-| **2026-09-10** | **879** | **378** | **49 / 0** | forced-encounter roster, HP invariant, playtest reads its own log |
+| 2026-09-10 | 879 | 378 | 49 / 0 | forced-encounter roster, HP invariant, playtest reads its own log |
+| **2026-09-10** | **922** | **397** | **53 / 0** | tool results reach the model; rest tool; endgame gate; party-size CR; **breadth checks green** |
 
 The 4 standing combat failures are environmental and are NOT counted as passing:
 3 make real LLM calls and get HTTP 403 through the sandbox proxy
