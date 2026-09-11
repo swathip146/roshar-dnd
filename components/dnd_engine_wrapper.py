@@ -950,11 +950,16 @@ class DnDEngineWrapper:
         "dashing": "Dashing", "dash": "Dashing",
         "deafened": "Deafened", "deaf": "Deafened",
         "dodging": "Dodging", "dodge": "Dodging",
+        # Exhaustion and Petrified are the two PHB conditions the vendored engine
+        # never implemented; supplied by components/engine_conditions.py and
+        # registered into dnd.conditions, so they resolve here like the other 13.
+        "exhaustion": "Exhaustion", "exhausted": "Exhaustion",
         "frightened": "Frightened", "afraid": "Frightened",
         "grappled": "Grappled",
         "incapacitated": "Incapacitated",
         "invisible": "Invisible",
         "paralyzed": "Paralyzed",
+        "petrified": "Petrified", "stone": "Petrified",
         "poisoned": "Poisoned",
         "prone": "Prone",
         "restrained": "Restrained",
