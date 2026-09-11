@@ -213,9 +213,32 @@ class TacticalGrid:
             return None
         return _chebyshev(first, second) * FEET_PER_TILE
 
+    def reach_feet(self, char_id: str) -> int:
+        """
+        This character's melee reach, from its equipped weapon.
+
+        5e: most weapons reach 5 ft, but a glaive, halberd, pike or whip reaches 10 —
+        and `_WEAPON_STATS` has carried that number all along while nothing read it.
+        A Shardblade reaches 10 ft too, which matters for a Roshar campaign.
+        """
+        entity = (self.dnd_wrapper.entities.get(char_id)
+                  if self.dnd_wrapper else None)
+        if entity is None:
+            return MELEE_REACH_FEET
+        try:
+            weapon = entity.equipment.weapon_main_hand
+            if weapon is not None and getattr(weapon, "range", None) is not None:
+                normal = getattr(weapon.range, "normal", None)
+                if isinstance(normal, int) and normal > 0:
+                    return normal
+        except Exception:
+            pass
+        return MELEE_REACH_FEET
+
     def in_melee_reach(self, a: str, b: str) -> bool:
+        """Can `a` strike `b` with its melee weapon, honouring the weapon's reach?"""
         distance = self.distance_feet(a, b)
-        return distance is not None and distance <= MELEE_REACH_FEET
+        return distance is not None and distance <= self.reach_feet(a)
 
     def visible_positions(self, char_id: str,
                           max_distance: int = 12) -> Set[Tuple[int, int]]:

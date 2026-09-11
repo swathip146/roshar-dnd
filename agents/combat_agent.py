@@ -294,6 +294,17 @@ class CombatAgent:
         # Clear the tactical terrain FIRST. Tile keeps a class-level registry, so
         # terrain left behind changes line of sight for the next encounter — and,
         # in tests, for the next FILE. A stale wall made a hero immune to attacks.
+        # Remove every position-derived modifier FIRST. Cover and flanking live on the
+        # entity, which outlives the encounter, so without this a character keeps +2 AC
+        # from a rock they stood behind three scenes ago.
+        rules = combat_state.get("tactical_rules")
+        if rules is not None:
+            try:
+                rules.clear_all()
+            except Exception as e:
+                self.logger.debug(f"   Could not clear tactical modifiers: {e}")
+            combat_state["tactical_rules"] = None
+
         grid = combat_state.get("tactical_grid")
         if grid is not None:
             try:
