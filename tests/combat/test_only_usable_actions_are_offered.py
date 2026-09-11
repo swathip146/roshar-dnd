@@ -1,7 +1,7 @@
 """
 Never offer an action the resolver will refuse.
 
-Five of the nine registered actions need a parameter that nothing supplies:
+Five of the nine registered actions needed a parameter that nothing supplied:
 
     move                 end_position
     lashing              lashing_type, target_direction
@@ -19,6 +19,20 @@ dragged to 11 rounds and the player character died.
 Worse on the player side: auto-play picked `progression_healing` at 4/22 HP and lost
 the turn entirely. **An offered action that cannot be taken is a trap**, and the
 player has no way to know.
+
+UPDATE (2026-09-11) — the four Surges are now OFFERABLE, and that is the point.
+Filtering them out was the correct first fix but the wrong end state: it left
+`shardblade_attack` as the only usable Surge, so Surgebinding — the setting's central
+fantasy — was unreachable in play. Each surge needed exactly one flavour parameter,
+and its action class already had a sensible default; the registry simply never passed
+one. `param_defaults` now supplies it, so the surges satisfy the filter honestly
+rather than by loosening it.
+
+`move` is still correctly excluded: the tactical grid supplies `end_position` through
+its own movement path, not the action menu.
+
+The invariant this file protects is unchanged, and is now asserted directly:
+**anything offerable must actually resolve.**
 """
 
 from __future__ import annotations
@@ -46,17 +60,47 @@ class TestTheRegistryKnowsWhatIsUsable:
 
     @pytest.mark.parametrize("action,param", [
         ("move", "end_position"),
+    ])
+    def test_actions_needing_unsupplied_params_are_not_offerable(self, action, param):
+        """
+        `move` is the only one left. It genuinely needs `end_position`, and the
+        tactical grid supplies that through its own movement path rather than the
+        action menu.
+
+        The four Surges used to be here too. They are now offerable because the
+        registry carries `param_defaults` for their one flavour parameter each —
+        see TestSurgesAreNowOfferable below and
+        tests/combat/test_surges_are_playable.py.
+        """
+        assert is_offerable(action) is False
+        assert param in required_caller_params(action)
+
+    @pytest.mark.parametrize("surge,param", [
+        ("lashing", "lashing_type"),
         ("progression_healing", "healing_amount"),
         ("illumination", "illusion_type"),
         ("soulcast", "target_essence"),
     ])
-    def test_actions_needing_unsupplied_params_are_not_offerable(self, action, param):
-        assert is_offerable(action) is False
-        assert param in required_caller_params(action)
+    def test_surges_are_now_offerable_via_defaults(self, surge, param):
+        """
+        THE FIX FLIPPED THESE. Each surge declared a flavour parameter nothing
+        supplied, so it was filtered out and a Windrunner never saw "Lash" on their
+        turn — only `shardblade_attack` was ever offerable.
 
-    def test_lashing_needs_two_params(self):
-        assert set(required_caller_params("lashing")) == {
-            "lashing_type", "target_direction"}
+        The action classes already had sensible defaults; the registry never passed
+        them. Now `param_defaults` does, so the parameter is still DECLARED but no
+        longer *required from the caller*.
+        """
+        from components.combat.action_registry import param_defaults
+
+        assert param in (ACTION_REGISTRY[surge].get("params") or [])
+        assert param in param_defaults(surge)
+        assert param not in required_caller_params(surge)
+        assert is_offerable(surge) is True
+
+    def test_lashing_needs_no_caller_params(self):
+        """Was `{lashing_type, target_direction}`; both now default."""
+        assert required_caller_params("lashing") == []
 
     def test_target_and_weapon_slot_do_not_count(self):
         """

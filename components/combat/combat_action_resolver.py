@@ -24,7 +24,7 @@ from dnd.actions import Attack, WeaponSlot, AttackEvent
 from dnd.core.dice import AttackOutcome
 from dnd.core.modifiers import DamageType
 
-from components.combat.action_registry import ACTION_REGISTRY
+from components.combat.action_registry import ACTION_REGISTRY, param_defaults
 from components.combat.roshar_actions import (
     LashingEvent,
     ShardbladeAttackEvent,
@@ -198,6 +198,13 @@ class CombatActionResolver:
             kwargs["target_entity_uuid"] = self._get_entity_uuid(action["target"])
 
         # Add additional parameters from metadata
+        #
+        # A param with a registry default is filled in here rather than refused. The
+        # four Surges each declared one flavour parameter that NOTHING in the game
+        # ever supplied — `lashing_type`, `illusion_type`, `target_essence`,
+        # `healing_amount` — so a Windrunner could never actually choose to Lash. The
+        # action classes already had sensible defaults; nothing passed them through.
+        defaults = param_defaults(action["action_type"])
         missing_required = []
         for param in metadata.get("params", []):
             if param == "target_entity_uuid":
@@ -207,6 +214,8 @@ class CombatActionResolver:
             elif param == "weapon_slot":
                 # Default to main hand
                 kwargs[param] = WeaponSlot.MAIN_HAND
+            elif param in defaults:
+                kwargs[param] = defaults[param]
             else:
                 missing_required.append(param)
 

@@ -21,6 +21,26 @@ python_files = ["test_*.py"]
 addopts = [
     "--strict-markers",   # an unregistered mark is now an error, not a silent no-op
     "-ra",
+    # PARALLEL BY DEFAULT. Sequentially the suite takes ~4.5 minutes (combat alone
+    # 170s), which is slow enough that it stops being run on every change — and an
+    # unrun test is no test. Measured on 12 cores:
+    #
+    #     combat       170s -> 15s   (497 passed)
+    #     non-combat   100s -> 46s   (1034 passed)
+    #
+    # `-n auto` would use all 12; 8 leaves headroom so the machine stays usable and
+    # the workers do not contend.
+    #
+    # It also removed a REAL failure: test_encounter_does_not_end_at_zero_hp passed
+    # alone and failed in the full sequential run. Fresh worker processes isolate the
+    # class-level global state this codebase carries (`Entity._entity_by_position`,
+    # `Tile._tile_registry`, the condition registries) — so the parallel result is
+    # the more trustworthy one, not merely the faster one.
+    #
+    # CAVEAT: xdist hides ordering bugs as well as working around them. When a test
+    # fails, re-run that FILE with `-p no:xdist -n0` before concluding anything about
+    # why. Use `-n0` for pdb, and for any test that needs a single shared process.
+    "-n", "8",
 ]
 markers = [
     "unit: fast, no I/O, no network",
