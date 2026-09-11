@@ -36,6 +36,44 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
+# EVENT CLASS WIRING
+# ============================================================================
+
+class _TypedEventAction(BaseAction):
+    """
+    Makes a surge use its OWN event class instead of the base `ActionEvent`.
+
+    Every surge below declares a custom event (`LashingEvent`, `SoulcastEvent`, …)
+    carrying surge-specific fields, and **not one of them was ever instantiated.**
+    `BaseAction._create_declaration_event` hardcodes:
+
+        return ActionEvent.from_costs(...)
+
+    with the docstring "Override in subclasses if needed." Nobody overrode it, so all
+    five custom event classes were dead code and every surge ran on a plain
+    `ActionEvent`.
+
+    That was invisible for four of the five, because they only READ their extra
+    fields off `self`. `ProgressionHealing` WRITES one — `execution_event.healing_amount
+    = healing` — and pydantic rejects an unknown field, so choosing Progression healing
+    with an explicit amount raised:
+
+        ValueError: "ActionEvent" object has no field "healing_amount"
+
+    `from_costs` is a classmethod using `cls`, so declaring `event_class` is all that
+    is needed to construct the right type.
+    """
+
+    #: The ActionEvent subclass this action's events should be.
+    event_class: type = ActionEvent
+
+    def _create_declaration_event(self, parent_event=None, use_register: bool = True):
+        return self.event_class.from_costs(
+            self.costs, self.source_entity_uuid, self.target_entity_uuid,
+            parent_event, use_register=use_register)
+
+
+# ============================================================================
 # GRAVITATION SURGE - LASHING
 # ============================================================================
 
@@ -44,11 +82,17 @@ class LashingEvent(ActionEvent):
     name: str = "Lashing"
     event_type: EventType = EventType.BASE_ACTION  # Roshar-specific action
     lashing_type: str = "basic"  # "basic", "full", "reverse"
-    stormlight_cost: int  # Stormlight spheres consumed
+    # Needs a DEFAULT. `ActionEvent.from_costs` constructs the event with only
+    # source/target/costs/parent, so a required field with no default makes
+    # construction fail outright:
+    #   ValidationError: stormlight_cost Field required
+    # This was latent while the class was dead code — every Lashing ran on a plain
+    # ActionEvent — and surfaced the moment the event classes were wired up.
+    stormlight_cost: int = 1  # Stormlight spheres consumed
     target_direction: Optional[Tuple[int, int, int]] = None  # Gravity direction vector
 
 
-class Lashing(BaseAction):
+class Lashing(_TypedEventAction):
     """
     Windrunner/Skybreaker Lashing - Roshar Surgebinding ability
 
@@ -69,6 +113,7 @@ class Lashing(BaseAction):
     Based on: Cosmere 5e Radiant's Handbook v2.0, pg. 47
     """
 
+    event_class: type = LashingEvent
     name: str = "Lashing"
     description: str = "Manipulate gravity through Surgebinding"
     lashing_type: str = "basic"  # "basic", "full", "reverse"
@@ -177,7 +222,7 @@ class ShardbladeAttackEvent(ActionEvent):
     target_killed: bool = False  # If soul severed (10 heartbeats)
 
 
-class ShardbladeAttack(BaseAction):
+class ShardbladeAttack(_TypedEventAction):
     """
     Shardblade Attack - Soul-severing weapon attack
 
@@ -196,6 +241,7 @@ class ShardbladeAttack(BaseAction):
     Based on: Cosmere 5e Radiant's Handbook v2.0, pg. 82
     """
 
+    event_class: type = ShardbladeAttackEvent
     name: str = "Shardblade Attack"
     description: str = "Attack with Shardblade (soul damage)"
 
@@ -280,7 +326,7 @@ class ProgressionHealingEvent(ActionEvent):
     stormlight_cost: int = 2
 
 
-class ProgressionHealing(BaseAction):
+class ProgressionHealing(_TypedEventAction):
     """
     Progression Healing - Edgedancer/Truthwatcher healing ability
 
@@ -300,6 +346,7 @@ class ProgressionHealing(BaseAction):
     Based on: Cosmere 5e Radiant's Handbook v2.0, pg. 53
     """
 
+    event_class: type = ProgressionHealingEvent
     name: str = "Progression Healing"
     description: str = "Heal wounds with Progression Surge"
     stormlight_cost: int = 2
@@ -380,11 +427,19 @@ class ProgressionHealing(BaseAction):
             d8_1 = random.randint(1, 8)
             d8_2 = random.randint(1, 8)
 
-            # Get Wisdom modifier if available
+            # Get Wisdom modifier if available.
+            #
+            # `Ability` exposes `.modifier`, NOT `.score` — it is a computed field on
+            # the block, and there is no `score` attribute at all. This read
+            # `ability_scores.wisdom.score` and then derived the modifier by hand with
+            # `(score - 10) // 2`, so the rolled-healing path raised
+            #   AttributeError: 'Ability' object has no attribute 'score'
+            # every time. It was unreachable until the event classes were wired up,
+            # because a bare `ActionEvent` could not carry `healing_amount` and the
+            # explicit-amount branch was the only one anyone had exercised.
             wis_mod = 0
             if hasattr(entity, 'ability_scores') and hasattr(entity.ability_scores, 'wisdom'):
-                wis_score = entity.ability_scores.wisdom.score
-                wis_mod = (wis_score - 10) // 2
+                wis_mod = entity.ability_scores.wisdom.modifier
 
             healing = d8_1 + d8_2 + wis_mod
             logger.debug(f"   Rolled healing: {d8_1} + {d8_2} + {wis_mod} = {healing}")
@@ -437,7 +492,7 @@ class IlluminationEvent(ActionEvent):
     illusion_type: str = "visual"
 
 
-class Illumination(BaseAction):
+class Illumination(_TypedEventAction):
     """
     Illumination — Lightweaver light/sound illusion.
 
@@ -450,6 +505,7 @@ class Illumination(BaseAction):
     **Requirements:** Lightweaver Order, Surgebinding level 1+
     """
 
+    event_class: type = IlluminationEvent
     name: str = "Illumination"
     description: str = "Weave light and sound into an illusion (Lightweaver)"
     stormlight_cost: int = 1
@@ -531,7 +587,7 @@ class SoulcastEvent(ActionEvent):
     target_essence: str = "stone"
 
 
-class Soulcast(BaseAction):
+class Soulcast(_TypedEventAction):
     """
     Soulcast — Transformation Surge, changing one substance into another.
 
@@ -544,6 +600,7 @@ class Soulcast(BaseAction):
     **Requirements:** Lightweaver or Elsecaller Order, Surgebinding level 2+
     """
 
+    event_class: type = SoulcastEvent
     name: str = "Soulcast"
     description: str = "Transform matter with the Transformation Surge"
     stormlight_cost: int = 3

@@ -113,6 +113,11 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "action_class": Lashing,
             "description": "Manipulate gravity (Windrunner/Skybreaker)",
             "params": ["target_entity_uuid", "lashing_type", "target_direction"],
+            # A basic downward Lashing is the sensible default, so the surge is
+            # OFFERABLE without a caller inventing a gravity vector. See
+            # `param_defaults` in is_offerable().
+            "param_defaults": {"lashing_type": "basic",
+                               "target_direction": (0, 0, -1)},
             "cost_type": "actions",
             "cost": 1,
             "stormlight_cost": 1,
@@ -136,6 +141,9 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "action_class": ProgressionHealing,
             "description": "Heal wounds with Progression (Edgedancer/Truthwatcher)",
             "params": ["target_entity_uuid", "healing_amount"],
+            # None means "roll 2d8 + WIS" — the RAW behaviour. The action already
+            # implements that branch; nothing was passing the parameter to reach it.
+            "param_defaults": {"healing_amount": None},
             "cost_type": "actions",
             "cost": 1,
             "stormlight_cost": 2,
@@ -153,6 +161,7 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "action_class": Illumination,
             "description": "Weave light and sound into an illusion (Lightweaver)",
             "params": ["target_entity_uuid", "illusion_type"],
+            "param_defaults": {"illusion_type": "figment"},
             "cost_type": "actions",
             "cost": 1,
             "stormlight_cost": 1,
@@ -165,6 +174,7 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "action_class": Soulcast,
             "description": "Transform matter with Transformation (Lightweaver/Elsecaller)",
             "params": ["target_entity_uuid", "target_essence"],
+            "param_defaults": {"target_essence": "smoke"},
             "cost_type": "actions",
             "cost": 1,
             "stormlight_cost": 3,
@@ -258,10 +268,26 @@ _AUTO_SUPPLIED_PARAMS = frozenset({"target_entity_uuid", "weapon_slot"})
 
 
 def required_caller_params(action_type: str) -> list:
-    """Parameters the CALLER must provide for this action, beyond the automatic ones."""
+    """
+    Parameters the CALLER must provide for this action, beyond the automatic ones.
+
+    A param listed in the entry's `param_defaults` does NOT count as required: the
+    resolver fills it in. That is what makes the four Surges offerable — each needed
+    one flavour parameter (`lashing_type`, `illusion_type`, `target_essence`,
+    `healing_amount`) that nothing in the game ever supplied, so a Windrunner could
+    never choose to Lash. The action classes already had sensible defaults; the
+    registry simply never passed them.
+    """
     metadata = ACTION_REGISTRY.get(action_type) or {}
+    defaults = metadata.get("param_defaults") or {}
     return [p for p in (metadata.get("params") or [])
-            if p not in _AUTO_SUPPLIED_PARAMS]
+            if p not in _AUTO_SUPPLIED_PARAMS and p not in defaults]
+
+
+def param_defaults(action_type: str) -> Dict[str, Any]:
+    """Default values the resolver should supply for this action's params."""
+    metadata = ACTION_REGISTRY.get(action_type) or {}
+    return dict(metadata.get("param_defaults") or {})
 
 
 def is_offerable(action_type: str) -> bool:

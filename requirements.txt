@@ -86,7 +86,7 @@ pytest>=7.4.0                      # Testing framework
 # Additional Testing Tools
 # pytest-cov>=4.0.0               # Code coverage for tests
 # pytest-mock>=3.10.0             # Mocking support
-# pytest-xdist>=3.0.0             # Parallel test execution
+pytest-xdist>=3.0.0               # Parallel test execution (-n 8 is the default; see pyproject.toml)
 
 # ============================================================================
 # NOTES
