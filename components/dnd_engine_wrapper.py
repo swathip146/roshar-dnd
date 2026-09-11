@@ -46,6 +46,13 @@ from dnd.core.dice import Dice, RollType
 from dnd.core.modifiers import DamageType
 from dnd.core.values import ModifiableValue
 
+# Corrections to the vendored engine, applied before any roll happens.
+# Advantage/disadvantage rolled ONE die and took max() of a single-element
+# list, so both were no-ops — see components/engine_patches.py.
+from components.engine_patches import apply_engine_patches
+
+apply_engine_patches()
+
 # Your existing imports
 from config.logging_config import get_logger
 
@@ -176,10 +183,24 @@ class DnDEngineWrapper:
         "trident": (1, 6, "Piercing", 5),
         "warhammer": (1, 8, "Bludgeoning", 5),
         "whip": (1, 4, "Slashing", 10),
+        # RANGED weapons. The fourth field is the reach/range in FEET, and until the
+        # tactical grid existed nothing read it — so every weapon was effectively
+        # melee and a bow could only be fired at an adjacent target. These are 5e
+        # NORMAL ranges (long range costs disadvantage, which the grid can now express).
+        "shortbow": (1, 6, "Piercing", 80),
+        "longbow": (1, 8, "Piercing", 150),
+        "light crossbow": (1, 8, "Piercing", 80),
+        "heavy crossbow": (1, 10, "Piercing", 100),
+        "hand crossbow": (1, 6, "Piercing", 30),
+        "sling": (1, 4, "Bludgeoning", 30),
+        "dart": (1, 4, "Piercing", 20),
+        "blowgun": (1, 1, "Piercing", 25),
+
         # Roshar / Cosmere
         "shardblade": (4, 6, "Slashing", 10),
         "sidesword": (1, 8, "Slashing", 5),
-        "grandbow": (2, 8, "Piercing", 5),
+        # A grandbow is a Shardbearer's bow — enormous, and genuinely ranged.
+        "grandbow": (2, 8, "Piercing", 150),
         "hammer": (1, 8, "Bludgeoning", 5),
         "knife": (1, 4, "Piercing", 5),
         "sword": (1, 8, "Slashing", 5),
@@ -260,7 +281,14 @@ class DnDEngineWrapper:
                     value_name=f"{weapon_name} proficiency",
                 ),
                 # `range` is required and rejects None.
-                range=Range(type=RangeType.REACH, normal=reach_ft),
+                #
+                # REACH vs RANGE is not cosmetic: `Attack.validate_range` treats them
+                # differently, and everything was built as REACH — so a longbow could
+                # only be fired at an ADJACENT target ("Target entity not in reach").
+                # Anything beyond 10 ft is a ranged weapon.
+                range=Range(
+                    type=RangeType.RANGE if reach_ft > 10 else RangeType.REACH,
+                    normal=reach_ft),
             )
             weapon_slot = (WeaponSlot.OFF_HAND
                            if str(slot).upper() == "OFF_HAND"

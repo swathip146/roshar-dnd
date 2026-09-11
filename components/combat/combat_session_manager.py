@@ -295,6 +295,11 @@ class CombatSessionManager:
         print(self.narrative_gen.generate_combat_status(self.combat_state))
         print("="*60)
 
+        # Cover and flanking follow from where everyone is standing, so recompute them
+        # before the player sees their options — a +2 AC that appears only after you
+        # commit is not a choice.
+        self._refresh_tactics(player_char_id)
+
         # Show the battlefield BEFORE the menu, so movement choices make sense.
         # This is the same grid data a UI would render, so if the text map is wrong
         # the UI would be wrong too — it doubles as a check on the geometry.
@@ -362,6 +367,19 @@ class CombatSessionManager:
             self.logger.info(f"✅ Player movement: {result.get('description')}")
             return
 
+        # DASH grants extra movement equal to your speed (5e). It was registered and
+        # offerable but added NOTHING, so choosing it simply wasted the turn.
+        if selected_action_item.get("action_type") == "dash":
+            rules = self._rules()
+            bonus = rules.dash_bonus_feet(player_char_id) if rules else 0
+            if bonus:
+                state = self.combat_state["combatant_states"].setdefault(
+                    player_char_id, {})
+                state["movement_remaining"] = (
+                    self._speed_remaining(player_char_id) + bonus)
+                print(f"\n{self._display_name(player_char_id)} dashes "
+                      f"(+{bonus} ft of movement).")
+
         # Parse action from selection
         action = self._parse_hierarchical_action(
             player_char_id,
@@ -427,6 +445,9 @@ class CombatSessionManager:
         # attacks in the same turn, exactly as 5e intends. This runs before the AI is
         # consulted so the AI's choice is made from where the NPC ENDS UP.
         self._npc_close_distance(npc_char_id)
+
+        # Same for the NPC: it moved, so its cover and flanking may have changed.
+        self._refresh_tactics(npc_char_id)
 
         # Build context for AI
         context = self._build_npc_context(npc_char_id)
@@ -723,6 +744,48 @@ class CombatSessionManager:
         """The encounter's TacticalGrid, or None when there is no map."""
         return self.combat_state.get("tactical_grid")
 
+    def _rules(self):
+        """
+        Position-derived rules (cover, flanking, opportunity attacks, dash).
+
+        Built lazily and cached on combat_state, so the modifiers it applies can be
+        removed by the same instance that added them. Applying a temporary modifier
+        without holding its id is how "temporary" becomes permanent.
+        """
+        rules = self.combat_state.get("tactical_rules")
+        if rules is None and self._grid() is not None:
+            from components.combat.tactical_rules import TacticalRules
+
+            rules = TacticalRules(self._grid(), self.dnd_wrapper,
+                                 self.combat_state)
+            self.combat_state["tactical_rules"] = rules
+        return rules
+
+    def _refresh_tactics(self, char_id: str) -> None:
+        """
+        Recompute cover and flanking before an actor decides.
+
+        Once per turn rather than continuously: position only changes on someone's
+        turn, and recomputing on every read would be slower and harder to reason
+        about.
+        """
+        rules = self._rules()
+        if rules is None:
+            return
+        try:
+            rules.refresh_cover()
+            rules.refresh_flanking(char_id, self._hostiles_of(char_id))
+        except Exception as e:
+            self.logger.debug(f"   Could not refresh tactics for {char_id}: {e}")
+
+    def _hostiles_of(self, char_id: str) -> List[str]:
+        """Everyone on the other side who can still fight."""
+        states = self.combat_state.get("combatant_states") or {}
+        my_side = (states.get(char_id) or {}).get("is_hostile")
+        return [cid for cid, state in states.items()
+                if state.get("is_hostile") != my_side
+                and not self._is_combatant_dead(cid)]
+
     def _speed_remaining(self, char_id: str) -> int:
         """
         Feet of movement left this turn.
@@ -796,8 +859,15 @@ class CombatSessionManager:
             return {"success": False, "refused": True,
                     "description": "There is no room to manoeuvre here."}
 
-        destination = action_item.get("end_position")
-        result = grid.move_to(char_id, tuple(destination),
+        destination = tuple(action_item.get("end_position"))
+
+        # Work out who is provoked BEFORE moving. Afterwards the mover is already out
+        # of reach, so nobody would qualify and opportunity attacks would never fire.
+        rules = self._rules()
+        provoked = (rules.opportunity_attackers(char_id, destination)
+                    if rules is not None else [])
+
+        result = grid.move_to(char_id, destination,
                              speed_feet=self._speed_remaining(char_id))
 
         if not result.get("moved"):
@@ -806,6 +876,13 @@ class CombatSessionManager:
                                    f"{result.get('reason', 'no route')}."}
 
         self._spend_movement(char_id, result.get("cost_feet", 0))
+
+        # 5e: leaving an enemy's reach provokes an opportunity attack, using their
+        # REACTION — so each enemy gets at most one per round. Without this,
+        # "Retreat out of reach" is free, and disengaging is strictly better than
+        # standing your ground in every situation.
+        self._resolve_opportunity_attacks(char_id, provoked)
+
         name = self._display_name(char_id)
         cover = " into cover" if result.get("in_cover") else ""
         return {"success": True, "moved": True,
@@ -896,6 +973,36 @@ class CombatSessionManager:
             self._spend_movement(npc_char_id, result.get("cost_feet", 0))
             print(f"\n{self._display_name(npc_char_id)} advances "
                   f"({result['cost_feet']} ft).")
+
+    def _resolve_opportunity_attacks(self, mover: str,
+                                     provoked: List[str]) -> None:
+        """
+        Let each provoked enemy take its reaction attack.
+
+        Resolved through the normal action resolver, so an opportunity attack rolls,
+        hits and damages exactly like any other — a "reaction attack" that used
+        different maths would drift from the rest of combat.
+        """
+        rules = self._rules()
+        if rules is None or not provoked:
+            return
+
+        for watcher in provoked:
+            if self._is_combatant_dead(watcher):
+                continue
+            result = self.action_resolver.resolve_action(
+                {"actor": watcher, "action_type": "attack", "target": mover})
+            rules.spend_reaction(watcher)
+
+            outcome = "hits" if result.get("success") else "misses"
+            damage = result.get("damage") or 0
+            print(f"\n⚡ {self._display_name(watcher)} strikes as "
+                  f"{self._display_name(mover)} breaks away — {outcome}"
+                  + (f" for {damage}." if damage else "."))
+            self._log_combat_action(
+                {"actor": watcher, "action_type": "opportunity_attack",
+                 "target": mover}, result)
+            self._sync_hp_from_engine()
 
     def _display_name(self, char_id: str) -> str:
         character = self.character_manager.characters.get(char_id)
@@ -1148,6 +1255,12 @@ class CombatSessionManager:
         # Movement is a per-turn budget like the action economy, so it resets with
         # the round. Without this a character could only ever move once per fight.
         self._reset_movement()
+
+        # Reactions too: each combatant gets one opportunity attack per round, and
+        # without a reset the first one spent would be the last of the whole fight.
+        rules = self._rules()
+        if rules is not None:
+            rules.reset_reactions()
 
         for char_id in self.combat_state["active_combatants"]:
             entity = self.dnd_wrapper.entities.get(char_id)
