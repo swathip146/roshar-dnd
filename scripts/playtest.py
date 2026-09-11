@@ -429,12 +429,12 @@ def check_turns(report: Report, game, turns: int, verbose: bool,
     #   6 talking to an NPC         -> the NPC pipeline
     inputs = [
         "I search the ground carefully for tracks or anything hidden.",
-        "I ready my weapon and advance towards whatever lies ahead.",
         "I travel onwards to the next location.",
         "I speak my oath aloud: Life before death, strength before weakness, "
         "journey before destination.",
         "I make camp and take a long rest to recover.",
         "I look for someone to talk to, and ask them about the Voidbringers.",
+        "I ready my weapon and advance towards whatever lies ahead.",
     ]
 
     # Force an encounter so combat is exercised deterministically. Combat was
@@ -701,6 +701,19 @@ def _check_combat_and_quests(report: Report, game, combat_was_forced: bool) -> N
               f"(False is expected unless the endgame was reached)")
 
 
+def _forced_turn(args) -> Optional[int]:
+    """
+    Which turn to force combat on: the LAST turn unless asked otherwise.
+
+    0 (the default) means "last". -1 disables. Any other value is that turn.
+    """
+    if args.force_combat == -1:
+        return None
+    if args.force_combat == 0:
+        return max(1, args.turns)
+    return args.force_combat
+
+
 def check_logs(report: Report) -> None:
     """
     THIS RUN's log should be clean.
@@ -787,9 +800,17 @@ def main() -> int:
                         help="check mechanisms only; skip the live turns")
     parser.add_argument("--verbose", action="store_true",
                         help="print the DM narration for each turn")
-    parser.add_argument("--force-combat", type=int, metavar="TURN", default=2,
-                        help="force an encounter on this turn so combat is "
-                             "exercised deterministically (0 disables)")
+    # LAST turn by default, not turn 2.
+    #
+    # A level-1 Aggi (8 HP) reliably DIES to the authored 2 x CR 1/4 ambush, and
+    # once the party is wiped the endgame gate correctly refuses every later turn.
+    # With combat on turn 2, turns 3-6 — travel, oath, rest, NPC — never executed,
+    # so the clock never advanced and the run reported failures for mechanics it had
+    # never reached. Combat last means everything else gets a turn first.
+    parser.add_argument("--force-combat", type=int, metavar="TURN", default=0,
+                        help="force an encounter on this turn (default: the last "
+                             "turn, so a party wipe cannot cut the run short; "
+                             "-1 disables)")
     args = parser.parse_args()
 
     print("=" * 66)
@@ -900,7 +921,7 @@ def main() -> int:
         report.skip("Live turns", "--no-llm")
     else:
         check_turns(report, game, args.turns, args.verbose,
-                    force_combat_on_turn=args.force_combat or None)
+                    force_combat_on_turn=_forced_turn(args))
 
     check_logs(report)
     return report.summary()

@@ -1057,12 +1057,39 @@ Return JSON array of enemies:"""
         scale = self._DIFFICULTY_SCALE.get(self._difficulty(), 1.0)
         enemies = max(1, int(count or 1))
 
-        # Total budget for the encounter, shared across the enemies present.
-        ceiling = (level * scale) / enemies
+        # PARTY SIZE, not just level. The budget used to assume a full party, so a
+        # lone character faced the same encounter four of them would.
+        #
+        # Measured: the authored `voidbringer_ambush` is 2 x CR 1/4 and labelled
+        # "easy". Against ONE level-1 character that is 100 XP against a level-1
+        # deadly threshold of 100 — a DEADLY fight, not an easy one. Aggi (8 HP)
+        # died in it on every single playtest run, which then cut the run short
+        # because the endgame gate correctly refuses turns after a wipe.
+        party = max(1, self._party_size())
+
+        # Total budget, shared across the enemies present and scaled by how many
+        # characters are actually there to share the damage.
+        ceiling = (level * scale * party) / (enemies * 4)
         # A floor so a level 1 party still meets something with stats.
         ceiling = max(0.125, ceiling)
 
         return round(min(requested, ceiling), 3)
+
+    def _party_size(self) -> int:
+        """
+        How many player characters are present.
+
+        4 is the 5e baseline every CR table assumes, so a smaller party must face
+        proportionally less. Defaults to 4 when the roster cannot be read — the
+        assumption the tables already make, so an unreadable roster changes nothing.
+        """
+        try:
+            manager = self.character_manager
+            npcs = set(manager.get_npcs() or [])
+            party = [cid for cid in manager.characters if cid not in npcs]
+            return len(party) or 4
+        except Exception:
+            return 4
 
     def _difficulty(self) -> str:
         """The campaign's difficulty, lowercased; 'medium' if unknown."""
