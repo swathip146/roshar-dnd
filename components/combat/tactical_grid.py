@@ -313,6 +313,32 @@ class TacticalGrid:
                     destination=position, cost_feet=cost,
                     intent="close", target=hostile))
 
+        # 1b. If nothing adjacent is reachable, offer the best PARTIAL advance.
+        #
+        # Without this, a combatant further than its speed from every enemy is offered
+        # no movement at all — so it stands still and swings at nothing. That is
+        # exactly the 334-round `unknown` outcome measured right after the grid was
+        # wired: on a real map the two sides start beyond one move of each other, and
+        # "close the distance" has to be available in stages.
+        if not options and hostiles:
+            nearest = min(
+                (h for h in hostiles if self.position_of(h) is not None),
+                key=lambda h: self.distance_feet(char_id, h) or 10 ** 6,
+                default=None)
+            if nearest is not None:
+                goal = self.position_of(nearest)
+                # Closest reachable tile to the target; cheapest wins a tie, so a
+                # partial advance never wastes movement.
+                destination, cost = min(
+                    reachable.items(),
+                    key=lambda item: (_chebyshev(item[0], goal), item[1]))
+                if _chebyshev(destination, goal) < _chebyshev(
+                        self.position_of(char_id) or destination, goal):
+                    options.append(MoveOption(
+                        label=f"Advance on {self._name(nearest)}",
+                        destination=destination, cost_feet=cost,
+                        intent="close", target=nearest))
+
         # 2. Take cover, if any is reachable and we are not already in it.
         if not self.has_cover(char_id):
             cover = [(p, c) for p, c in reachable.items() if self.map.is_cover(p)]
