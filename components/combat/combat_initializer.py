@@ -202,12 +202,21 @@ class CombatInitializer:
         # Without this, NPCs generated mid-combat keep the default position and
         # stale sense maps, so validate_line_of_sight/reach rejects their
         # attacks -- observed as goblins that attack every round and ALWAYS miss.
-        self._position_combatants(player_character_ids,
-                                  predefined_npc_ids + generated_npc_ids)
+        hostile_ids = predefined_npc_ids + generated_npc_ids
+        tactical = self._build_tactical_grid(player_character_ids, hostile_ids)
+        if tactical is None:
+            # No usable map: fall back to the old two-row line. Everyone starts
+            # adjacent, so the fight still works — it just has no terrain.
+            self._position_combatants(player_character_ids, hostile_ids)
 
         # Step 7: Create combat state
         combat_state = {
             "in_combat": True,
+            # The grid, when there is one. Held on combat_state so the session
+            # manager can offer movement and render the battlefield without
+            # rebuilding terrain or knowing where the map came from.
+            "tactical_grid": tactical,
+            "battle_map": tactical.map.to_dict() if tactical else None,
             "combat_id": str(uuid.uuid4()),
             "active_combatants": all_combatant_ids,
             "initiative_order": initiative_order,
@@ -224,6 +233,120 @@ class CombatInitializer:
         self.logger.info(f"✅ Combat initialized: {len(all_combatant_ids)} combatants, Round 1")
 
         return combat_state
+
+    def _build_tactical_grid(self, player_ids: List[str],
+                             hostile_ids: List[str]):
+        """
+        Build the real tactical grid for this encounter, or None to fall back.
+
+        Map precedence, most specific first:
+          1. the ENCOUNTER's own `map` (authored for this fight)
+          2. the LOCATION's `map` (authored for this place)
+          3. a deterministic template for the location's `type`
+
+        Returns None if a map cannot be built, in which case the caller uses the old
+        two-row line — a fight with no terrain still works, and refusing to start
+        combat because a map is missing would be a worse failure than flat ground.
+        """
+        try:
+            from components.combat.battle_map import MapError, parse_map
+            from components.combat.map_templates import map_for_location
+            from components.combat.tactical_grid import TacticalGrid
+        except Exception as e:
+            self.logger.debug(f"   Tactical grid unavailable: {e}")
+            return None
+
+        if self.dnd_wrapper is None:
+            return None
+
+        battle_map = None
+        encounter = getattr(self, "_active_encounter", None)
+
+        for source, label in ((encounter or {}).get("map"), "encounter"), \
+                             (self._location_map(), "location"):
+            if not source:
+                continue
+            try:
+                battle_map = parse_map(source, name=self._location_name(),
+                                      source="authored")
+                self.logger.info(f"   🗺️  Using the {label}'s authored map")
+                break
+            except MapError as e:
+                # Loud, not silent: an authored map that cannot be used is an
+                # authoring bug, and falling through without saying so would hide it.
+                self.logger.warning(
+                    f"   ⚠️ Ignoring the {label}'s map — {e}")
+
+        if battle_map is None:
+            battle_map = map_for_location(self._location_name(),
+                                         self._location_type(),
+                                         len(player_ids), len(hostile_ids))
+            if battle_map is None:
+                return None
+
+        try:
+            grid = TacticalGrid(battle_map, self.dnd_wrapper)
+            grid.build_terrain()
+            placed = grid.place_combatants(player_ids, hostile_ids)
+            if len(placed) < len(player_ids) + len(hostile_ids):
+                self.logger.warning(
+                    f"   ⚠️ Only {len(placed)} of "
+                    f"{len(player_ids) + len(hostile_ids)} combatants were "
+                    f"placed; falling back to the simple line")
+                return None
+            return grid
+        except Exception as e:
+            self.logger.warning(f"   ⚠️ Could not build the tactical grid: {e}")
+            return None
+
+    def _location_name(self) -> str:
+        try:
+            return (self.game_engine.game_state.location_context.get(
+                "current_location") or "battlefield")
+        except Exception:
+            return "battlefield"
+
+    def _location_type(self) -> str:
+        """The location's authored `type`, which selects a terrain template."""
+        name = self._location_name()
+        for location in self._campaign_locations():
+            if str(location.get("name", "")).lower() == name.lower():
+                return str(location.get("type") or "")
+        try:
+            return str(self.game_engine.game_state.location_context.get(
+                "location_type") or "")
+        except Exception:
+            return ""
+
+    def _location_map(self):
+        """An authored `map` block on the current location, if any."""
+        name = self._location_name()
+        for location in self._campaign_locations():
+            if str(location.get("name", "")).lower() == name.lower():
+                return location.get("map")
+        return None
+
+    def _campaign_locations(self) -> List[Dict[str, Any]]:
+        """Locations from the campaign file, loaded once."""
+        cached = getattr(self, "_locations_cache", None)
+        if cached is not None:
+            return cached
+
+        locations: List[Dict[str, Any]] = []
+        try:
+            from pathlib import Path
+
+            campaign = getattr(self.game_engine, "campaign_config", None)
+            source = getattr(campaign, "source_file", None) if campaign else None
+            if source and Path(source).exists() and Path(source).suffix == ".json":
+                data = json.loads(Path(source).read_text())
+                locations = [l for l in (data.get("locations") or [])
+                             if isinstance(l, dict)]
+        except Exception as e:
+            self.logger.debug(f"   Could not load campaign locations: {e}")
+
+        self._locations_cache = locations
+        return locations
 
     def _position_combatants(self, player_ids: List[str], hostile_ids: List[str]) -> None:
         """

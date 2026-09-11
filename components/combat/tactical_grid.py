@@ -106,6 +106,26 @@ class TacticalGrid:
                     f"'{self.map.name}'")
         return built
 
+    def teardown(self) -> None:
+        """
+        Remove this encounter's terrain from the engine.
+
+        MUST be called when combat ends. `Tile` keeps a CLASS-LEVEL registry, so
+        terrain outlives the encounter that built it and silently changes the world
+        for whatever runs next. Measured: a test file that built a 12x8 map with a
+        wall column left 96 tiles behind, and the NEXT file's combat ran inside that
+        stale grid — the hero took no damage because line of sight was blocked by a
+        wall from a different battlefield, and a death-save test failed with
+        "test needs the hero downed: assert 4 == 0".
+
+        Same failure shape as `Entity._entity_by_position`, which cost a whole
+        session. A class-level registry is global state; global state needs an owner
+        and a lifetime.
+        """
+        self._clear_tiles()
+        self._built = False
+        logger.debug("🗺️  Terrain cleared")
+
     @staticmethod
     def _clear_tiles() -> None:
         """Drop the previous encounter's terrain."""

@@ -295,8 +295,27 @@ class CombatSessionManager:
         print(self.narrative_gen.generate_combat_status(self.combat_state))
         print("="*60)
 
+        # Show the battlefield BEFORE the menu, so movement choices make sense.
+        # This is the same grid data a UI would render, so if the text map is wrong
+        # the UI would be wrong too — it doubles as a check on the geometry.
+        self._print_battlefield(player_char_id)
+
         # Get available action categories
         action_categories = self._get_available_actions(player_char_id)
+
+        # Movement is a category of its own, offered as INTENT rather than
+        # coordinates ("Close in on the Scout (15 ft)"). `move` used to be in the
+        # registry needing an `end_position` nobody supplied, so it was refused on
+        # every attempt and the tactical half of 5e did not exist.
+        movement = self._movement_actions(player_char_id)
+        if movement:
+            action_categories = dict(action_categories)
+            action_categories["movement"] = {
+                "name": "🏃 Movement",
+                "description": f"Reposition ({self._speed_remaining(player_char_id)} ft left)",
+                "cost_type": "movement",
+                "actions": movement,
+            }
 
         if not action_categories:
             print("❌ No actions available (no actions remaining)")
@@ -329,6 +348,19 @@ class CombatSessionManager:
             len(specific_actions),
         )
         selected_action_item = specific_actions[action_idx]
+
+        # MOVEMENT takes its own path: it is not an action in 5e (it is a separate
+        # budget), so it must not go through the action resolver or consume the
+        # action economy. Charging an action for a step would make repositioning
+        # strictly worse than standing still.
+        if selected_category_key == "movement":
+            result = self._execute_movement(player_char_id, selected_action_item)
+            print(f"\n{result['description']}")
+            self._log_combat_action(
+                {"actor": player_char_id, "action_type": "move",
+                 "target": selected_action_item.get("target")}, result)
+            self.logger.info(f"✅ Player movement: {result.get('description')}")
+            return
 
         # Parse action from selection
         action = self._parse_hierarchical_action(
@@ -382,6 +414,19 @@ class CombatSessionManager:
         6. Update combat state
         """
         self.logger.info(f"🤖 NPC turn: {npc_char_id}")
+
+        # CLOSE THE DISTANCE FIRST.
+        #
+        # With a real map, combatants no longer start adjacent — the authored
+        # Shattered Plains puts them 75 ft apart across a chasm. An NPC that only
+        # ever attacks then swings at nothing forever: measured immediately after
+        # wiring the grid, `test_full_combat_session` ran **334 rounds and returned
+        # `unknown`**, because neither side could reach the other.
+        #
+        # Movement is a separate budget from the action, so a monster closes AND
+        # attacks in the same turn, exactly as 5e intends. This runs before the AI is
+        # consulted so the AI's choice is made from where the NPC ENDS UP.
+        self._npc_close_distance(npc_char_id)
 
         # Build context for AI
         context = self._build_npc_context(npc_char_id)
@@ -663,6 +708,204 @@ class CombatSessionManager:
                 "params": {}
             }]
 
+    # ------------------------------------------------------------------ tactical
+    #
+    # Movement was declared in ACTION_REGISTRY needing an `end_position` that NOTHING
+    # supplied, so every attempt was refused and combat ran on a fixed two-row line
+    # where everyone was permanently adjacent. No flanking, cover, reach or retreat.
+    # These methods are the seam to the real grid; `tactical_grid` is None when the
+    # encounter fell back to the simple line, and every one of them degrades quietly
+    # in that case.
+
+    MOVEMENT_BUDGET_FEET = 30          # 5e Medium humanoid base speed
+
+    def _grid(self):
+        """The encounter's TacticalGrid, or None when there is no map."""
+        return self.combat_state.get("tactical_grid")
+
+    def _speed_remaining(self, char_id: str) -> int:
+        """
+        Feet of movement left this turn.
+
+        Tracked per turn on the combatant's own state, so a character cannot walk
+        the whole map by choosing Movement repeatedly.
+        """
+        state = self.combat_state["combatant_states"].get(char_id) or {}
+        remaining = state.get("movement_remaining")
+        if remaining is None:
+            remaining = self.MOVEMENT_BUDGET_FEET
+            state["movement_remaining"] = remaining
+        return int(remaining)
+
+    def _spend_movement(self, char_id: str, feet: int) -> None:
+        state = self.combat_state["combatant_states"].get(char_id) or {}
+        state["movement_remaining"] = max(
+            0, self._speed_remaining(char_id) - int(feet))
+
+    def _print_battlefield(self, acting: str) -> None:
+        """Draw the grid from the acting character's point of view."""
+        grid = self._grid()
+        if grid is None:
+            return
+        try:
+            print("\n" + grid.render(acting=acting))
+        except Exception as e:
+            self.logger.debug(f"   Could not render the battlefield: {e}")
+
+    def _movement_actions(self, char_id: str) -> List[Dict[str, Any]]:
+        """Movement offers for the menu, in the same shape as other actions."""
+        grid = self._grid()
+        if grid is None:
+            return []
+
+        remaining = self._speed_remaining(char_id)
+        if remaining <= 0:
+            return []
+
+        hostiles = [cid for cid, state
+                    in self.combat_state["combatant_states"].items()
+                    if state.get("is_hostile") != self.combat_state[
+                        "combatant_states"].get(char_id, {}).get("is_hostile")
+                    and not self._is_combatant_dead(cid)]
+        try:
+            options = grid.movement_options(char_id, hostiles,
+                                           speed_feet=remaining)
+        except Exception as e:
+            self.logger.debug(f"   Movement options failed for {char_id}: {e}")
+            return []
+
+        return [{"action_type": "move",
+                 "display": option.display(),
+                 "end_position": option.destination,
+                 "cost_feet": option.cost_feet,
+                 "intent": option.intent,
+                 "target": option.target}
+                for option in options]
+
+    def _execute_movement(self, char_id: str,
+                          action_item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Move on the grid and report it.
+
+        Movement is NOT an action in 5e — it is a separate budget — so this does not
+        consume the action economy. Charging an action for a step is what would make
+        repositioning strictly worse than standing still.
+        """
+        grid = self._grid()
+        if grid is None:
+            return {"success": False, "refused": True,
+                    "description": "There is no room to manoeuvre here."}
+
+        destination = action_item.get("end_position")
+        result = grid.move_to(char_id, tuple(destination),
+                             speed_feet=self._speed_remaining(char_id))
+
+        if not result.get("moved"):
+            return {"success": False, "refused": True,
+                    "description": f"{char_id} cannot move there — "
+                                   f"{result.get('reason', 'no route')}."}
+
+        self._spend_movement(char_id, result.get("cost_feet", 0))
+        name = self._display_name(char_id)
+        cover = " into cover" if result.get("in_cover") else ""
+        return {"success": True, "moved": True,
+                "from": result.get("from"), "to": result.get("to"),
+                "cost_feet": result.get("cost_feet"),
+                "description": (f"{name} moves {result.get('cost_feet')} ft"
+                                f"{cover} to {result.get('terrain')}.")}
+
+    def _npc_close_distance(self, npc_char_id: str) -> None:
+        """
+        Move an NPC toward its nearest reachable enemy, if it cannot already strike.
+
+        Deliberately simple and deterministic — no LLM call. Tactical *intent* (flank,
+        take cover, focus the wounded) belongs to the AI; getting within reach is
+        table stakes, and spending a model call on "walk towards the enemy" would be
+        both slow and unreliable. The AI already wasted 15 of 28 actions choosing
+        `move` with no destination.
+        """
+        grid = self._grid()
+        if grid is None:
+            return
+
+        my_state = self.combat_state["combatant_states"].get(npc_char_id) or {}
+        enemies = [cid for cid, state
+                   in self.combat_state["combatant_states"].items()
+                   if state.get("is_hostile") != my_state.get("is_hostile")
+                   and not self._is_combatant_dead(cid)]
+        if not enemies:
+            return
+
+        # Already in reach of something: stand and fight.
+        if any(grid.in_melee_reach(npc_char_id, enemy) for enemy in enemies):
+            return
+
+        remaining = self._speed_remaining(npc_char_id)
+        if remaining <= 0:
+            return
+
+        try:
+            options = grid.movement_options(npc_char_id, enemies,
+                                           speed_feet=remaining)
+        except Exception as e:
+            self.logger.debug(f"   NPC movement failed for {npc_char_id}: {e}")
+            return
+
+        closing = [o for o in options if o.intent == "close"]
+        if not closing:
+            # Nothing adjacent is reachable this turn — take the single step that
+            # most reduces the distance, or a fight across a chasm never progresses.
+            self._npc_step_toward(npc_char_id, enemies, remaining)
+            return
+
+        chosen = min(closing, key=lambda o: o.cost_feet)
+        result = grid.move_to(npc_char_id, chosen.destination,
+                             speed_feet=remaining)
+        if result.get("moved"):
+            self._spend_movement(npc_char_id, result.get("cost_feet", 0))
+            print(f"\n{self._display_name(npc_char_id)} closes in "
+                  f"({result['cost_feet']} ft).")
+
+    def _npc_step_toward(self, npc_char_id: str, enemies: List[str],
+                         remaining: int) -> None:
+        """Move as far toward the nearest enemy as this turn's budget allows."""
+        grid = self._grid()
+        target = None
+        best = None
+        for enemy in enemies:
+            distance = grid.distance_feet(npc_char_id, enemy)
+            if distance is not None and (best is None or distance < best):
+                best, target = distance, enemy
+        if target is None:
+            return
+
+        goal = grid.position_of(target)
+        reachable = grid.reachable(npc_char_id, remaining)
+        if not goal or not reachable:
+            return
+
+        # Closest reachable tile to the target, cheapest first on ties.
+        def score(item):
+            position, cost = item
+            return (max(abs(position[0] - goal[0]), abs(position[1] - goal[1])),
+                    cost)
+
+        destination, _ = min(reachable.items(), key=score)
+        result = grid.move_to(npc_char_id, destination, speed_feet=remaining)
+        if result.get("moved"):
+            self._spend_movement(npc_char_id, result.get("cost_feet", 0))
+            print(f"\n{self._display_name(npc_char_id)} advances "
+                  f"({result['cost_feet']} ft).")
+
+    def _display_name(self, char_id: str) -> str:
+        character = self.character_manager.characters.get(char_id)
+        return getattr(character, "name", char_id)
+
+    def _reset_movement(self) -> None:
+        """Restore everyone's movement at the start of a round."""
+        for state in self.combat_state["combatant_states"].values():
+            state["movement_remaining"] = self.MOVEMENT_BUDGET_FEET
+
     def _parse_hierarchical_action(
         self,
         char_id: str,
@@ -901,6 +1144,10 @@ class CombatSessionManager:
         """
         self.combat_state["current_turn_index"] = 0
         self.combat_state["round_number"] += 1
+
+        # Movement is a per-turn budget like the action economy, so it resets with
+        # the round. Without this a character could only ever move once per fight.
+        self._reset_movement()
 
         for char_id in self.combat_state["active_combatants"]:
             entity = self.dnd_wrapper.entities.get(char_id)
