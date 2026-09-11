@@ -322,6 +322,21 @@ class CombatSessionManager:
                 "actions": movement,
             }
 
+        # Surgebinding maneuvers, offered from the AUTHORED automation data rather
+        # than from hardcoded action classes. The executor had zero production
+        # callers until this call site existed, so all nine maneuvers passed their
+        # tests while no player could reach one.
+        maneuvers = self._maneuver_actions(player_char_id)
+        if maneuvers:
+            action_categories = dict(action_categories)
+            remaining = self._dice_pool().remaining(player_char_id)
+            action_categories["maneuvers"] = {
+                "name": "⚡ Maneuvers",
+                "description": f"Surgebinding ({remaining} lashing dice left)",
+                "cost_type": "actions",
+                "actions": maneuvers,
+            }
+
         if not action_categories:
             print("❌ No actions available (no actions remaining)")
             return
@@ -365,6 +380,39 @@ class CombatSessionManager:
                 {"actor": player_char_id, "action_type": "move",
                  "target": selected_action_item.get("target")}, result)
             self.logger.info(f"✅ Player movement: {result.get('description')}")
+            return
+
+        # MANEUVERS take their own path too: they are resolved by the automation
+        # interpreter against the authored JSON, not by the action resolver, which
+        # only knows ACTION_REGISTRY classes. Routing them through the resolver
+        # would mean re-adding a Python class per maneuver — exactly what the
+        # declarative schema exists to avoid.
+        if selected_category_key == "maneuvers":
+            # The target is baked into the menu entry's params, the same way every
+            # other action carries it — see _parse_hierarchical_action.
+            target_id = (selected_action_item.get("params") or {}).get("target", "")
+            if selected_action_item.get("requires_target") and not target_id:
+                hostiles = [h for h in self._hostiles_of(player_char_id)
+                            if not self._is_out_of_the_fight(h)]
+                if not hostiles:
+                    print("❌ No target available")
+                    return
+                target_id = hostiles[0]
+
+            result = self._execute_maneuver(
+                player_char_id, selected_action_item.get("maneuver_id"), target_id)
+            print(f"\n{result['description']}")
+            self._log_combat_action(
+                {"actor": player_char_id, "action_type": "maneuver",
+                 "target": target_id}, result)
+
+            if result.get("success"):
+                # Spend the action EXPLICITLY. `_consume_action` only mirrors the
+                # engine's economy into combat_state for display — the engine
+                # normally debits it inside `action.apply()`. A maneuver never goes
+                # through an engine action, so without this the actor would keep its
+                # action and could maneuver all round.
+                self._spend_maneuver_action(player_char_id, selected_action_item)
             return
 
         # DASH grants extra movement equal to your speed (5e). It was registered and
@@ -565,8 +613,12 @@ class CombatSessionManager:
             if not self._can_character_afford_action(char_id, metadata):
                 continue
 
-            # Check if character meets requirements
-            if not self._character_meets_requirements(character, metadata):
+            # Check if THIS character meets the action's gates. Offerability is
+            # actor-independent, so it happily offers a Lightweaver's Soulcast to a
+            # Windrunner (and to a goblin); only this check knows about Order,
+            # Surgebinding level and Stormlight.
+            if not self._character_meets_requirements(character, metadata,
+                                                      action_type):
                 continue
 
             # Determine which category this action belongs to
@@ -628,27 +680,42 @@ class CombatSessionManager:
 
         return True
 
-    def _character_meets_requirements(self, character, action_metadata: Dict) -> bool:
-        """Check if character meets action requirements (e.g., has Shardblade)."""
-        requires = action_metadata.get("requires")
-        if not requires:
-            return True
+    def _character_meets_requirements(self, character, action_metadata: Dict,
+                                      action_type: Optional[str] = None) -> bool:
+        """
+        Whether THIS character satisfies the action's gates.
 
-        # Check character has required ability/item
-        if requires == "surgebinding":
-            return hasattr(character, "surgebinding_level") and character.surgebinding_level > 0
-        elif requires == "shardblade_summoned":
-            return hasattr(character, "shardblade_summoned") and character.shardblade_summoned
-        elif requires == "stormlight_spheres":
-            return hasattr(character, "stormlight_current") and character.stormlight_current > 0
+        Delegates to `action_registry.unusable_reason`, which is the single place
+        that knows the gates the action classes enforce (`requires_order`,
+        `min_surgebinding_level`, `stormlight_cost`, `requires`).
 
-        # Check Radiant Order requirements
-        if "requires_order" in action_metadata:
-            required_orders = action_metadata["requires_order"]
-            if hasattr(character, "radiant_order"):
-                return character.radiant_order in required_orders
+        What was here before checked `requires` first and returned True whenever it
+        was falsy — and `requires` is None for all four Surges. So the
+        `requires_order` block below it was UNREACHABLE, and every surge gate was
+        skipped: a plain goblin's NPC menu came back as
+        ['attack', 'dash', 'dodge', 'lashing', 'progression_healing',
+         'illumination', 'soulcast'] and all four surges were then cancelled by
+        `roshar_actions._validate`. Stormlight and Surgebinding level were never
+        checked here at all, in any code path.
+
+        `action_type` is optional only so older callers keep working; without it the
+        name is recovered from the registry by identity.
+        """
+        from components.combat.action_registry import (ACTION_REGISTRY,
+                                                       unusable_reason)
+
+        if action_type is None:
+            action_type = next(
+                (name for name, meta in ACTION_REGISTRY.items()
+                 if meta is action_metadata),
+                None)
+        if action_type is None:
+            return True  # not a registry action; nothing to gate on
+
+        reason = unusable_reason(action_type, character)
+        if reason:
+            logger.debug(f"   ⛔ {action_type} unavailable: {reason}")
             return False
-
         return True
 
     def _categorize_action(self, action_type: str, metadata: Dict) -> str:
@@ -760,6 +827,154 @@ class CombatSessionManager:
                                  self.combat_state)
             self.combat_state["tactical_rules"] = rules
         return rules
+
+    def _dice_pool(self):
+        """
+        The encounter's LashingDicePool, built lazily and cached.
+
+        Registers a pool for every combatant whose order uses lashing dice (only
+        Windrunners today); everyone else gets nothing, so a Lightweaver cannot
+        spend Windrunner dice.
+        """
+        pool = self.combat_state.get("lashing_dice_pool")
+        if pool is None:
+            from components.combat.lashing_dice import LashingDicePool
+
+            pool = LashingDicePool(self._cosmere_rules())
+            for combatant_id in (self.combat_state.get("combatant_states") or {}):
+                entity = (self.dnd_wrapper.entities.get(combatant_id)
+                          if self.dnd_wrapper else None)
+                if entity is None:
+                    continue
+                pool.register(combatant_id,
+                              str(getattr(entity, "radiant_order", "") or ""),
+                              int(getattr(entity, "level", 1) or 1))
+            self.combat_state["lashing_dice_pool"] = pool
+        return pool
+
+    def _cosmere_rules(self):
+        rules = self.combat_state.get("cosmere_rules")
+        if rules is None:
+            from components.cosmere_rules import get_cosmere_rules
+
+            rules = get_cosmere_rules()
+            self.combat_state["cosmere_rules"] = rules
+        return rules
+
+    def _maneuvers(self):
+        """
+        The encounter's ManeuverExecutor, built lazily and cached.
+
+        WIRING THIS IS THE WHOLE POINT. The executor and its 58 tests existed with
+        ZERO production callers — so all nine authored maneuvers passed their tests
+        and no player could use one. That is the seventh instance of the
+        built-tested-unreachable pattern catalogued in the plan's §14e, and it is
+        why this accessor exists rather than a test-only fixture.
+        """
+        executor = self.combat_state.get("maneuver_executor")
+        if executor is None:
+            from components.combat.maneuver_executor import ManeuverExecutor
+
+            executor = ManeuverExecutor(
+                self.dnd_wrapper,
+                dice_pool=self._dice_pool(),
+                cosmere_rules=self._cosmere_rules(),
+                combat_state=self.combat_state)
+            self.combat_state["maneuver_executor"] = executor
+        return executor
+
+    def _maneuver_actions(self, char_id: str) -> List[Dict[str, Any]]:
+        """
+        Maneuvers this Radiant can use right now, as menu entries.
+
+        Empty for a non-Radiant, for an order with no authored maneuvers, and for a
+        Radiant out of lashing dice — an offered option that cannot be paid for is
+        the same trap as an action needing a parameter nobody supplies.
+        """
+        try:
+            executor = self._maneuvers()
+            entity = (self.dnd_wrapper.entities.get(char_id)
+                      if self.dnd_wrapper else None)
+            if entity is None:
+                return []
+            order = str(getattr(entity, "radiant_order", "") or "")
+            if not order:
+                return []
+
+            options = []
+            for maneuver in executor.available(char_id, order,
+                                              int(getattr(entity, "level", 1) or 1)):
+                cost = (maneuver.get("cost") or {}).get("lashing_dice", 1)
+                options.append({
+                    "action_type": "maneuver",
+                    "maneuver_id": maneuver.get("id"),
+                    "name": maneuver.get("name", "Maneuver"),
+                    "description": (f"{maneuver.get('action_type', 'action')}"
+                                    f" — {cost} lashing die"),
+                    "requires_target": self._maneuver_needs_target(maneuver),
+                })
+            return options
+        except Exception as e:
+            self.logger.debug(f"   Could not list maneuvers for {char_id}: {e}")
+            return []
+
+    @staticmethod
+    def _maneuver_needs_target(maneuver: Dict[str, Any]) -> bool:
+        """A maneuver needs a target only if its tree has a `target` node."""
+        def walk(node) -> bool:
+            if isinstance(node, dict):
+                if node.get("type") == "target":
+                    return True
+                return any(walk(v) for v in node.values())
+            if isinstance(node, list):
+                return any(walk(v) for v in node)
+            return False
+
+        return walk(maneuver.get("automation"))
+
+    def _execute_maneuver(self, char_id: str, maneuver_id: str,
+                          target_id: str = "") -> Dict[str, Any]:
+        """Run a chosen maneuver and report the result to the combat log."""
+        executor = self._maneuvers()
+        maneuver = self._cosmere_rules().get_maneuver(maneuver_id)
+        if maneuver is None:
+            return {"success": False, "error": f"unknown maneuver {maneuver_id!r}"}
+
+        targets = [target_id] if target_id else []
+        result = executor.execute(maneuver, char_id, targets=targets)
+        self.logger.info(f"   {result.describe()}")
+        return {"success": result.success, "error": result.error,
+                "description": result.describe(),
+                "damage": result.damage_dealt, "events": result.events}
+
+    def _spend_maneuver_action(self, char_id: str,
+                               action_item: Dict[str, Any]) -> None:
+        """
+        Debit the action economy for a maneuver.
+
+        Maneuvers declare their own economy in the authored data — `action_type` is
+        "action", "reaction", "on_hit", "on_move", "on_initiative" or "on_check".
+        Only a full action is charged here: the trigger types ride along on
+        something the actor is already doing, and charging them would make a
+        Windrunner strictly worse for having options.
+        """
+        maneuver = self._cosmere_rules().get_maneuver(
+            action_item.get("maneuver_id") or "") or {}
+        kind = str(maneuver.get("action_type") or "action")
+
+        cost_type = {"action": "actions", "reaction": "reactions",
+                     "bonus_action": "bonus_actions"}.get(kind)
+        if cost_type is None:
+            return          # a triggered maneuver costs no separate action
+
+        entity = self.dnd_wrapper.entities.get(char_id) if self.dnd_wrapper else None
+        if entity is None:
+            return
+        try:
+            entity.action_economy.consume(cost_type, 1)
+        except Exception as e:
+            self.logger.debug(f"   Could not debit {cost_type} for {char_id}: {e}")
+        self._consume_action(char_id, "maneuver")
 
     def _refresh_tactics(self, char_id: str) -> None:
         """
@@ -1556,12 +1771,22 @@ class CombatSessionManager:
         # uses to reconcile to the authored max_hp -- so it under-reports.
         npc_max_hp = self.dnd_wrapper.get_entity_max_hp(entity)
 
-        # Dynamically get available actions — but only ones that can actually be
-        # CHOSEN. Five of nine registered actions need a parameter nothing supplies
-        # (move/end_position, progression_healing/healing_amount, ...), and offering
-        # them wasted 15 of 28 NPC actions in one live encounter: each was refused,
-        # each cost a real LLM call, and the actor kept its economy so the turn loop
-        # spun until the stall-breaker forced it along.
+        # Dynamically get available actions — but only ones THIS NPC can actually
+        # take. Two independent filters, and both are needed.
+        #
+        # 1. `is_offerable`: five of nine registered actions needed a parameter
+        #    nothing supplied (move/end_position, progression_healing/healing_amount,
+        #    ...). Offering them wasted 15 of 28 NPC actions in one live encounter:
+        #    each was refused, each cost a real LLM call, and the actor kept its
+        #    economy so the turn loop spun until the stall-breaker forced it along.
+        #
+        # 2. `_character_meets_requirements`: offerability is actor-INDEPENDENT, so
+        #    it says yes to all four Surges for everyone. A plain goblin was being
+        #    told it could Lash, Soulcast, Illuminate and heal with Progression —
+        #    four of seven menu entries, every one cancelled by the surge's own
+        #    `_validate` for having no Radiant Order, no Surgebinding level and no
+        #    Stormlight. Exactly the harm filter 1 exists to prevent, reintroduced
+        #    one layer down.
         from components.combat.action_registry import is_offerable
 
         available_actions = [
@@ -1569,7 +1794,8 @@ class CombatSessionManager:
             for action_type, metadata in self.action_resolver.ACTION_REGISTRY.items()
             if (is_offerable(action_type) and
                 self._can_character_afford_action(npc_char_id, metadata) and
-                self._character_meets_requirements(npc_char, metadata))
+                self._character_meets_requirements(npc_char, metadata,
+                                                   action_type))
         ]
 
         return {
