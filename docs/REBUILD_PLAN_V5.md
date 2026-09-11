@@ -21,7 +21,7 @@
 > |---|---|
 > | Phases 0-4 | ✅ done, except **2.10** and the Avrae automation schema |
 > | Unwired subsystems | ✅ none remain (was 5) |
-> | Tests | **922 non-combat + 397 combat** (was 380 + 174 at the audit) |
+> | Tests | **941 non-combat + 431 combat** (was 380 + 174 at the audit) |
 > | Live playtest | ✅ **53/53, 0 errors logged** (was 44/4 with 11 errors) |
 > | Remaining work | §14a "Ranked open work" — 2 open items, 3 deferred by decision |
 >
@@ -866,7 +866,8 @@ before continuing — that is precisely the failure mode v4.1 hit.
 | 2026-09-10 | 854 | 371 | 48 / 0 | dice fail loudly instead of dealing 0 damage |
 | 2026-09-10 | 873 | 371 | — | **tool results now reach the model** (§14g) — the tool-call loop was a transport bug |
 | 2026-09-10 | 879 | 378 | 49 / 0 | forced-encounter roster, HP invariant, playtest reads its own log |
-| **2026-09-10** | **922** | **397** | **53 / 0** | tool results reach the model; rest tool; endgame gate; party-size CR; **breadth checks green** |
+| 2026-09-10 | 922 | 397 | 53 / 0 | tool results reach the model; rest tool; endgame gate; party-size CR; **breadth checks green** |
+| **2026-09-11** | **941** | **431** | **53 / 0** | **tactical movement wired**; XP budget; per-encounter difficulty; unusable actions no longer offered |
 
 The 4 standing combat failures are environmental and are NOT counted as passing:
 3 make real LLM calls and get HTTP 403 through the sandbox proxy
@@ -1930,3 +1931,97 @@ failures to itself is a gate that cries wolf**, and the fix for crying wolf is
 usually to weaken the assertion. This document already records one whitelist that
 was added for exactly that reason and had to be removed, because it suppressed the
 tools+JSON-mode 400 that was breaking every scenario turn.
+
+---
+
+## 14h. Tactical movement *(2026-09-11)*
+
+The largest remaining gap, and the sixth built-but-unwired subsystem.
+
+`move` was declared in `ACTION_REGISTRY` needing an `end_position` that **nothing
+supplied**, so every attempt raised a pydantic error and the actor silently lost its
+turn. Combat ran on a fixed two-row line where everyone was permanently adjacent — no
+flanking, no cover, no reach, no retreat.
+
+**The engine already had all of it.** `dnd.core.base_tiles.Tile` ships
+`walkable`/`visible` tiles, `get_fov()` (shadowcasting) and `get_paths()` (Dijkstra),
+with zero production callers. Verified before writing anything: in a 7x5 room with a
+wall column and a doorway, LOS to `(5,0)` is correctly blocked and pathing returns a
+5-step detour through the door. So this was wiring, not building.
+
+### What shipped
+
+| Layer | File |
+|---|---|
+| Map data model, parser, validator | `components/combat/battle_map.py` |
+| Deterministic terrain templates | `components/combat/map_templates.py` |
+| The seam to the engine's primitives | `components/combat/tactical_grid.py` |
+| Authored maps for all 3 locations | `data/current_campaign/shards_of_honor.json` (schema 2.2) |
+| Generator authoring instructions | `generators/campaign_generator.py` |
+
+Map precedence: the **encounter's** own `map`, else the **location's**, else a
+deterministic template for the location's `type`. An authored map that fails
+validation is logged loudly and skipped — that is an authoring bug, not something to
+repair silently.
+
+**Maps are authored once, not improvised per encounter.** Difficulty depends on
+terrain, a test cannot assert on a battlefield that changes every run, and a UI needs
+stable geometry. Where randomness is used (scattering cover) it is seeded from the
+location NAME, so a place always looks the same.
+
+The validator rejects five ways a map breaks an encounter, each with a specific
+reason: ragged rows, unknown symbols, no spawns, too small, and — the important one —
+**enemy spawns unreachable from the party**, which would produce a fight nobody can
+win.
+
+### Three bugs I introduced, each caught by the suite
+
+1. **Terrain leaked across encounters.** `build_terrain()` cleared stale tiles on
+   ENTRY but nothing cleared them on EXIT, and `Tile` keeps a class-level registry —
+   so a 12x8 map left 96 tiles behind and the NEXT test file's combat ran inside that
+   stale grid. The hero took no damage because line of sight was blocked by a wall
+   from a different battlefield (`assert 4 == 0`, "test needs the hero downed").
+   Exactly the same shape as `Entity._entity_by_position`, which cost a full session.
+   **A class-level registry is global state; global state needs an owner and a
+   lifetime.** Fixed with `TacticalGrid.teardown()`, called from `_cleanup_combat`.
+
+2. **NPCs could not close the distance.** With a real map combatants no longer start
+   adjacent, and an NPC that only attacks swings at nothing forever:
+   `test_full_combat_session` ran **334 rounds and returned `unknown`**.
+
+3. **`movement_options()` returned nothing when no adjacent tile was reachable** —
+   which at 45 ft with a 30 ft speed is every combatant on a real map. This was the
+   actual root cause of (2); I had first patched around it inside the NPC path, and
+   the fix belongs in the grid where both the menu and the AI benefit. Closing now
+   works in stages: *"Advance on the Scout (30 ft)"*.
+
+### Verified live
+
+```
+🗺️  Generated a 'open ground' battlefield (12x8)
+🗺️  Terrain built: 96 tiles
+📍 Placed 2 combatants: Aggi(0,4), voidbringer_scout_001(11,4)     <- 55 ft apart
+🏃 voidbringer_scout_001: (11,4) -> (5,4)  (30 ft)
+🏃 voidbringer_scout_001: (5,4)  -> (1,4)  (20 ft)
+✅ Combat complete: victory in 4 rounds
+```
+
+The scout crossed 55 ft over two rounds to reach melee — the first genuinely tactical
+fight in this project, and the first playtest run to end in victory.
+
+Also asked the live model to author a map for an invented location ("a flooded market
+square with colonnades"): it produced a **valid 14x8 map on the first attempt**, with
+colonnades along two sides, water at the edges, and spawns 65 ft apart in opposite
+corners.
+
+### Still open in the tactical layer
+
+Deliberately not built, and none of it blocks play:
+
+* **Opportunity attacks** — leaving an enemy's reach is currently free.
+* **Flanking advantage** — position does not yet grant advantage.
+* **Cover in the attack roll.** `is_cover()` and `has_cover()` report it and the
+  narrator can describe it, but the +2 AC is not applied to the roll.
+* **Ranged weapons and AoE.** The grid supports both (`get_fov` gives line of sight,
+  distance is measured); no action uses them yet.
+* **Dash.** `dash` is registered and offerable but does not add movement.
