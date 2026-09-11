@@ -91,16 +91,27 @@ def arena():
     TacticalGrid._clear_tiles()
 
 
-def _hit_rate(wrapper, attacker, target, trials=400):
+def _hit_rate(wrapper, attacker, target, trials=400, seed=None):
     """
     Fraction of attacks that land.
 
     CRIT counts as a hit. Substring-matching "HIT" excludes AttackOutcome.CRIT,
     which makes a paralyzed target measure as 0% — unhittable rather than auto-crit.
+
+    `seed` makes the sample REPRODUCIBLE, which matters for the negative tests: they
+    assert that exhaustion levels 1-2 leave the hit rate alone, and measured noise at
+    n=400 reaches 9.8pp — so a `< 0.10` margin failed about 1 run in 12 with no bug
+    present. Seeding both sides of the comparison removes the flake instead of hiding
+    it behind an ever-wider threshold. The positive tests are left unseeded: a ~20pp
+    effect clears the noise easily, and random sampling there is a feature.
     """
+    import random
+
     from dnd.actions import Attack
     from dnd.blocks.equipment import WeaponSlot
 
+    if seed is not None:
+        random.seed(seed)
     entity = wrapper.entities[attacker]
     hits = 0
     for _ in range(trials):
@@ -399,12 +410,14 @@ class TestExhaustion:
         """
         from dnd.core.modifiers import AdvantageStatus
 
-        base = _hit_rate(arena, "hero", "orc", 400)
+        # Same seed on both sides: identical d20 sequence, so any difference is the
+        # condition and not the sample.
+        base = _hit_rate(arena, "hero", "orc", 400, seed=20260911)
         entity = _exhaust(arena, "hero", level)
 
         assert entity.equipment.attack_bonus.advantage == AdvantageStatus.NONE
-        after = _hit_rate(arena, "hero", "orc", 400)
-        assert abs(after - base) < 0.10, (
+        after = _hit_rate(arena, "hero", "orc", 400, seed=20260911)
+        assert abs(after - base) < 0.03, (
             f"level {level} changed the hit rate {base:.3f} -> {after:.3f}; "
             f"RAW gives attack disadvantage only from level 3")
 
