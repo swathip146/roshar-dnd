@@ -1191,7 +1191,7 @@ computation actually reads. Consequences and fix in §14b.
 | # | Item | Status | Evidence |
 |---|---|---|---|
 | 1 | DM tools (13) | ✅ | `roll_skill_check`, `query_rules`, `search_lore`, etc. all registered and called |
-| 1b | **Avrae declarative automation schema** | 🟡 **the SCHEMA EXISTS and is authored; the INTERPRETER does not** — status corrected 2026-09-11 | **The earlier "never started, zero hits" finding was a grep artefact:** it searched `components/ agents/` for `.py` files, and the schema lives in JSON. All **9 of 9** maneuvers in `data/rules/stormlight/surgebinding.json` already carry complete Avrae-format `automation` trees using six node types — `target`, `save`, `damage`, `attack`, `roll`, `ieffect2` — reviewed with line citations. What is missing is the executor: **zero production code reads the `automation` key.** The only reader anywhere is `tests/test_phase2_regressions.py:862`, which asserts the JSON *exists* — so it passes while no maneuver can be played. Consequences measured: **0 of 9** authored maneuvers is executable; the 5 hardcoded classes in `roshar_actions.py` (`Lashing`, `ShardbladeAttack`, `ProgressionHealing`, `Illumination`, `Soulcast`) are an older, *unrelated* vocabulary with no overlap; and `lashing_dice`, the resource every maneuver spends, does not exist on the entity. So this is ~200 lines of interpreter + the dice economy, not a from-scratch design. **The 5 legacy classes are load-bearing and stay for now** — they are in `ACTION_REGISTRY`, wired through `combat_action_resolver.py:28` and covered by ~6 test files. Retiring them would delete the only working surge path. (Note only **1 of 5**, `shardblade_attack`, is actually *offerable*: the other four need caller-supplied params the game cannot provide, so they are registered-but-unreachable — a separate cleanup once maneuvers are proven in a real fight.) |
+| 1b | **Avrae declarative automation schema** | 🟡 **schema authored, interpreter BUILT, wiring in progress** — see §14i (2026-09-11) | The earlier "never started, zero hits" was a grep artefact: it searched `.py` files and the schema is JSON. All 9 maneuvers carry complete `automation` trees (`target`/`save`/`damage`/`attack`/`roll`/`ieffect2`), reviewed with line citations, and **the only reader was a test asserting the JSON exists** — so it passed while 0 of 9 were playable. `components/combat/maneuver_executor.py` + `lashing_dice.py` now execute all nine (58 tests). `lashing_dice` itself had zero references anywhere, so nothing could have been spent. Adding a surge is now a JSON entry rather than a Python class. **Coverage is still 4/10 surges and 6/10 orders** — the interpreter is an engine, not content. See §14i for the full scoreboard and the two upstream bugs found while wiring (`execute_attack` crashes on any hit; an unresolved `{placeholder}` silently dealt 0 damage). |
 | 2 | Real orchestrator loop | ✅ | `max_agent_steps=10` for the scenario agent (was 1); NPC 4, RAG 2 |
 | 3 | Retry-with-reasoning | ✅ | `components/retry_with_reasoning.py`, wired |
 | 4 | Persistent message history | ✅ | asserted on conversation history, not source text |
@@ -1248,7 +1248,7 @@ blocking play. Recorded so they are not rediscovered as surprises:
 | ~~Unsupported dice notation silently returns 0~~ | ✅ **FIXED 2026-09-10** while writing this table. Measured first: `4d6e6` (exploding), `1d20r1` (reroll), `4d6!`, `""`, `"0d6"` and even `"garbage"` all returned `total_damage: 0` with `rolls=[]` and NO error — a spell written with exploding dice would deal nothing and nobody would know. Same silent-zero shape as `success`-always-True. Now raises `ValueError` naming what it could not parse, including the partial case `1d6+2d6e6`, which had quietly returned only the `1d6`. `dm_tools.roll_damage` already wraps it, so the DM gets `{"error": ...}` rather than a silent 0. **Exploding and reroll notation remain unsupported — they are now loudly unsupported.** | done |
 | **Tactical movement** | `move` declares `end_position` and nothing supplies one, because the grid is a fixed two-row line. The action is now cleanly REFUSED with a reason instead of raising a pydantic error, but nobody can reposition. Blocks any real tactics (cover, flanking, reach weapons, AoE placement) | ~2-3 days |
 | **`Petrified` missing** | `dnd.conditions` implements 13 of the 14 PHB conditions. Asserted as a known gap in the deterministic suite, so the test fails and prompts an update if the engine gains it | ~0.5 day |
-| **Proficiency deviation** | `dnd_engine` applies `proficiency_bonus` to SKILLS ONLY (entity.py declares it, skills.py consumes it, actions.py never mentions it), so the wrapper adds it to weapon attacks. Deliberate and RAW-correct, but it is a divergence from the vendored engine and is pinned by a test so it cannot regress silently | — |
+| **Proficiency is DOUBLE-COUNTED on weapon attacks** | Previously recorded here as a deliberate RAW-correct deviation, on the grounds that `dnd_engine` applies `proficiency_bonus` to skills only because `actions.py` never mentions it. **That inference is wrong and was verified wrong by measurement.** `actions.py` consumes proficiency *indirectly*: `Attack.apply` calls `source_entity.attack_bonus(...)`, `Entity._get_attack_bonuses` returns `self.proficiency_bonus`, and `Entity.attack_bonus` folds it in via `combine_values`. The engine already applies it — and `dnd_engine_wrapper.equip_weapon` writes it onto `Weapon.attack_bonus` as well, so it lands twice. Measured with STR 16 (+3) and a longsword: level 1 rolls +7 vs RAW +5; level 5 +9 vs +6; level 9 +11 vs +7; level 17 +15 vs +9. The excess equals the proficiency bonus, so accuracy inflation grows with level. Now genuinely pinned by `tests/combat/test_proficiency_on_attacks.py`, which asserts the RAW total and a measured hit rate, and so fails in BOTH directions (dropped or doubled). Note the old pin, `test_live_combat_bugs.py::test_proficiency_reaches_the_attack_roll`, asserts only `weapon.attack_bonus.score == 3` — it cannot see the total and passed throughout | ~0.5 day |
 | **NPC AI can pick unusable actions** | It chose `progression_healing` with `target: None`, and `move` with no destination. Both now refuse cleanly rather than crashing, but the AI's action menu should exclude what it cannot legally do | ~0.5 day |
 | **`test_combat_agent_error_handling`** | Expects an error from an empty DTO; combat now initialises anyway and returns `combat_complete`. Either the test's premise or the agent's tolerance of a contextless DTO is wrong — decide which | ~0.5 day |
 
@@ -1591,10 +1591,14 @@ Two genuine findings, recorded rather than papered over:
 - **`Petrified` is missing from the vendored engine.** `dnd.conditions` implements
   13 of the 14 PHB conditions. Asserted as a known gap so the test fails and
   prompts an update if the engine ever gains it.
-- **One deliberate deviation is asserted AS a deviation.** `dnd_engine` applies
-  proficiency to skills only (entity.py declares it, skills.py consumes it,
-  actions.py never mentions it), so the wrapper adds it to weapon attacks. Pinned
-  so it cannot regress silently.
+- **What was recorded as a deliberate deviation is really a double-count.**
+  The claim was that `dnd_engine` applies proficiency to skills only (entity.py
+  declares it, skills.py consumes it, actions.py never mentions it), so the
+  wrapper adds it to weapon attacks. Measurement shows the engine applies it to
+  attacks too — `actions.py` reaches it through `source_entity.attack_bonus()` —
+  so the wrapper's copy on `Weapon.attack_bonus` makes it count twice (level 5,
+  STR 16: +9 where RAW is +6). Pinned properly now by
+  `tests/combat/test_proficiency_on_attacks.py`; see the audit row above.
 
 Four of the failures were **my own test errors**, corrected by checking the real
 API rather than assuming: `attack_roll` returns a dict not an object; the skill
@@ -2025,3 +2029,166 @@ Deliberately not built, and none of it blocks play:
 * **Ranged weapons and AoE.** The grid supports both (`get_fov` gives line of sight,
   distance is measured); no action uses them yet.
 * **Dash.** `dash` is registered and offerable but does not add movement.
+
+---
+
+## 14i. Surgebinding, conditions and the rules long tail *(2026-09-11)*
+
+Five pieces of work, and one recurring lesson: **every gap in this session was found by
+differencing what is DATA against what is REACHABLE.** Not one was found by reading
+docs, the engine's own comments, or this plan — three of them contradicted it.
+
+### The scoreboard, measured not asserted
+
+| | In the rulebook | Implemented | Playable in a real game |
+|---|---|---|---|
+| Surges | 10 | **4** | 4 |
+| Orders | 10 | **6** | 6 |
+| Maneuvers | 9 authored | **9 execute** | **0 — NOT WIRED** |
+| PHB conditions | 15 | **15** | 15 |
+
+Surges with an action class: Gravitation, Illumination, Progression, Transformation.
+**Missing entirely: Abrasion, Adhesion, Cohesion, Division, Tension, Transportation.**
+So Dustbringer, Willshaper, Stoneward and Bondsmith have *nothing*, and the six
+"working" orders each get only ONE of their two surges — a Windrunner has Gravitation
+but not Adhesion, a Skybreaker has no Division.
+
+### 1. The five Surge classes: three bugs, each hiding the next
+
+Before this, **one** of five Surges (`shardblade_attack`) could be chosen in play, so
+Surgebinding was effectively absent from the game.
+
+* **Five custom event classes were dead code.** Each Surge declares its own
+  `ActionEvent` subclass, and none was ever instantiated:
+  `BaseAction._create_declaration_event` hardcodes `ActionEvent.from_costs(...)` with
+  the docstring *"Override in subclasses if needed."* Nobody overrode it. Invisible for
+  four, which only READ their fields off `self`; `ProgressionHealing` WRITES
+  `execution_event.healing_amount`, and pydantic rejects unknown fields.
+* **Wiring the real classes exposed two more**, both unreachable until then:
+  `LashingEvent.stormlight_cost` had no default so the event could not be constructed;
+  and the rolled-healing branch read `ability_scores.wisdom.score` when `Ability`
+  exposes `.modifier` — only the explicit-amount branch had ever run.
+* **Four of five could not be CHOSEN.** Each declared one flavour parameter nothing
+  supplied (`lashing_type`, `illusion_type`, `target_essence`, `healing_amount`), so
+  the offerability filter correctly excluded them. Fixed with `param_defaults` in the
+  registry, honoured by the resolver — the action classes already had sensible
+  defaults, nothing passed them. Offerable went 4 → 8 of 9 actions.
+
+The filter itself is right and stayed: it records 15 of 28 NPC actions wasted in one
+live encounter on actions refused for a missing param. The fix was to satisfy it
+honestly, not loosen it.
+
+### 2. The maneuver interpreter (3.1b) — built, and NOT WIRED
+
+The schema was always there. All nine maneuvers carry complete Avrae-style `automation`
+trees (`target`, `save`, `damage`, `attack`, `roll`, `ieffect2`), reviewed with line
+citations. **The only reader anywhere was a test asserting the JSON exists** — so it
+passed while 0 of 9 could be played. The earlier "1b never started, zero hits" was a
+grep artefact: it searched `.py` files, and the schema is JSON.
+
+`components/combat/maneuver_executor.py` + `components/combat/lashing_dice.py` now
+execute all nine. `lashing_dice` — the resource every maneuver spends — had **zero
+references** in `components/`, `agents/` or `core/`, so the trees could not have run
+even with an interpreter; there was nothing to spend.
+
+> ⚠️ **`ManeuverExecutor` and `LashingDicePool` have NO production callers.** 58 tests
+> pass and no player can use a maneuver in an actual game. This is the seventh instance
+> of the pattern in §14e — built, tested, unreachable — and it was nearly reported as
+> done. **Wiring it into `combat_session_manager` is the next step, not new content.**
+
+Two real bugs found while wiring:
+* `DnDEngineWrapper.execute_attack()` has **zero callers** and crashes on any hit —
+  builds `Dice(num_dice=…, die_value=…)` when the fields are `count`/`value`. It also
+  computes `target_ac = 10 + dex` by hand, ignoring armour and every AC modifier, so
+  cover and Reverse Lashing would be invisible to it. Maneuver attacks go through the
+  engine's real `Attack` action; a regression test makes `execute_attack` explode if
+  called.
+* An unresolved `{placeholder}` made the dice parser return 0, so a maneuver would
+  report **success having done nothing** — the same silent-zero shape as the `4d6e6`
+  bug. Only `{lashing_die}` exists in reviewed data; anything else now raises.
+
+Deliberate design: a named 5e condition ("Restrained") is applied THROUGH the engine so
+it composes with attacks and saves; an inline effect (`{"ac_bonus": "{lashing_die}"}`)
+is parked on combat state, because inventing an engine condition per maneuver is what
+the interpreter exists to avoid. Durations are kept **verbatim** ("until you stop
+moving") — they are prose for a human DM, and parsing them into rounds would invent
+rules.
+
+### 3. Conditions: the gap was TWO, not one
+
+The plan said Petrified was "the one PHB condition the engine lacks." The SRD lists 15;
+`dnd.conditions` implemented 13. The missing pair is **Petrified AND Exhaustion** —
+found by differencing the sets, which is why the prose was wrong.
+
+Both added in `components/engine_conditions.py`. Petrified verified per clause: damage
+10 → 5 (resistance to all 13 types), poison 10 → 0 (immunity, listed separately in the
+PHB), speed 30 → 0, auto-fail STR/DEX only, +18.5pp hit rate against it. It
+deliberately does **not** grant Paralyzed's auto-crit-within-5ft — copying that
+wholesale would make every hit on a statue a critical.
+
+Exhaustion, six cumulative levels. **My first version had a bug the tests caught:**
+level 1's "disadvantage on ability checks" was applied to
+`ability_scores.<x>.ability_score` — which reads like "the ability" but is also what
+ATTACK rolls derive from, so level 1 gave attack disadvantage (0.63 → 0.35) when RAW
+does not touch attacks until level 3. The per-skill `skill_bonus` is the correct seam.
+
+### 4. Two upstream engine bugs
+
+* **`Dice._roll_with_advantage` rolled ONE die.** It used `self.count` (1 for a d20) and
+  took `max()` of a single-element list. Measured: base 45.4%, advantage 45.4%, **delta
+  +0.0%** — identical to the decimal. **Advantage and disadvantage never worked
+  anywhere in this project**, which is how 5e expresses Prone, Restrained, Dodge,
+  Invisible, Help and several surges. Fixed: +20.1pp / −20.6pp vs 5e's ±20pp.
+* **Stacking conditions that share a sub-condition broke the second one.**
+  `Stunned` then `Unconscious` → `list.remove(x): x not in list`. Five of fifteen
+  conditions apply `Incapacitated`; `add_condition` refuses a duplicate by name, but the
+  rejected child keeps its parent pointer and the rejection path detaches a uuid never
+  attached. A per-condition test could never catch it — it needs TWO on one entity.
+
+Both fixed in `components/engine_patches.py`, not in `external/dnd_engine` (§4 treats it
+as frozen), so a future pull cannot silently drop them.
+
+### 5. Rules long tail (2.10) — the data was fine, the lookup was not
+
+`SRDRules` loaded ten datasets (1,321 entries) from the start; `query_rules` searched
+**four**. So 386 entries across six datasets were loaded and unreachable, and
+"Perception" — plainly in `skills.json` — fell through to the LLM rules judge.
+`data/rules/gaps.json` recorded it: `"rules lookup perception"`, tier `judged`.
+
+Two matcher bugs surfaced once the surface was reachable: a FUZZY hit in `magic_items`
+beat the EXACT hit in `damage_types` so "Necrotic" resolved to *"Potion of Necrotic
+Resistance"* (`lookup()` now makes two passes, exact-everywhere then fuzzy); and
+`ability_scores.json` keys entries `"STR"`/`"DEX"` with the searchable word in
+`full_name`, which `_find` never consulted, so "Dexterity" found nothing.
+
+**The LLM-extraction script is closed WON'T-DO.** `surgebinding.json` is already
+hand-extracted, `"reviewed": true`, with line citations that `verify_citations()`
+checks. Regenerating correct, cited data through a lossier process is a regression risk,
+not a gap — and §13 already said 2.10 needs a stopping point rather than structuring all
+299 pages.
+
+### 6. Tests now run in parallel — and it exposed a real bug
+
+`-n 8` is the default (`pytest-xdist`). Combat 170s → **15s**; non-combat 100s → **46s**.
+A 4.5-minute suite was slow enough to stop being run on every change, and an unrun test
+is no test.
+
+It also cleared a REAL failure: `test_encounter_does_not_end_at_zero_hp` passed alone
+and failed in the full sequential run — cross-test contamination from this codebase's
+class-level global state (`Entity._entity_by_position`, `Tile._tile_registry`, the
+condition registries). Fresh worker processes isolate it.
+
+> ⚠️ **xdist HIDES ordering bugs as well as working around them.** Re-run a failing file
+> with `-n0` before drawing conclusions. The contamination is still there; parallelism
+> only stops it being observed.
+
+### Still open after this session
+
+1. **Wire `ManeuverExecutor` into combat.** Built and unreachable — the highest-value
+   next step, and it is plumbing, not content.
+2. **Six surges with no implementation.** Author them as **automation JSON**, not six
+   more Python classes; that is the whole point of the interpreter.
+3. **The four unreachable legacy Surge classes.** `lashing`, `illumination`, `soulcast`
+   and `progression_healing` now work, but they remain a second vocabulary parallel to
+   the maneuver data. Retire them once maneuvers are proven in a live fight.
+4. **`d20` (0.11)** is in `requirements.txt:119` and still never imported.
