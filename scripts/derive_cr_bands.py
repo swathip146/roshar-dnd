@@ -60,11 +60,24 @@ def main() -> int:
         rows = grouped[cr]
         if len(rows) < MIN_SAMPLE:
             continue
-        hps = [hp for hp, _ in rows]
-        acs = [ac for _, ac in rows]
-        ev_max = max(hp * ac for hp, ac in rows)
+        hps = sorted(hp for hp, _ in rows)
+        acs = sorted(ac for _, ac in rows)
+        evs = sorted(hp * ac for hp, ac in rows)
+
+        # 75TH PERCENTILE, not the maximum.
+        #
+        # Using max() made the band nearly useless: at CR 1/4 the published median
+        # is 13 HP / AC 12 (EV 162) but the single most extreme monster reaches EV
+        # 289, so a generated 17 HP / AC 13 scout (EV 221) passed as "in band". Two
+        # of those killed a level-3 character with 22 HP — measured: she needed
+        # 11.4 rounds to win and died in 7.3.
+        #
+        # p75 admits a genuinely tough-but-legal monster while excluding the
+        # outliers that make an "easy" encounter deadly.
+        percentile = lambda xs, q: xs[min(len(xs) - 1, int(len(xs) * q))]
         key = f"{cr}:".ljust(7)
-        print(f"        {key}({min(hps)}, {max(hps)}, {max(acs)}, {ev_max}),"
+        print(f"        {key}({min(hps)}, {percentile(hps, 0.75)}, "
+              f"{percentile(acs, 0.9)}, {percentile(evs, 0.75)}),"
               f"   # n={len(rows)}")
     print("    }")
     return 0

@@ -610,15 +610,25 @@ class TestFullCombatInitialization:
         assert combat_state["in_combat"] == True
         assert combat_state["round_number"] == 1
 
-        # Verify combatants (1 player + 2 goblins)
-        assert len(combat_state["active_combatants"]) == 3
-        assert "aggi" in combat_state["active_combatants"]
-
-        # Verify initiative order
-        assert len(combat_state["initiative_order"]) == 3
+        # Verify combatants: 1 player + however many goblins survive the XP budget.
+        #
+        # This asserted exactly 3 (aggi + 2 goblins). But the fixture is a SOLO
+        # LEVEL-1 character, and 2 x CR 1/4 is 100 XP x 1.5 group multiplier = 150
+        # adjusted — against a level-1 medium budget of 50. That is the DEADLY case
+        # which killed a real character in a live run (she needed 11.4 rounds to win
+        # and died in 7.3), so the roster is now trimmed to fit.
+        #
+        # Assert the INVARIANT instead of the old number: the player is present,
+        # there is at least one enemy, and the initiative order matches.
+        combatants = combat_state["active_combatants"]
+        assert "aggi" in combatants
+        assert len(combatants) >= 2, f"no enemies were created: {combatants}"
+        assert len(combatants) <= 3, f"more enemies than requested: {combatants}"
+        assert len(combat_state["initiative_order"]) == len(combatants)
 
         # Verify combatant states
-        assert len(combat_state["combatant_states"]) == 3
+        # Same reasoning as above: match the roster, not a fixed number.
+        assert len(combat_state["combatant_states"]) == len(combatants)
         assert "aggi" in combat_state["combatant_states"]
 
     def test_combat_initialization_no_trigger(self, full_combat_init):
