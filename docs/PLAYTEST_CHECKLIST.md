@@ -5,11 +5,13 @@ that each mechanic works *in play*. Each row gives you something to type and the
 observable result to look for.
 
 **Honest framing first.** Every mechanic below is wired and has tests, and the
-automated gate is green. But on 2026-09-10, **six consecutive live runs each found
-new defects after the test suite went green**, and four of the last five were
-integration defects invisible to ~1,270 unit tests. So treat this as a checklist for
-finding the *next* bug, not a formality. When something looks wrong, it usually is —
-that instinct has been right every time this session.
+automated gate is green — **53/53 with 0 errors**, and for the first time the clock
+advances, the party travels, and a quest completes *through gameplay*.
+
+But on 2026-09-10, **ten consecutive live runs each found new defects after the test
+suite went green**, and most were integration defects invisible to ~1,300 unit tests.
+So treat this as a checklist for finding the *next* bug, not a formality. When
+something looks wrong, it usually is — that instinct has been right every time.
 
 ```bash
 ./run_game.sh                                   # play
@@ -25,10 +27,10 @@ rediscover whatever it caught.
 
 | Check | How | Expected |
 |---|---|---|
-| Tests pass | `pytest tests/ -q --ignore=tests/combat -k "not test_gemini_ and not test_tool_calling and not test_api_connection and not test_game_"` | 905 passed |
-| Combat tests pass | `pytest tests/combat/ -q` | 388 passed, 4 failed (all environmental — see below) |
+| Tests pass | `pytest tests/ -q --ignore=tests/combat -k "not test_gemini_ and not test_tool_calling and not test_api_connection and not test_game_"` | 922 passed |
+| Combat tests pass | `pytest tests/combat/ -q` | 397 passed, 4 failed (all environmental — see below) |
 | **Don't run both at once** | `pytest` and the playtest share `logs/dnd_game_*.log` | run them sequentially |
-| Automated gate | `LLM_PROVIDER=gateway ./scripts/playtest.py --turns 6` | all checks pass, **0 errors logged** |
+| Automated gate | `LLM_PROVIDER=gateway ./scripts/playtest.py --turns 6` | **53/53, 0 errors logged** |
 | Transport | `python -c "from config.gateway import describe; print(describe())"` | prints the active provider, no secrets |
 
 The 4 expected combat failures: three make real LLM calls and get HTTP 403 through a
@@ -205,6 +207,12 @@ ending, and the automated gate exercises the whole turn loop.
 
 **The one thing I'd fix before release:** tactical movement (~2-3 days). It is the
 largest gap between this and what a player expects from 5e.
+
+**One balance note for solo play.** The authored `voidbringer_ambush` is 2 × CR 1/4
+and labelled "easy". Against ONE level-1 character that is 100 XP against a level-1
+*deadly* threshold of 100 — it killed an 8 HP Aggi on every run before encounters
+were scaled by party size. Encounters now scale, but the campaign is *written* for a
+party. Playing solo will be harder than the labels suggest.
 
 **The gate to keep:** `LLM_PROVIDER=gateway ./scripts/playtest.py --turns 6` must
 stay green, and don't run `pytest` at the same time — both write to
