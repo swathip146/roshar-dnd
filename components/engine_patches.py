@@ -28,10 +28,85 @@ def apply_engine_patches() -> list[str]:
         return list(_APPLIED)
 
     _patch_advantage_rolls()
+    _patch_orphaned_sub_condition_removal()
+    _register_missing_conditions()
 
     if _APPLIED:
         logger.info(f"🔧 dnd_engine corrections applied: {', '.join(_APPLIED)}")
     return list(_APPLIED)
+
+
+def _patch_orphaned_sub_condition_removal() -> None:
+    """
+    STACKING TWO CONDITIONS THAT SHARE A SUB-CONDITION BROKE THE SECOND ONE.
+
+        Stunned, then Unconscious  ->  False, "list.remove(x): x not in list"
+
+    Both apply `Incapacitated` as a sub-condition. `Entity.add_condition` refuses a
+    duplicate by NAME, so the second `Incapacitated` is rejected — but it was
+    constructed with `parent_condition=<the Unconscious uuid>` already set, and the
+    rejection path calls `condition.remove()`, which does:
+
+        parent_condition.sub_conditions.remove(self.uuid)
+
+    for a uuid that was never appended to the parent's list. The ValueError escapes
+    and the whole outer condition fails to apply.
+
+    This is an ordinary sequence in play — anything that knocks a creature out while
+    it is already stunned, paralyzed or petrified. Five of the fifteen conditions
+    apply Incapacitated, so the collision is easy to hit.
+
+    Verified before the fix: `Stunned` then `Unconscious` -> True, False.
+    After: True, True. `Unconscious` alone was unaffected either way, which is why a
+    per-condition test never caught it — the bug needs two conditions on one entity.
+
+    The fix is `remove()` rather than `.remove()`-if-present, keeping the parent's
+    bookkeeping authoritative: a child that is not in the parent's list was never
+    successfully attached, so there is nothing to detach.
+    """
+    try:
+        from dnd.core.base_conditions import BaseCondition
+    except Exception as e:                          # pragma: no cover - import guard
+        logger.warning(f"⚠️ Could not patch sub-condition removal: {e}")
+        return
+
+    def remove_condition_from_parent(self, skip_parent_removal: bool = False) -> bool:
+        if self.parent_condition and not skip_parent_removal:
+            parent_condition = BaseCondition.get(self.parent_condition)
+            if parent_condition is None:
+                raise ValueError(
+                    f"Trying to remove condition with UUID {self.uuid} from parent "
+                    f"with UUID {self.parent_condition} not found, parent removal "
+                    f"should remove children")
+            if isinstance(parent_condition, BaseCondition):
+                # Only detach if actually attached. A sub-condition rejected as a
+                # duplicate keeps its parent pointer but was never appended.
+                if self.uuid in parent_condition.sub_conditions:
+                    parent_condition.sub_conditions.remove(self.uuid)
+        return True
+
+    BaseCondition.remove_condition_from_parent = remove_condition_from_parent
+    _APPLIED.append("stacking conditions that share a sub-condition")
+
+
+def _register_missing_conditions() -> None:
+    """
+    Add the two PHB conditions the engine never implemented.
+
+    `data/rules/srd/conditions.json` lists 15; `dnd.conditions` implements 13. The
+    missing two are **Petrified and Exhaustion** — found by differencing the two sets.
+    Defined in `components/engine_conditions.py`.
+    """
+    try:
+        from components.engine_conditions import register_missing_conditions
+
+        added = register_missing_conditions()
+    except Exception as e:                          # pragma: no cover - import guard
+        logger.warning(f"⚠️ Could not register missing conditions: {e}")
+        return
+
+    if added:
+        _APPLIED.append(f"conditions added: {', '.join(added)}")
 
 
 def _patch_advantage_rolls() -> None:

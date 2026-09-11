@@ -77,7 +77,8 @@ class SRDRules:
 
     # ------------------------------------------------------------ generic get
 
-    def _find(self, dataset: str, name: str) -> Optional[Dict[str, Any]]:
+    def _find(self, dataset: str, name: str,
+              exact_only: bool = False) -> Optional[Dict[str, Any]]:
         """Exact then whole-word partial match (never a naive substring)."""
         entries = self._data.get(dataset, [])
         needle = (name or "").strip().lower()
@@ -89,6 +90,14 @@ class SRDRules:
                 return entry
             if entry.get("index", "").lower() == needle:
                 return entry
+            # ability_scores.json keys entries as "STR"/"DEX" and puts the word
+            # anyone would actually search for in `full_name`, so a lookup for
+            # "Dexterity" matched nothing at all until this was checked.
+            if entry.get("full_name", "").lower() == needle:
+                return entry
+
+        if exact_only:
+            return None
 
         # Whole-word partial: "goblin warrior" -> Goblin. A plain substring test
         # would match "A" inside "Shattered Plains" (the 2.6 bug class).
@@ -221,6 +230,70 @@ class SRDRules:
 
     def skill(self, name: str) -> Optional[Dict[str, Any]]:
         return self._find("skills", name)
+
+    def magic_item(self, name: str) -> Optional[Dict[str, Any]]:
+        return self._find("magic_items", name)
+
+    def damage_type(self, name: str) -> Optional[Dict[str, Any]]:
+        return self._find("damage_types", name)
+
+    def weapon_property(self, name: str) -> Optional[Dict[str, Any]]:
+        """A weapon property's rules text (finesse, reach, two-handed …)."""
+        return self._find("weapon_properties", name)
+
+    def ability_score(self, name: str) -> Optional[Dict[str, Any]]:
+        """An ability and the skills it governs (e.g. 'dexterity', 'DEX')."""
+        return self._find("ability_scores", name)
+
+    # The datasets a generic lookup should search, in priority order, paired with
+    # the `kind` label reported back to the caller.
+    #
+    # This ordering matters: it is the sequence `query_rules(kind="auto")` walks.
+    # Narrower, more mechanically specific datasets come first so a lookup for
+    # "Perception" resolves to the SKILL rather than to the "Using Ability Scores"
+    # rules chapter that also mentions it.
+    LOOKUP_ORDER = (
+        ("condition", "conditions"),
+        ("monster", "monsters"),
+        ("spell", "spells"),
+        ("skill", "skills"),
+        ("equipment", "equipment"),
+        ("magic_item", "magic_items"),
+        ("weapon_property", "weapon_properties"),
+        ("damage_type", "damage_types"),
+        ("ability_score", "ability_scores"),
+        ("rule", "rules"),
+    )
+
+    def lookup(self, name: str,
+               kind: str = "auto") -> Optional[Dict[str, Any]]:
+        """
+        Search EVERY loaded dataset, not just the four that had callers.
+
+        All ten datasets were loaded from the start, but `query_rules` only ever
+        searched monsters, spells, conditions and equipment. So a lookup for
+        "Perception" — plainly present in `skills.json` — fell through to the rules
+        judge and was recorded as a Tier-3 gap. `data/rules/gaps.json` shows it
+        happening: `"rules lookup perception"`, tier `judged`.
+
+        That is the 2.10 "rules long tail" in miniature. The tail was not missing
+        data; 386 entries across six datasets were simply unreachable.
+
+        Returns `{kind, dataset, data}` or None.
+        """
+        pairs = [(k, d) for k, d in self.LOOKUP_ORDER if k == kind] or self.LOOKUP_ORDER
+
+        # TWO PASSES, and the order is the point. An exact hit in ANY dataset must
+        # beat a fuzzy hit in an earlier one: searching magic_items before
+        # damage_types made "Necrotic" resolve to "Potion of Necrotic Resistance"
+        # rather than to the damage type. No priority ordering can fix that —
+        # exactness has to outrank position.
+        for exact_only in (True, False):
+            for label, dataset in pairs:
+                entry = self._find(dataset, name, exact_only=exact_only)
+                if entry:
+                    return {"kind": label, "dataset": dataset, "data": entry}
+        return None
 
     def available(self) -> Dict[str, int]:
         """What is loaded, for diagnostics."""

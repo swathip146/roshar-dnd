@@ -1009,29 +1009,37 @@ class TestConditions:
     Prone, Restrained, Blinded and the rest were all decorative.
     """
 
-    # 13 of the 14 PHB conditions. `Petrified` is deliberately absent — see
-    # test_petrified_is_a_known_gap below.
+    # All 15 SRD conditions. `Petrified` and `Exhaustion` were the two the vendored
+    # engine never implemented; they are now supplied by
+    # `components/engine_conditions.py` and registered into `dnd.conditions`.
     @pytest.mark.parametrize("condition", [
-        "Blinded", "Charmed", "Deafened", "Frightened", "Grappled",
-        "Incapacitated", "Invisible", "Paralyzed", "Poisoned",
+        "Blinded", "Charmed", "Deafened", "Exhaustion", "Frightened", "Grappled",
+        "Incapacitated", "Invisible", "Paralyzed", "Petrified", "Poisoned",
         "Prone", "Restrained", "Stunned", "Unconscious",
     ])
     def test_every_supported_5e_condition_applies(self, conditioned, condition):
         assert conditioned.apply_condition("Aggi", condition) is True, (
             f"{condition} could not be applied")
 
-    def test_petrified_is_a_known_gap(self, conditioned):
+    def test_no_srd_condition_is_left_unimplemented(self, conditioned):
         """
-        RAW has 14 conditions; the vendored engine implements 13 —
-        `dnd.conditions` has no `Petrified` (verified by dir()). Nothing in the
-        campaign applies it today, so this is recorded rather than fixed, and
-        asserted so that (a) the gap is visible and (b) if the engine ever gains
-        it, this test fails and prompts adding it to the supported list above.
+        Replaces `test_petrified_is_a_known_gap`, which asserted that Petrified
+        could NOT be applied and told its own reader: "if the engine ever gains it,
+        this test fails and prompts adding it to the supported list above." It did
+        exactly that.
 
-        Tracked in the plan's rules-gap list.
+        The gap turned out to be TWO conditions, not one — the plan named Petrified
+        and missed Exhaustion — so this compares the sets instead of naming names.
+        Full behavioural coverage is in tests/test_conditions_and_rules_coverage.py.
         """
-        assert conditioned.apply_condition("Aggi", "Petrified") is False, (
-            "Petrified now applies — move it into the supported list")
+        import json
+        from pathlib import Path
+
+        srd_path = (Path(__file__).resolve().parent.parent
+                    / "data" / "rules" / "srd" / "conditions.json")
+        for entry in json.loads(srd_path.read_text()):
+            assert conditioned.apply_condition("Aggi", entry["name"]) is True, (
+                f"{entry['name']} is in the SRD but cannot be applied")
 
     def test_an_applied_condition_is_visible(self, conditioned):
         conditioned.apply_condition("Aggi", "Prone")

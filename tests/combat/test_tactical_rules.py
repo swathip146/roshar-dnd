@@ -94,7 +94,10 @@ def _hit_rate(wrapper, attacker, target, trials=600):
                       target_entity_uuid=wrapper.entities[target].uuid,
                       weapon_slot=WeaponSlot.MAIN_HAND).apply(parent_event=None)
         outcome = str(getattr(event, "attack_outcome", ""))
-        if "HIT" in outcome and "MISS" not in outcome:
+        # CRIT counts as a hit. Substring-matching "HIT" silently excludes
+        # AttackOutcome.CRIT, which made a paralyzed target measure as 0% hit rate —
+        # unhittable rather than auto-crit. Match the outcome names explicitly.
+        if outcome.rsplit(".", 1)[-1] in ("HIT", "CRIT"):
             hits += 1
     return hits / trials
 

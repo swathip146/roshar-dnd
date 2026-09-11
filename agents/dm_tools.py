@@ -391,8 +391,11 @@ def query_rules(topic: str, kind: str = "auto") -> Dict[str, Any]:
     campaign's Handbook may differ from published Cosmere material.
 
     Args:
-        topic: What to look up, e.g. "Goblin", "Fireball", "prone", "Full Lashing"
-        kind: "monster" | "spell" | "condition" | "equipment" | "cosmere" | "auto"
+        topic: What to look up, e.g. "Goblin", "Fireball", "prone", "Full Lashing",
+            "Perception", "Longsword", "Bag of Holding", "finesse", "necrotic"
+        kind: "monster" | "spell" | "condition" | "skill" | "equipment" |
+            "magic_item" | "weapon_property" | "damage_type" | "ability_score" |
+            "rule" | "cosmere" | "auto"
 
     Returns:
         found, tier, source, and the rule data
@@ -412,17 +415,15 @@ def query_rules(topic: str, kind: str = "auto") -> Dict[str, Any]:
                         "kind": "order", "data": order}
 
         if srd is not None:
-            lookups = {
-                "monster": srd.monster, "spell": srd.spell,
-                "condition": srd.condition, "equipment": srd.equipment,
-            }
-            candidates = ([lookups[kind]] if kind in lookups
-                          else list(lookups.values()))
-            for lookup in candidates:
-                entry = lookup(topic)
-                if entry:
-                    return {"found": True, "tier": 1, "source": "SRD 5e (OGL 1.0a)",
-                            "kind": kind, "data": entry}
+            # Search EVERY loaded dataset. This used to name just four —
+            # monsters, spells, conditions, equipment — while SRDRules loaded ten.
+            # So "Perception" (in skills.json) fell through to the rules judge and
+            # was logged as a Tier-3 gap; see `data/rules/gaps.json`. 386 entries
+            # across six datasets were loaded but unreachable.
+            hit = srd.lookup(topic, kind)
+            if hit:
+                return {"found": True, "tier": 1, "source": "SRD 5e (OGL 1.0a)",
+                        "kind": hit["kind"], "data": hit["data"]}
 
         # Nothing canonical (Tier 1/2). Before telling the DM to improvise, let
         # the rules judge try to rule from RETRIEVED text (D5 Tier 3).
