@@ -39,21 +39,87 @@
       "type": "Ancient Battleground",
       "description": "A vast expanse of broken plateaus where honorspren gather in great numbers. The echoes of ancient oaths spoken here make it easier for new Radiants to progress. Voidspren also lurk in the depths.",
       "significance": "First location where players must retrieve the Oathstone, a gemstone that amplifies Radiant abilities, while facing corrupted singers and learning to work with their spren",
-      "treasure": "The Oathstone - allows Radiants to speak their Second Oath without the usual emotional preparation, immediately gaining enhanced abilities"
+      "treasure": "The Oathstone - allows Radiants to speak their Second Oath without the usual emotional preparation, immediately gaining enhanced abilities",
+      "map": {
+        "name": "Broken Plateau",
+        "legend": {
+          ".": "plateau rock",
+          "#": "chasm",
+          "H": "stone outcrop",
+          "~": "rubble",
+          "P": "party",
+          "E": "Voidbringers"
+        },
+        "rows": [
+          "....H.....#.....",
+          "..........#..H..",
+          ".....H....#.....",
+          "P.........~.....",
+          "P....~....~....E",
+          "P.........~....E",
+          ".....H....#....E",
+          "..........#..H..",
+          "....H.....#....."
+        ]
+      }
     },
     {
       "name": "Lasting Integrity",
       "type": "Spren Fortress in Shadesmar",
       "description": "The honorspren stronghold in the Cognitive Realm where spren debate whether to bond with humans again. Reality shifts based on emotion and thought here.",
       "significance": "Players must convince the honorspren to provide aid and retrieve the Radiant Codex while navigating spren politics and proving their worthiness",
-      "treasure": "The Radiant Codex - ancient knowledge that allows each player to immediately speak their Third Oath and gain access to their Order's unique abilities"
+      "treasure": "The Radiant Codex - ancient knowledge that allows each player to immediately speak their Third Oath and gain access to their Order's unique abilities",
+      "map": {
+        "name": "Fortress Courtyard",
+        "legend": {
+          ".": "obsidian floor",
+          "#": "fortress wall",
+          "H": "honorspren pillar",
+          "~": "shifting ground",
+          "P": "party",
+          "E": "honorspren guard"
+        },
+        "rows": [
+          "################",
+          "#..............#",
+          "#..H..~~~~..H..#",
+          "P......~~......E",
+          "P..............E",
+          "P......~~......E",
+          "#..H..~~~~..H..#",
+          "#..............#",
+          "################"
+        ]
+      }
     },
     {
       "name": "Urithiru",
       "type": "Ancient Tower City",
       "description": "The legendary tower city of the Knights Radiant, now mostly dark and empty. Hidden chambers contain ancient fabrials and the sleeping Sibling spren.",
       "significance": "Final preparation location where players must awaken the tower's defenses and gain the ultimate weapon before the climactic battle",
-      "treasure": "Honor's Perpendicularity Key - a powerful fabrial that can temporarily restore Honor's power to the tower, creating a massive advantage in the final battle by allowing rapid reinforcement and healing"
+      "treasure": "Honor's Perpendicularity Key - a powerful fabrial that can temporarily restore Honor's power to the tower, creating a massive advantage in the final battle by allowing rapid reinforcement and healing",
+      "map": {
+        "name": "Tower Hall",
+        "legend": {
+          ".": "strata floor",
+          "#": "tower wall",
+          "H": "fallen fabrial",
+          "~": "rubble",
+          "P": "party",
+          "E": "corrupted spren"
+        },
+        "rows": [
+          "################",
+          "#....#....#....#",
+          "P....#..H.#....E",
+          "P.........~....E",
+          "#~~..........~~#",
+          "P.........~....E",
+          "#....#.H..#....#",
+          "#....#....#....#",
+          "################"
+        ]
+      }
     }
   ],
   "encounters": [
@@ -232,7 +298,7 @@
     "a dnd campgain set in the world of roshar where the players play as knight radiants that need to prevent a take over of a nation by evil forces",
     "to include concepts of spren, oaths. Include 2 heralds as NPCs. Reduce the duration to 5 sessions. Reduce the locations to 3. Include evil voidbringers. Add an exiting treasure at each location that will be useful in subsequent story. Make the final battle to have a large battlefield with many npcs fighting several evil forces along side the players."
   ],
-  "schema_version": "2.1",
+  "schema_version": "2.2",
   "acts": [
     {
       "id": "act1",
@@ -353,13 +419,13 @@
         "quest:stop_ritual*"
       ]
     },
-    "closing_narration": "The ritual collapses. Where the barrier between Roshar and Odium's realm strained thin, it holds — scarred, but whole. Across the battlefield the allied host stands amid the dead: humans, honorspren, and singers who chose differently. The Stormfather's voice moves through the survivors like distant thunder. You are Radiant now, not by title but by what you refused to let happen here. Narrate the aftermath for each surviving character, name what they lost, and let the storm pass.",
+    "closing_narration": "The ritual collapses. Where the barrier between Roshar and Odium's realm strained thin, it holds \u2014 scarred, but whole. Across the battlefield the allied host stands amid the dead: humans, honorspren, and singers who chose differently. The Stormfather's voice moves through the survivors like distant thunder. You are Radiant now, not by title but by what you refused to let happen here. Narrate the aftermath for each surviving character, name what they lost, and let the storm pass.",
     "failure_condition": {
       "any_of": [
         "flag:barrier_shattered",
         "flag:party_wiped"
       ]
     },
-    "failure_narration": "The ritual completes. The barrier tears, and what comes through does not need to hurry. Narrate the end soberly — no reprieve, no last-moment rescue."
+    "failure_narration": "The ritual completes. The barrier tears, and what comes through does not need to hurry. Narrate the end soberly \u2014 no reprieve, no last-moment rescue."
   }
 }

@@ -291,6 +291,17 @@ class CombatAgent:
         Temporary NPCs have naming pattern like "goblin_001", "orc_002" (generated during combat).
         Persistent NPCs have custom names/IDs and remain in CharacterManager permanently.
         """
+        # Clear the tactical terrain FIRST. Tile keeps a class-level registry, so
+        # terrain left behind changes line of sight for the next encounter — and,
+        # in tests, for the next FILE. A stale wall made a hero immune to attacks.
+        grid = combat_state.get("tactical_grid")
+        if grid is not None:
+            try:
+                grid.teardown()
+            except Exception as e:
+                self.logger.debug(f"   Could not tear down the grid: {e}")
+            combat_state["tactical_grid"] = None
+
         # Get all hostile NPC IDs from this combat encounter
         # (excludes persistent/predefined NPCs unless they were hostile enemies)
         npc_ids = [
