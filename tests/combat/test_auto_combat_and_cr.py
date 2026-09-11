@@ -170,3 +170,105 @@ class TestCRIsClampedToTheParty:
         odd = self._initializer("bewildering")._balanced_cr(9, 4, 1)
         medium = self._initializer("medium")._balanced_cr(9, 4, 1)
         assert odd == medium
+
+
+class TestEncounterBudgetAccountsForPartySize:
+    """
+    The CR budget divided by ENEMY count but ignored PARTY size, so a lone
+    character faced the same encounter four of them would.
+
+    Measured against the 5e tables: the authored `voidbringer_ambush` is 2 × CR 1/4
+    and labelled `"difficulty": "easy"`. CR 1/4 is 50 XP, so two is 100 XP — and the
+    level-1 DEADLY threshold is exactly 100. Against one level-1 character that is a
+    deadly fight, not an easy one. Aggi (8 HP) died in it on EVERY playtest run,
+    which then cut each run short, because the endgame gate correctly refuses turns
+    after a party wipe. Two of the playtest's own checks were failing for that
+    reason.
+    """
+
+    def _initializer(self, party_size):
+        from components.combat.combat_initializer import CombatInitializer
+        from components.game_engine import GameEngine
+        from config.logging_config import get_logger
+
+        engine = GameEngine()
+        for i in range(party_size):
+            engine.add_character({
+                "character_id": f"P{i}", "name": f"P{i}", "level": 1,
+                "ability_scores": {"strength": 10, "dexterity": 10,
+                                   "constitution": 10, "intelligence": 10,
+                                   "wisdom": 10, "charisma": 10},
+                "hit_points": {"current": 8, "maximum": 8, "temporary": 0},
+                "armor_class": 13, "character_class": "Fighter",
+                "race": "Human", "background": "Soldier"})
+
+        initializer = CombatInitializer.__new__(CombatInitializer)
+        initializer.game_engine = engine
+        initializer.character_manager = engine.character_manager
+        initializer.logger = get_logger("test")
+        return initializer
+
+    def test_a_solo_character_faces_less(self):
+        """The regression: 2 x CR 1/4 is DEADLY for one level-1 character."""
+        solo = self._initializer(1)._balanced_cr(0.25, party_level=1, count=2)
+        full = self._initializer(4)._balanced_cr(0.25, party_level=1, count=2)
+        assert solo < full, (
+            f"a lone character faces the same CR ({solo}) as a party of four "
+            f"({full})")
+
+    def test_a_full_party_is_not_penalised(self):
+        """Both directions — the fix must not trivialise a real party's fights."""
+        assert self._initializer(4)._balanced_cr(0.25, party_level=1, count=2) == 0.25
+
+    def test_the_budget_scales_monotonically_with_party_size(self):
+        values = [self._initializer(n)._balanced_cr(2.0, party_level=5, count=2)
+                  for n in (1, 2, 4)]
+        assert values == sorted(values), values
+
+    def test_more_enemies_still_means_weaker_enemies(self):
+        """The original invariant must survive the change."""
+        initializer = self._initializer(4)
+        one = initializer._balanced_cr(5.0, party_level=5, count=1)
+        many = initializer._balanced_cr(5.0, party_level=5, count=4)
+        assert many < one
+
+    def test_the_cr_is_never_raised(self):
+        """A story that calls for something weak keeps it weak."""
+        for size in (1, 2, 4):
+            assert self._initializer(size)._balanced_cr(
+                0.125, party_level=20, count=1) == 0.125
+
+    def test_there_is_always_a_floor(self):
+        """A level-1 solo party must still meet something with stats."""
+        assert self._initializer(1)._balanced_cr(
+            5.0, party_level=1, count=8) >= 0.125
+
+    def test_an_unreadable_roster_assumes_four(self):
+        """
+        4 is the baseline every 5e CR table assumes, so defaulting to it means an
+        unreadable roster changes nothing rather than silently rebalancing.
+        """
+        from components.combat.combat_initializer import CombatInitializer
+        from config.logging_config import get_logger
+
+        initializer = CombatInitializer.__new__(CombatInitializer)
+        initializer.logger = get_logger("test")
+        assert initializer._party_size() == 4
+
+    def test_npcs_do_not_count_as_party_members(self):
+        """Generated enemies live in the same CharacterManager."""
+        initializer = self._initializer(1)
+        initializer.character_manager.add_character({
+            "character_id": "foe", "name": "Foe", "level": 1,
+            "ability_scores": {"strength": 10, "dexterity": 10,
+                               "constitution": 10, "intelligence": 10,
+                               "wisdom": 10, "charisma": 10},
+            "hit_points": {"current": 9, "maximum": 9, "temporary": 0},
+            "armor_class": 13, "character_class": "Scout",
+            "race": "Voidbringer", "background": "None"})
+        try:
+            initializer.character_manager.add_npc("foe", challenge_rating=0.25)
+        except Exception:
+            pass
+        assert initializer._party_size() <= 2, (
+            "an enemy is being counted as a party member, inflating the budget")
