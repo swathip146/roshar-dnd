@@ -129,6 +129,18 @@ class CombatInitializer:
             self.logger.warning("   ⚠️  No enemies extracted from scenario text")
             return None
 
+        # Step 2b: HOLD THE ENCOUNTER TO THE 5e XP BUDGET.
+        #
+        # The per-monster CR clamp cannot see the encounter as a whole. Measured on
+        # this campaign's own `voidbringer_ambush` (2 x CR 1/4, labelled "easy"):
+        # 150 adjusted XP, which is MEDIUM for one level-3 character and DEADLY for
+        # one level 1 — where the campaign starts.
+        #
+        # A level-3 Aggi (22 HP, Spear, +2) needed 11.4 rounds to kill both scouts
+        # and died in 7.3. She lost by arithmetic, not by bad dice.
+        enemies = self._trim_to_budget(enemies, self._get_party_level(
+            player_character_ids))
+
         # Step 3: Load predefined NPCs from NPC registry
         predefined_npc_ids = self._load_predefined_npcs(enemies)
         self.logger.info(f"   🎭 Loaded {len(predefined_npc_ids)} predefined NPCs")
@@ -540,9 +552,13 @@ class CombatInitializer:
 
         if authored is not None:
             enemies = authored.get("enemies") or []
+            # Remember it, so _difficulty() can honour the encounter's OWN marker
+            # rather than the campaign-wide default.
+            self._active_encounter = authored
             self.logger.info(
                 f"   📜 Using authored encounter '{authored.get('id')}' "
-                f"({len(enemies)} enemy type(s))")
+                f"(difficulty={authored.get('difficulty', 'unset')!r}, "
+                f"{len(enemies)} enemy type(s))")
             if not enemies:
                 # A deliberately non-combat encounter (a social trial). Returning
                 # [] tells initialize_combat there is no fight here, which is the
@@ -1036,6 +1052,109 @@ Return JSON array of enemies:"""
         "deadly": 2.0,
     }
 
+    # 5e DMG XP thresholds PER CHARACTER, by level: (easy, medium, hard, deadly).
+    # This is the real encounter-budget table; the per-monster CR clamp below cannot
+    # see it, which is how an encounter labelled "easy" turned out deadly.
+    _XP_THRESHOLDS = {
+        1: (25, 50, 75, 100),        2: (50, 100, 150, 200),
+        3: (75, 150, 225, 400),      4: (125, 250, 375, 500),
+        5: (250, 500, 750, 1100),    6: (300, 600, 900, 1400),
+        7: (350, 750, 1100, 1700),   8: (450, 900, 1400, 2100),
+        9: (550, 1100, 1600, 2400),  10: (600, 1200, 1900, 2800),
+    }
+
+    # XP by CR (DMG). Only the low end matters for a level 1-10 campaign.
+    _XP_BY_CR = {
+        0.0: 10, 0.125: 25, 0.25: 50, 0.5: 100, 1.0: 200, 2.0: 450,
+        3.0: 700, 4.0: 1100, 5.0: 1800, 6.0: 2300, 7.0: 2900, 8.0: 3900,
+        9.0: 5000, 10.0: 5900,
+    }
+
+    # DMG "encounter multiplier": several weaker monsters are harder than their raw
+    # XP suggests, because they get more attacks per round. This is exactly what
+    # killed a solo character against two scouts.
+    _GROUP_MULTIPLIER = ((1, 1.0), (2, 1.5), (3, 2.0), (7, 2.5),
+                         (11, 3.0), (15, 4.0))
+
+    def _encounter_xp(self, enemies: List[Dict[str, Any]]) -> int:
+        """Adjusted XP for a roster, including the DMG group multiplier."""
+        total = 0
+        heads = 0
+        for enemy in enemies:
+            cr = _positive_float(enemy.get("estimated_cr"), default=0.25)
+            count = _positive_int(enemy.get("count"), default=1, maximum=12)
+            total += self._XP_BY_CR.get(float(cr), int(cr * 200)) * count
+            heads += count
+
+        multiplier = 1.0
+        for threshold, value in self._GROUP_MULTIPLIER:
+            if heads >= threshold:
+                multiplier = value
+        return int(total * multiplier)
+
+    def _xp_budget(self, party_level: int, party_size: int) -> int:
+        """
+        The adjusted-XP ceiling for this encounter at the campaign's difficulty.
+
+        This is the check the per-monster CR clamp cannot make. Measured on the
+        authored `voidbringer_ambush` (2 x CR 1/4 = 100 XP, x1.5 group multiplier =
+        150 adjusted): **medium** for one level-3 character, and **deadly** for one
+        level 1 — which is where the campaign starts. It is labelled "easy".
+        """
+        level = max(1, min(10, int(party_level or 1)))
+        easy, medium, hard, deadly = self._XP_THRESHOLDS[level]
+        per_character = {"easy": easy, "medium": medium,
+                        "hard": hard, "deadly": deadly}.get(
+                            self._difficulty(), medium)
+        return per_character * max(1, party_size)
+
+    def _trim_to_budget(self, enemies: List[Dict[str, Any]],
+                        party_level: int) -> List[Dict[str, Any]]:
+        """
+        Reduce an over-budget roster by dropping HEADS, not by weakening monsters.
+
+        Fewer real enemies plays better than a crowd of pushovers, and it is what
+        the DMG multiplier is telling us: the head count is the problem. A weakened
+        swarm still gets one attack each per round.
+
+        Never ADDS enemies — an authored encounter that is deliberately gentle stays
+        gentle.
+        """
+        if not enemies:
+            return enemies
+
+        party_size = max(1, self._party_size())
+        budget = self._xp_budget(party_level, party_size)
+        actual = self._encounter_xp(enemies)
+        if actual <= budget:
+            return enemies
+
+        self.logger.warning(
+            f"   ⚖️ Encounter is {actual} adjusted XP against a "
+            f"{self._difficulty()} budget of {budget} for {party_size} "
+            f"character(s) at level {party_level} — trimming")
+
+        trimmed = [dict(e) for e in enemies]
+        # Drop from the largest group first, so a boss + minions keeps its boss.
+        for _ in range(64):
+            if self._encounter_xp(trimmed) <= budget:
+                break
+            biggest = max(
+                trimmed,
+                key=lambda e: _positive_int(e.get("count"), 1, 12))
+            current = _positive_int(biggest.get("count"), 1, 12)
+            if current <= 1 and len(trimmed) > 1:
+                trimmed.remove(biggest)
+            elif current > 1:
+                biggest["count"] = current - 1
+            else:
+                break        # one enemy left: keep it, or there is no encounter
+
+        self.logger.info(
+            f"   ⚖️ Trimmed to {self._encounter_xp(trimmed)} adjusted XP: "
+            + ", ".join(f"{e.get('name')} x{e.get('count')}" for e in trimmed))
+        return trimmed
+
     def _balanced_cr(self, requested_cr: float, party_level: int,
                      count: int) -> float:
         """
@@ -1092,13 +1211,31 @@ Return JSON array of enemies:"""
             return 4
 
     def _difficulty(self) -> str:
-        """The campaign's difficulty, lowercased; 'medium' if unknown."""
+        """
+        The difficulty to budget against: THIS ENCOUNTER's, else the campaign's.
+
+        The per-encounter marker was authored and ignored. `shards_of_honor.json`
+        labels its four encounters easy / hard / deadly / medium, and every one was
+        budgeted as the campaign-wide "Medium" instead — so the tutorial ambush was
+        treated as medium (killing a level-1 solo character) and the deadly finale
+        would have been treated as medium too, making it *easier* than authored.
+        A difficulty curve that is authored and discarded is worse than none: it
+        looks deliberate.
+        """
+        encounter = getattr(self, "_active_encounter", None)
+        if isinstance(encounter, dict):
+            value = encounter.get("difficulty")
+            if isinstance(value, str) and value.strip().lower() in self._XP_KEYS:
+                return value.strip().lower()
+
         for source in (getattr(self.game_engine, "campaign_config", None),
                        self.game_engine):
             value = getattr(source, "difficulty", None)
-            if isinstance(value, str) and value.strip():
+            if isinstance(value, str) and value.strip().lower() in self._XP_KEYS:
                 return value.strip().lower()
         return "medium"
+
+    _XP_KEYS = ("easy", "medium", "hard", "deadly")
 
     def _get_party_level(self, player_character_ids: List[str]) -> int:
         """

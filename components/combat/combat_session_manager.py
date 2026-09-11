@@ -485,7 +485,16 @@ class CombatSessionManager:
         character = self.character_manager.characters[char_id]
 
         # Query ACTION_REGISTRY to discover available actions
+        from components.combat.action_registry import is_offerable
+
         for action_type, metadata in self.action_resolver.ACTION_REGISTRY.items():
+            # Never OFFER an action the resolver will refuse. `progression_healing`
+            # was on the player menu every round and always refused for a missing
+            # `healing_amount` — a live auto-play picked it at 4/22 HP and simply
+            # lost the turn. An offered action that cannot be taken is a trap.
+            if not is_offerable(action_type):
+                continue
+
             # Check if character can afford this action
             if not self._can_character_afford_action(char_id, metadata):
                 continue
@@ -1187,11 +1196,19 @@ class CombatSessionManager:
         # uses to reconcile to the authored max_hp -- so it under-reports.
         npc_max_hp = self.dnd_wrapper.get_entity_max_hp(entity)
 
-        # Dynamically get available actions from ACTION_REGISTRY
+        # Dynamically get available actions — but only ones that can actually be
+        # CHOSEN. Five of nine registered actions need a parameter nothing supplies
+        # (move/end_position, progression_healing/healing_amount, ...), and offering
+        # them wasted 15 of 28 NPC actions in one live encounter: each was refused,
+        # each cost a real LLM call, and the actor kept its economy so the turn loop
+        # spun until the stall-breaker forced it along.
+        from components.combat.action_registry import is_offerable
+
         available_actions = [
             action_type
             for action_type, metadata in self.action_resolver.ACTION_REGISTRY.items()
-            if (self._can_character_afford_action(npc_char_id, metadata) and
+            if (is_offerable(action_type) and
+                self._can_character_afford_action(npc_char_id, metadata) and
                 self._character_meets_requirements(npc_char, metadata))
         ]
 

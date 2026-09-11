@@ -252,6 +252,53 @@ See docs/ROSHAR_COMBAT_MECHANICS_INTEGRATION.md for complete specifications.
 # HELPER FUNCTIONS
 # ============================================================================
 
+# Parameters the resolver can always supply itself, so an action needing only these
+# is offerable. Everything else has to come from the caller.
+_AUTO_SUPPLIED_PARAMS = frozenset({"target_entity_uuid", "weapon_slot"})
+
+
+def required_caller_params(action_type: str) -> list:
+    """Parameters the CALLER must provide for this action, beyond the automatic ones."""
+    metadata = ACTION_REGISTRY.get(action_type) or {}
+    return [p for p in (metadata.get("params") or [])
+            if p not in _AUTO_SUPPLIED_PARAMS]
+
+
+def is_offerable(action_type: str) -> bool:
+    """
+    Can this action actually be CHOSEN right now?
+
+    Five of the nine registered actions need a parameter nothing supplies —
+    `move` (end_position), `lashing` (lashing_type, target_direction),
+    `progression_healing` (healing_amount), `illumination` (illusion_type) and
+    `soulcast` (target_essence). They were offered anyway, to the player menu and to
+    the NPC AI.
+
+    Measured in one live encounter: **15 of 28 NPC actions were wasted** on `move`
+    and `progression_healing`, each refused for a missing parameter. The fight
+    dragged to 11 rounds and every wasted action still cost a real LLM call. Worse,
+    an actor whose action was refused kept its economy, so the turn loop spun until
+    the stall-breaker forced it along — visible as "still has actions after 4
+    attempts".
+
+    Filtering here means both consumers are fixed at once, and any action that later
+    grows a real supplier becomes offerable automatically.
+    """
+    # An UNKNOWN action is not offerable. `required_caller_params` returns [] for a
+    # name that is not in the registry, so without this check a hallucinated action
+    # ("teleport_to_shadesmar") would read as perfectly usable and then fail at
+    # dispatch with "Unknown action type".
+    if action_type not in ACTION_REGISTRY:
+        return False
+    return not required_caller_params(action_type)
+
+
+def offerable_actions() -> Dict[str, Dict]:
+    """The registry, minus actions nobody can currently supply parameters for."""
+    return {name: meta for name, meta in ACTION_REGISTRY.items()
+            if is_offerable(name)}
+
+
 def get_actions_by_type(action_type: str) -> Dict[str, Dict]:
     """Get all actions of specified type."""
     return {
