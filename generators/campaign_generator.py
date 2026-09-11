@@ -185,7 +185,10 @@ Create a comprehensive D&D campaign following this exact JSON structure:
     {{"name": "NPC Name", "role": "Their role", "description": "2-3 sentence description", "motivation": "What drives them"}}
   ],
   "locations": [
-    {{"name": "Location Name", "type": "City/Dungeon/Wilderness", "description": "Vivid description", "significance": "Why it's important"}}
+    {{"name": "Location Name", "type": "City/Dungeon/Wilderness", "description": "Vivid description", "significance": "Why it's important",
+      "map": {{"name": "Short battlefield name",
+              "legend": {{".": "what open ground is here", "#": "what blocks it", "H": "what gives cover", "~": "what slows movement"}},
+              "rows": ["................", "................"]}}}}
   ],
   "encounters": [
     {{"id": "stable_snake_case_id", "title": "Encounter Name", "type": "Combat/Social/Exploration",
@@ -264,6 +267,41 @@ ENCOUNTER AUTHORING RULES (these drive real combat, so they must be mechanically
   A level 1 party facing three CR 3 enemies is unwinnable.
 - Use the campaign's own level_range to judge this: early-act encounters are for
   the bottom of the range, final-act encounters for the top.
+
+BATTLE MAPS — every location needs one. This is the tactical grid combat runs on, so
+it is mechanics, not decoration.
+
+Symbols (use ONLY these):
+  .  open ground     walkable, you can see across it
+  #  wall or chasm   NOT walkable and BLOCKS LINE OF SIGHT
+  H  cover           walkable and transparent — you can shoot over it (+2 AC)
+  ~  difficult       walkable at double movement cost (rubble, water, thick growth)
+  P  party start     where the players begin
+  E  enemy start     where the enemies begin
+
+Hard rules — a map that breaks one of these is REJECTED at load:
+  * Every row must be EXACTLY the same length. 12-16 wide by 8-10 tall works well.
+  * At least one P and one E.
+  * Enemies MUST be reachable from the party on foot. A wall straight across the map
+    makes a fight nobody can win: leave a gap, a doorway, or a crossing.
+  * Put P and E on OPPOSITE sides, at least 5 tiles apart. One tile is 5 feet and a
+    character moves 6 tiles a turn, so starting adjacent removes all tactics.
+
+Make the terrain match the location's own description — a chasm-riven plateau, a
+walled courtyard, a pillared hall. Terrain is what makes an encounter memorable, and
+a bare field plays the same everywhere.
+
+Example for "broken plateaus split by a chasm":
+  "rows": ["....H.....#.....",
+           "..........#..H..",
+           "P.........~.....",
+           "P....~....~....E",
+           "P.........~....E",
+           ".....H....#....E",
+           "..........#..H..",
+           "....H.....#....."]
+The `~` tiles either side of the gap in the `#` column are the crossing: costly to
+use, but it keeps the fight winnable.
 - "trigger.keywords" must be words that genuinely appear when the scene happens
   (creature names, place names, the action that starts it). They are matched
   against the narration, so generic words like "fight" or "danger" cause an
