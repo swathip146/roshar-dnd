@@ -31,6 +31,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RULES_DIR = PROJECT_ROOT / "data" / "rules" / "stormlight"
 HANDBOOK_MD = (PROJECT_ROOT / "parsed_data"
                / "863203275-cosmere-5e-radiant-s-handbook-v2-0" / "docling.md")
+INVESTED_ARTS_MD = (PROJECT_ROOT / "parsed_data"
+                    / "cosmere-5e-the-invested-arts-of-the-cosmere-v2-0" / "docling.md")
 
 
 class CosmereRules:
@@ -201,14 +203,17 @@ class CosmereRules:
         """
         Confirm every reviewed quote still appears at its cited line.
 
-        Guards against silent drift: if the Handbook is re-parsed and line
-        numbers shift, a "grounded" rule could quietly stop being grounded.
+        Guards against silent drift: if a source is re-parsed and line numbers
+        shift, a "grounded" rule could quietly stop being grounded. Each entry is
+        checked against the document named in its `source.book` — "handbook"
+        (the Radiant's Handbook, default) or "invested_arts" (The Invested Arts
+        of the Cosmere). `handbook_md` stays overridable for back-compat.
         """
-        if not Path(handbook_md).exists():
-            return {"checked": 0, "verified": 0, "mismatched": [],
-                    "error": f"source not found: {handbook_md}"}
-
-        lines = Path(handbook_md).read_text(encoding="utf-8").split("\n")
+        # Load each source document once; a book whose parsed doc is absent is
+        # reported per-entry rather than aborting the whole check.
+        doc_paths = {"handbook": Path(handbook_md), "invested_arts": INVESTED_ARTS_MD}
+        doc_lines = {book: path.read_text(encoding="utf-8").split("\n")
+                     for book, path in doc_paths.items() if path.exists()}
 
         def walk(obj, path=""):
             found = []
@@ -229,6 +234,12 @@ class CosmereRules:
                 continue
             checked += 1
             line_no = int(source.get("line", 0))
+            book = source.get("book", "handbook")
+            lines = doc_lines.get(book)
+            if lines is None:
+                mismatched.append({"entry": name, "line": line_no,
+                                   "fragment": f"(source doc unavailable: {book})"})
+                continue
             fragment = re.sub(r"\s+", " ", quote)[:60].strip().rstrip(".")
             window = re.sub(
                 r"\s+", " ", " ".join(lines[max(0, line_no - 3): line_no + 3])
@@ -241,7 +252,7 @@ class CosmereRules:
 
         if mismatched:
             logger.warning(f"⚠️ {len(mismatched)} Cosmere citation(s) no longer match "
-                           f"the Handbook — rules may have drifted")
+                           f"their cited source — rules may have drifted")
         return {"checked": checked, "verified": verified, "mismatched": mismatched}
 
     # ------------------------------------------------------------ DM support
