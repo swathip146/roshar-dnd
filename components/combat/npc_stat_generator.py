@@ -145,6 +145,12 @@ class NPCStats(BaseModel):
     attacks_per_turn: int = 1
     multiattack: Optional[Dict[str, Any]] = None
 
+    # Monster stat-block mechanics (plan 0, audit row: resistance/senses)
+    damage_resistances: List[str] = Field(default_factory=list)
+    damage_vulnerabilities: List[str] = Field(default_factory=list)
+    damage_immunities: List[str] = Field(default_factory=list)
+    senses: Dict[str, str] = Field(default_factory=dict)
+
     @validator('attacks_per_turn')
     def validate_attacks_per_turn(cls, v):
         """A count outside 1..MAX is a bad parse, not a monster — clamp it."""
@@ -596,6 +602,10 @@ Generate complete stat block:"""
         npc_data.setdefault("proficiency_bonus", 2)
         npc_data.setdefault("special_abilities", [])
         npc_data.setdefault("challenge_rating", target_cr)
+        npc_data.setdefault("damage_resistances", [])
+        npc_data.setdefault("damage_vulnerabilities", [])
+        npc_data.setdefault("damage_immunities", [])
+        npc_data.setdefault("senses", {})
 
         # Repair is also reached directly (combat_initializer's error path, and
         # tests), so multiattack must be resolved here too or a repaired NPC
@@ -636,7 +646,11 @@ Generate complete stat block:"""
                 "damage_type": "bludgeoning"
             }],
             special_abilities=[],
-            challenge_rating=target_cr
+            challenge_rating=target_cr,
+            damage_resistances=[],
+            damage_vulnerabilities=[],
+            damage_immunities=[],
+            senses={}
         ).model_dump()
 
     def get_npc_from_template(self, template_name: str) -> Optional[Dict]:

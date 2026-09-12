@@ -195,6 +195,11 @@ class SRDRules:
             "multiattack": multiattack,
             "special_abilities": [a.get("name", "")
                                   for a in (entry.get("special_abilities") or [])],
+            # Damage modifiers and senses (plan 0, monster stat wiring)
+            "damage_resistances": entry.get("damage_resistances", []),
+            "damage_vulnerabilities": entry.get("damage_vulnerabilities", []),
+            "damage_immunities": entry.get("damage_immunities", []),
+            "senses": entry.get("senses", {}),
             "source": "SRD 5e (OGL 1.0a)",
         }
 

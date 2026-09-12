@@ -126,6 +126,14 @@ class CharacterData:
     is_stable: bool = False   # Stabilised at 0 HP, no longer rolling death saves
     is_dead: bool = False     # 3 failed death saves (or massive damage)
 
+    # Monster stat-block mechanics (plan 0, audit row: resistance/senses)
+    # These fields are surfaced from SRD monster data and applied by the
+    # dnd_engine wrapper so resistance/immunity/vulnerability actually affect damage.
+    damage_resistances: List[str] = None
+    damage_vulnerabilities: List[str] = None
+    damage_immunities: List[str] = None
+    senses: Dict[str, str] = None  # e.g., {"darkvision": "60 ft."}
+
     # ------------------------------------------------------------------
     # Serialization (Plan 0.3)
     #
@@ -352,6 +360,12 @@ class CharacterManager:
 
             # Class-feature use counters, restored from a save when present.
             class_feature_uses=character_data.get("class_feature_uses") or {},
+
+            # Monster stat-block mechanics (plan 0)
+            damage_resistances=character_data.get("damage_resistances", []),
+            damage_vulnerabilities=character_data.get("damage_vulnerabilities", []),
+            damage_immunities=character_data.get("damage_immunities", []),
+            senses=character_data.get("senses", {}),
         )
 
         # Auto-migrate investiture_points to stormlight if needed (backward compatibility)
