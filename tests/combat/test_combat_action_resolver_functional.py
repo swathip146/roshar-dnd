@@ -187,7 +187,15 @@ class TestCombatActionResolverFunctional:
         assert "Unknown action" in result["error"]
 
     def test_action_types_are_categorized(self, action_resolver):
-        """Test actions are properly categorized by type"""
+        """
+        Test actions are properly categorized by type.
+
+        The allow-list is closed on purpose: a typo'd or invented `type` would make
+        the resolver fall through to "Unknown action" at dispatch time rather than
+        failing here. `spell_action` was added when 5e spellcasting landed — a
+        genuinely new category, not a typo, since a spell is dispatched neither like
+        a dnd_action nor like a Roshar surge.
+        """
         for action_type, metadata in action_resolver.ACTION_REGISTRY.items():
             # Verify type is valid
             assert metadata["type"] in [
