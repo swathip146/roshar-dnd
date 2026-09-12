@@ -22,34 +22,34 @@ Legend: ✅ yes / 🟡 partial or unverified / ❌ no.
 
 ## 1. Character sheet fidelity (`components/character_manager.py`, `CharacterData`)
 
-| Field/Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Field/Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
 | Ability scores | ✅ | ✅ | `character_manager.py:45-46` `ability_scores`/`ability_modifiers`; read throughout combat, skills, `dnd_engine_wrapper.py` | Fully wired |
 | Proficiency bonus | ✅ | ✅ | `character_manager.py:44`, `_calculate_proficiency_bonus` (`:1130`); live-tested level 1→20 gives +2→+6 | Correct |
 | Skills + proficiency | ✅ | ✅ | `skills: Dict[str,bool]` (`:47`); read in `dnd_engine_wrapper.py` skill checks | Wired |
-| Expertise | ✅ | ✅ | `expertise_skills` (`:48`); read `dnd_engine_wrapper.py:659`, `character_manager.py:566` | Wired, not just stored |
-| Saving throw proficiencies | ✅ | 🟡 | `saving_throw_proficiencies` (`:55`) | Field defined and populated; no consumer confirmed in a save-roll path in the files searched — unresolved between forks, flag for a combat-focused follow-up |
+| Expertise | ✅ | ✅ | `expertise_skills` (`:48`); read `dnd_engine_wrapper.py:659`, `character_manager.py:566` | Wired, not just stored | COMMENT: store it now
+| Saving throw proficiencies | ✅ | 🟡 | `saving_throw_proficiencies` (`:55`) | Field defined and populated; no consumer confirmed in a save-roll path in the files searched — unresolved between forks, flag for a combat-focused follow-up | COMMENT: implement and wire now completely
 | HP / hit dice | ✅ | ✅ | `hit_points` dict, `hit_dice_remaining`; live-tested level-up (+8 HP at level 2), `short_rest` spends dice | Fully wired |
-| AC | ✅ (as a static field) | 🟡 | `armor_class` field exists | Never recalculated from equipped armor — see §11 |
-| Speed | ✅ | ❓ | `speed: int = 30` (`:97`) | Not traced to a consumer in this pass |
+| AC | ✅ (as a static field) | 🟡 | `armor_class` field exists | Never recalculated from equipped armor — see §11 | COMMENT: implement recalc and wire now completely
+| Speed | ✅ | ❓ | `speed: int = 30` (`:97`) | Not traced to a consumer in this pass | COMMENT: Should be implemented and wired in combat
 | Level | ✅ | ✅ | `level` field; live-tested | Wired |
 | Class | ✅ | ✅ | `character_class`; drives hit die (`_hit_die_for_class:884`) and feature-table lookups | Wired |
-| Subclass | ❌ | ❌ | Zero hits for "subclass" anywhere in `character_manager.py` | Not modeled at all. Roshar `radiant_order` partially substitutes for Surgebinders, but there is no generic subclass slot (Champion Fighter, Berserker Barbarian, etc.) |
+| Subclass | ❌ | ❌ | Zero hits for "subclass" anywhere in `character_manager.py` | Not modeled at all. Roshar `radiant_order` partially substitutes for Surgebinders, but there is no generic subclass slot (Champion Fighter, Berserker Barbarian, etc.) | COMMENT: implement and wire in future version
 | Species/race | ✅ | ✅ | `race` field, read for languages/traits at init | Wired |
-| Background | ✅ (stored) | 🟡 | `background` field | Saved and shown to the LLM as flavor text; no mechanical consumer (no skill/tool proficiency grants) found |
+| Background | ✅ (stored) | 🟡 | `background` field | Saved and shown to the LLM as flavor text; no mechanical consumer (no skill/tool proficiency grants) found |  COMMENT: OK in current version
 | `features` (granted feature ids) | ✅ | ✅ | `features: List[str]` (`:50`); populated via `grant_class_features`, consumed by `class_feature_status` and `ClassFeatureEngine` | Reachable for tracking; whether individual features *work* mechanically is audited in §3 |
-| `spell_slots` | ✅ (field + real accounting) | ❌ in real play | `:59`; slot spending logic in `spellcasting.py` is correct | Unreachable — see §4, the `cast_spell` offerability bug |
-| `spells_known` | ✅ (field) | ❌ in real play | `:92` | Same blocker as above |
-| Feats | ❌ | ❌ | Zero hits for "feat"/"feats" | Not modeled — no ASI-vs-feat choice exists |
-| Languages | ✅ | 🟡 | `languages` (`:93`); surfaced via `get_character_summary` (`:1907`) and read into narration at `game_engine.py:525,680,829` | Narrative/LLM-prompt context only — no mechanical gate found (e.g. nothing blocks understanding a language the character doesn't speak) |
-| Tools | ✅ | 🟡 | `tool_proficiencies` (`:98`) | Same as languages — decorative context, no mechanical tool-check gate |
+| `spell_slots` | ✅ (field + real accounting) | ❌ in real play | `:59`; slot spending logic in `spellcasting.py` is correct | Unreachable — see §4, the `cast_spell` offerability bug |  COMMENT: implement recalc and wire now completely
+| `spells_known` | ✅ (field) | ❌ in real play | `:92` | Same blocker as above | COMMENT: implement and wire now completely
+| Feats | ❌ | ❌ | Zero hits for "feat"/"feats" | Not modeled — no ASI-vs-feat choice exists | COMMENT: implement and wire in future version
+| Languages | ✅ | 🟡 | `languages` (`:93`); surfaced via `get_character_summary` (`:1907`) and read into narration at `game_engine.py:525,680,829` | Narrative/LLM-prompt context only — no mechanical gate found (e.g. nothing blocks understanding a language the character doesn't speak) | COMMENT: implement and wire in future version
+| Tools | ✅ | 🟡 | `tool_proficiencies` (`:98`) | Same as languages — decorative context, no mechanical tool-check gate | COMMENT: implement and wire now completely
 | Inventory (item list) | ✅ | 🟡 | `equipment: List[str]` (`:94`), `add_equipment`/`remove_equipment` (`:1830-1850`) | See §11 — unreachable via any `@tool` or combat caller; only consumed once at entity-sync startup |
-| Currency/gold | ❌ | ❌ | Zero hits | Not modeled at all, not even as a data structure |
-| Carrying capacity | ❌ | ❌ | Zero hits | Not modeled |
-| Attunement slots | ❌ | ❌ | Zero hits | Not modeled. `has_shardblade`/`has_shardplate` are separate ad hoc booleans, not a generic 3-item attunement system |
-| Exhaustion | ❌ as a field / ✅ as a condition | 🟡 | `grep -n "exhaustion" components/character_manager.py` → zero hits; real level-tracked (1-6) logic lives in `components/engine_conditions.py` and is read by `components/policy.py:270` for disadvantage | Works through the generic `conditions: List[str]` string list and `engine_conditions.py`, not as a first-class `CharacterData` field. One fork read it as "field absent" (grepping `character_manager.py` alone) and another as "mechanically real" (grepping the conditions engine) — both are correct about their own file; the mechanic exists, just not where CLAUDE.md's field list implies |
+| Currency/gold | ❌ | ❌ | Zero hits | Not modeled at all, not even as a data structure | COMMENT: implement and wire now completely
+| Carrying capacity | ❌ | ❌ | Zero hits | Not modeled | COMMENT: implement and wire now completely
+| Attunement slots | ❌ | ❌ | Zero hits | Not modeled. `has_shardblade`/`has_shardplate` are separate ad hoc booleans, not a generic 3-item attunement system |  COMMENT: implement and wire in future version
+| Exhaustion | ❌ as a field / ✅ as a condition | 🟡 | `grep -n "exhaustion" components/character_manager.py` → zero hits; real level-tracked (1-6) logic lives in `components/engine_conditions.py` and is read by `components/policy.py:270` for disadvantage | Works through the generic `conditions: List[str]` string list and `engine_conditions.py`, not as a first-class `CharacterData` field. One fork read it as "field absent" (grepping `character_manager.py` alone) and another as "mechanically real" (grepping the conditions engine) — both are correct about their own file; the mechanic exists, just not where CLAUDE.md's field list implies | COMMENT: OK for this version
 | Conditions | ✅ | ✅ | `conditions: List[str]` (`:49`); `engine_conditions.py` implements Petrified, Exhaustion, etc. (commit `311230d`) | Wired |
-| Inspiration | ❌ | ❌ | Zero hits | Not modeled |
+| Inspiration | ❌ | ❌ | Zero hits | Not modeled | COMMENT: implement and wire in future version
 
 **Built but unreachable / entirely absent** (confirmed by grep — only self-references,
 no production consumer in `components/`, `agents/`, `core/`, `orchestrator/`): subclass,
@@ -61,17 +61,17 @@ saved/shown to the LLM, but have zero mechanical effect.
 
 ## 2. Progression
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
 | XP tracking | ✅ | ✅ | `experience_points` (`character_manager.py:122`) | Wired |
 | XP award | ✅ | ✅ | `character_manager.py:707 award_xp()`; **live-tested**: `award_xp('c1', 300)` → level 1→2, HP 10→18, features granted. Called in production from `agents/dm_tools.py:790 award_experience` (`@tool`, in `DM_TOOLS`, iterates the whole party, skips NPCs) | Genuinely reachable, not just a method that exists |
 | Leveling 1→20 | ✅ | ✅ | `_apply_level_up` (`:741`); live-tested to level 20 — HP, proficiency bonus, hit dice, class features all update correctly | Fully wired end to end |
 | HP per level | ✅ | ✅ | `_apply_level_up:748`, uses 5e "take the average" rule (`hit_die//2 + 1 + CON`); live-tested +8 HP at level 2 with a d10 hit die and CON +2 | Correct |
 | Proficiency bonus by level | ✅ | ✅ | `_calculate_proficiency_bonus` (`:1130`); live-tested 2→6 across the level range | Correct |
-| **ASI at 4/8/12/16/19** | ❌ | ❌ | Live-tested: leveled a character 1→20 via `award_xp`; `ability_scores` dict was byte-identical before and after | **Confirmed gap.** Leveling advances HP/proficiency/features but never touches ability scores. A character can be XP-farmed to level 20 with the ability scores rolled at creation, no ASI, no feat choice, ever |
-| Extra Attack | 🟡 | ❓ | Lives in `components/combat/multiattack.py` per a `class_features.py:62` comment, not in the level-up path | Not granted as a named feature by `_apply_level_up` at class-appropriate levels in the evidence gathered — flagged, not fully resolved |
-| Multiclassing | ❌ | ❌ | Zero hits for "multiclass" | `character_class` is a single string; no secondary class levels possible |
-| Death saves | ✅ (fields + reset) | 🟡 | `death_save_successes/failures`, `is_stable`, `is_dead` (`:124-127`); reset on waking via `short_rest` (`:937-938`) | Field tracking confirmed; the roll-triggering mechanic itself wasn't independently re-verified in this pass |
+| **ASI at 4/8/12/16/19** | ❌ | ❌ | Live-tested: leveled a character 1→20 via `award_xp`; `ability_scores` dict was byte-identical before and after | **Confirmed gap.** Leveling advances HP/proficiency/features but never touches ability scores. A character can be XP-farmed to level 20 with the ability scores rolled at creation, no ASI, no feat choice, ever | COMMENT: implement and wire now completely
+| Extra Attack | 🟡 | ❓ | Lives in `components/combat/multiattack.py` per a `class_features.py:62` comment, not in the level-up path | Not granted as a named feature by `_apply_level_up` at class-appropriate levels in the evidence gathered — flagged, not fully resolved | COMMENT: implement and wire now completely
+| Multiclassing | ❌ | ❌ | Zero hits for "multiclass" | `character_class` is a single string; no secondary class levels possible | COMMENT: implement and wire in future version
+| Death saves | ✅ (fields + reset) | 🟡 | `death_save_successes/failures`, `is_stable`, `is_dead` (`:124-127`); reset on waking via `short_rest` (`:937-938`) | Field tracking confirmed; the roll-triggering mechanic itself wasn't independently re-verified in this pass | COMMENT: I think this was working. Should be verified
 
 **Surprise**: `character_manager.py`'s own in-file comments (era of the handoff doc) still
 describe XP/leveling as unimplemented ("grep returned zero hits"). That is now **stale**
@@ -86,11 +86,11 @@ never touches the one thing 5e balances hardest around.
 
 ## 3. Class features (`components/combat/class_features.py`, `data/rules/class_features/`)
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
-| `ClassFeatureEngine` core (use/consume/recharge) | ✅ | 🟡 | Directly invoked and verified: Rage and Second Wind produced correct, real state changes when called via `DnDEngineWrapper.class_feature_engine(...)` | The engine itself is not a stub — closer to done than `standard_actions.py` |
-| Registration / entry point into combat turns | ❌ | ❌ | No `register_*` function found comparable to `register_standard_actions()`; nothing in `action_registry.py`/`combat_session_manager.py` offers class features as selectable combat actions the way Surges or `cast_spell` are offered | **Not reachable from a real turn.** The engine can be called directly (as the audit did), but nothing in the offer/menu path calls it |
-| Coverage across the 12 classes | 🟡 | ❌ | `data/rules/class_features/` exists with real content (not an empty scaffold) | Full per-class breakdown wasn't exhaustively enumerated class-by-class in this pass — Rage (Barbarian) and Second Wind (Fighter) confirmed working when called directly; Sneak Attack, Action Surge, Divine Smite not independently re-verified this session. Treat as "engine works, authored data incomplete/unaudited beyond the two spot-checked features," matching the handoff's original priority list |
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | |
+|---|---|---|---|---|---|
+| `ClassFeatureEngine` core (use/consume/recharge) | ✅ | 🟡 | Directly invoked and verified: Rage and Second Wind produced correct, real state changes when called via `DnDEngineWrapper.class_feature_engine(...)` | The engine itself is not a stub — closer to done than `standard_actions.py` | COMMENT: Confirm if fully working now
+| Registration / entry point into combat turns | ❌ | ❌ | No `register_*` function found comparable to `register_standard_actions()`; nothing in `action_registry.py`/`combat_session_manager.py` offers class features as selectable combat actions the way Surges or `cast_spell` are offered | **Not reachable from a real turn.** The engine can be called directly (as the audit did), but nothing in the offer/menu path calls it | COMMENT: Is this needed for proper game play, if so, implement and wire now completely
+| Coverage across the 12 classes | 🟡 | ❌ | `data/rules/class_features/` exists with real content (not an empty scaffold) | Full per-class breakdown wasn't exhaustively enumerated class-by-class in this pass — Rage (Barbarian) and Second Wind (Fighter) confirmed working when called directly; Sneak Attack, Action Surge, Divine Smite not independently re-verified this session. Treat as "engine works, authored data incomplete/unaudited beyond the two spot-checked features," matching the handoff's original priority list | COMMENT: implement and wire now completely
 | Recharge on rest | ✅ | ✅ | `short_rest`/`long_rest` in `character_manager.py` call `recharge_class_features`, rest-type aware | Confirmed via §6 (rests) test run: 15/15 rest tests pass |
 
 **Bottom line**: this remains the least mature module by reachability, exactly as the
@@ -102,7 +102,8 @@ the identical failure mode.
 
 ---
 
-## 4. Spellcasting (`components/combat/spellcasting.py`, `components/combat/spell_compiler.py`)
+## 4. Spellcasting (`components/combat/spellcasting.py`, `components/combat/spell_compiler.py`) 
+COMMENT: implement and wire now completely
 
 **Test run**: `uv run pytest tests/combat/test_spellcasting.py -q -p no:randomly` →
 **64 passed, 8 failed**, unchanged in count from the handoff doc but for a **different
@@ -169,20 +170,20 @@ registry entry is incomplete.
 
 ## 5. Skills and checks
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | |
+|---|---|---|---|---|---|
 | 18 SRD skills + 7-step resolution pipeline | ✅ | ✅ | `components/game_engine.py:196 process_skill_check`; live run: `roll_skill_check(skill='athletics', dc=12, actor='Aggi')` → `{'success': True, 'roll_total': 18, 'selected_roll': 16, 'character_modifier': 2, 'advantage_state': 'normal', 'dc': 11}` | DC 12→11 rescale is PolicyEngine profile scaling (RAW/HOUSE/EASY) working as intended, not a bug |
 | `roll_skill_check` reachable | ✅ | ✅ | `agents/dm_tools.py:179` `@tool`; in `DM_TOOLS` (`:841`); bound into a real Haystack `Agent(tools=dm_tools, max_agent_steps=10)` in `agents/scenario_generator_agent.py:826-844`; prompt explicitly instructs the LLM to call it | Genuinely reachable, not a dead tool |
-| Passive Perception | 🟡 | ❓ | No production hits for `passive_perception` found outside tests in the scope searched | Likely absent or unverified — not confirmed either way |
-| Advantage/disadvantage sources (cover, flanking, darkvision) | ✅ | ✅ (combat only) | `components/policy.py:299-301` (darkvision vs. dim/dark); tactical layer per commit `0d22104` | No exploration-side advantage source found — combat-only |
-| Help action | ❓ | ❓ | Reported unwired as part of `standard_actions.py` in the handoff; not independently re-verified in this session | Carry forward as unresolved |
+| Passive Perception | 🟡 | ❓ | No production hits for `passive_perception` found outside tests in the scope searched | Likely absent or unverified — not confirmed either way | COMMENT: implement and wire now completely
+| Advantage/disadvantage sources (cover, flanking, darkvision) | ✅ | ✅ (combat only) | `components/policy.py:299-301` (darkvision vs. dim/dark); tactical layer per commit `0d22104` | No exploration-side advantage source found — combat-only | COMMENT: implement and wire in future version for non-combat option
+| Help action | ❓ | ❓ | Reported unwired as part of `standard_actions.py` in the handoff; not independently re-verified in this session | Carry forward as unresolved | COMMENT: implement and wire now completely
 
 ---
 
 ## 6. Rests
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
 | `take_rest` (short + long) | ✅ | ✅ | `agents/dm_tools.py:606 @tool take_rest`; delegates to `character_manager.py:908 short_rest` / `:957 long_rest`; test run `uv run pytest tests/test_deterministic_game_flow.py -k "Rest or rest" -q` → **15 passed** | Genuinely reachable |
 | HP recovery | ✅ | ✅ | Both short and long rest recover HP | |
 | Hit dice | ✅ | ✅ | Short rest spends hit dice for healing; long rest recovers half | |
@@ -190,24 +191,24 @@ registry entry is incomplete.
 | Stormlight | ✅ | ✅ | Long rest only | |
 | Death saves reset | ✅ | ✅ | Both rest types reset on waking | |
 | Class feature uses | ✅ | ✅ | `recharge_class_features`, rest-type aware | Consistent with §3's finding that the engine itself works |
-| Exhaustion reduction | ❓ | ❓ | Not independently confirmed this session given exhaustion isn't a `CharacterData` field (§1) | Likely handled through `engine_conditions.py` if at all — unresolved |
+| Exhaustion reduction | ❓ | ❓ | Not independently confirmed this session given exhaustion isn't a `CharacterData` field (§1) | Likely handled through `engine_conditions.py` if at all — unresolved | COMMENT: verify first and if not present, implement and wire now completely
 
 ---
 
 ## 7. Exploration/downtime
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
 | Travel (location-graph) | ✅ | ✅ | `agents/dm_tools.py:820 @tool travel_to_location` → `game_engine.py:1199 travel_to()`, in `DM_TOOLS`, advances the game clock | This is a location-graph teleport between named locations, **not** distance/pace-based 5e travel |
-| Travel pace (fast/normal/slow) | ❌ | ❌ | `grep -rln "travel_pace\|movement_pace"` → zero hits anywhere | Concept doesn't exist |
-| Encumbrance / carrying capacity | ❌ | ❌ | Zero hits for a character-weight system | Not implemented |
-| Falling damage | ❌ | ❌ | Grep hits were false positives (tactical grid "falling back" language) | Not implemented |
-| Suffocation | ❌ | ❌ | Zero hits | Not implemented |
-| Burning/fire hazard | ❌ | ❌ | Grep hits were false positives (unrelated retry/action-registry code) | Not implemented |
-| Dehydration/malnutrition/starvation | ❌ | ❌ | Zero hits | Not implemented |
-| Traps | ❌ | ❌ | Grep hits were false positives (maneuver files) | Not implemented |
-| Breaking objects | ❌ | ❌ | Zero hits | Not implemented |
-| Light/vision (darkvision) | 🟡 | ✅ combat only | `components/policy.py:299-301,696` | Only affects combat advantage rolls; no exploration/stealth vision system outside combat |
+| Travel pace (fast/normal/slow) | ❌ | ❌ | `grep -rln "travel_pace\|movement_pace"` → zero hits anywhere | Concept doesn't exist | COMMENT: implement and wire in future version
+| Encumbrance / carrying capacity | ❌ | ❌ | Zero hits for a character-weight system | Not implemented | COMMENT: implement and wire now completely
+| Falling damage | ❌ | ❌ | Grep hits were false positives (tactical grid "falling back" language) | Not implemented | COMMENT: implement and wire in future version
+| Suffocation | ❌ | ❌ | Zero hits | Not implemented | COMMENT: implement and wire in future version
+| Burning/fire hazard | ❌ | ❌ | Grep hits were false positives (unrelated retry/action-registry code) | Not implemented | COMMENT: implement and wire in future version
+| Dehydration/malnutrition/starvation | ❌ | ❌ | Zero hits | Not implemented | COMMENT: implement and wire in future version
+| Traps | ❌ | ❌ | Grep hits were false positives (maneuver files) | Not implemented | COMMENT: implement and wire in future version
+| Breaking objects | ❌ | ❌ | Zero hits | Not implemented | COMMENT: implement and wire in future version
+| Light/vision (darkvision) | 🟡 | ✅ combat only | `components/policy.py:299-301,696` | Only affects combat advantage rolls; no exploration/stealth vision system outside combat | COMMENT: OK for now. implement and wire in future version
 
 None of falling, suffocation, burning, dehydration/malnutrition, traps, or object-breaking
 exist in the codebase in any form — not stubs, not data structures, not partial.
@@ -216,11 +217,11 @@ exist in the codebase in any form — not stubs, not data structures, not partia
 
 ## 8. Social
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
 | NPC dialogue generation | ✅ | ✅ | `agents/npc_controller_agent.py:22 generate_npc_response`, bound as a Haystack Agent tool (`:278`) | Pure LLM narrative generation |
-| NPC attitude tracking | 🟡 | ✅ | `assess_attitude_change` (`:107-156`): 5-level scale (hostile→helpful), shifted ±3 by LLM-classified match against `positive_actions`/`negative_actions` personality keyword lists | Real and reachable, but entirely **non-mechanical** — no dice anywhere |
-| Persuasion/Deception/Intimidation as dice checks | ❌ | ❌ | No `roll_skill_check` import or call anywhere in `npc_controller_agent.py`, confirmed by direct read of the file | These three skills are valid arguments `roll_skill_check` would accept, but nothing in the social pipeline ever calls it. Social interaction and the dice/DC machinery are two structurally disjoint systems — a player "trying to persuade an NPC" gets pure LLM vibes-based adjudication, never a DC roll, even though the underlying skill-check tool fully supports it and is reachable elsewhere (§5) |
+| NPC attitude tracking | 🟡 | ✅ | `assess_attitude_change` (`:107-156`): 5-level scale (hostile→helpful), shifted ±3 by LLM-classified match against `positive_actions`/`negative_actions` personality keyword lists | Real and reachable, but entirely **non-mechanical** — no dice anywhere | COMMENT: OK for now. implement and wire in future version
+| Persuasion/Deception/Intimidation as dice checks | ❌ | ❌ | No `roll_skill_check` import or call anywhere in `npc_controller_agent.py`, confirmed by direct read of the file | These three skills are valid arguments `roll_skill_check` would accept, but nothing in the social pipeline ever calls it. Social interaction and the dice/DC machinery are two structurally disjoint systems — a player "trying to persuade an NPC" gets pure LLM vibes-based adjudication, never a DC roll, even though the underlying skill-check tool fully supports it and is reachable elsewhere (§5) | COMMENT: implement and wire now completely
 
 ---
 
@@ -261,12 +262,12 @@ The live game only survives this because `haystack_dnd_game.py:1164-1202` (save)
 they build `character_manager_state` from `to_dict()` and restore via `add_character()`
 directly, never touching `import_game_state()`'s internal character branch.
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
 | Character save/load (real app path) | ✅ | ✅ | `haystack_dnd_game.py:1164-1202`/`:1097-1162`, live-tested, fully lossless | Correct, per an in-code comment referencing "Plan 0.3" |
-| `GameEngine.export_game_state()`'s embedded `character_data` | 🟡 exists, misleading | ❌ never used for restore by the real app | `game_engine.py:524-527` calls `get_character_summary()`, drops HP/AC/equipment/spell_slots to defaults | **Live landmine**, not just a historical one: any *new* caller of `import_game_state()` that trusts its own character-restoration branch — a script, a test, a future refactor — will silently resurrect a full-HP character as a 0-HP husk. It looks authoritative and is not |
+| `GameEngine.export_game_state()`'s embedded `character_data` | 🟡 exists, misleading | ❌ never used for restore by the real app | `game_engine.py:524-527` calls `get_character_summary()`, drops HP/AC/equipment/spell_slots to defaults | **Live landmine**, not just a historical one: any *new* caller of `import_game_state()` that trusts its own character-restoration branch — a script, a test, a future refactor — will silently resurrect a full-HP character as a 0-HP husk. It looks authoritative and is not | COMMENT: implement and wire now completely
 | Quest/location/campaign-flags round trip | ✅ | ✅ | Live-tested, byte-identical | |
-| Routing history / session stats | ✅ | ✅ | `session_manager.py:207-212` | Last 20/50 entries only, by design (not a bug) |
+| Routing history / session stats | ✅ | ✅ | `session_manager.py:207-212` | Last 20/50 entries only, by design (not a bug) |COMMENT: increase the number of entries
 
 **Lost on save/load (via the real app path)**: nothing found — the real path is
 lossless for everything tested. **Lost on save/load (via the parallel, unused
@@ -278,15 +279,15 @@ exists in the same class as the correct one and is a trap for any future caller.
 
 ## 11. Inventory and equipment
 
-| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes |
-|---|---|---|---|---|
-| Add/remove named inventory item | ✅ | ❌ | `character_manager.py:1830 add_equipment` / `:1843 remove_equipment` | Zero grep hits outside `character_manager.py` and its own summary field — no `@tool`, no combat caller. Unreachable in a real session |
+| Mechanic | Implemented? | Reachable? | Evidence | Gap/notes ||
+|---|---|---|---|---|---|
+| Add/remove named inventory item | ✅ | ❌ | `character_manager.py:1830 add_equipment` / `:1843 remove_equipment` | Zero grep hits outside `character_manager.py` and its own summary field — no `@tool`, no combat caller. Unreachable in a real session | COMMENT: implement and wire now completely
 | Weapon equip → real attack bonus/damage | ✅ | ✅ | `dnd_engine_wrapper.py:231 equip_weapon()`, auto-invoked for every character at entity-sync time via `equip_from_character_data()` (`:331`, called from `__post_init__:88`) | Genuinely wired: builds a real `dnd.blocks.equipment.Weapon` from `CharacterData.equipment` string names and equips it into the vendored engine, consumed by `tactical_rules.py`, `class_features.py`, `standard_actions.py`, `maneuver_executor.py` |
-| Proficiency on weapon attacks | ❌ bug, confirmed still present | ✅ (unfortunately reachable) | `dnd_engine_wrapper.py:259-293`, own in-code comment: "STR 16 (+3) with a longsword: level 1 rolls +7 vs RAW +5 ... level 17 rolls +15 vs RAW +9" | Matches `SESSION_HANDOFF_2026-09-11.md` item 8 exactly — **still not fixed**. Pinned (and currently failing) by `tests/combat/test_proficiency_on_attacks.py`: **2 passed, 7 failed** when re-run just now |
-| Armor equip → AC change | ❌ | ❌ | Exhaustive grep for `Armor(`/`equip_armor` in `dnd_engine_wrapper.py`: zero hits. `_sync_characters_to_entities()` (`:754`) does `EquipmentConfig(unarmored_ac=character.armor_class)` — a static, pre-baked number copied straight in | **No armor-item-to-AC formula exists at all.** `armor_class` is authored once at character creation and never recalculated. Equipping/unequipping armor mid-game has zero mechanical effect |
-| Attunement (max 3) | ❌ | ❌ | Zero hits | Not modeled |
-| Currency / buying / selling | ❌ | ❌ | Zero hits | No economy system in any form, not even a data structure |
-| Two parallel equipment representations | 🟡 | — | `CharacterData.equipment: List[str]` (flat names, decorative after startup) vs. the engine's real `entity.equipment: EquipmentConfig` (weapon slots, feeds attack bonus) | Connected **one-way, read-only, at initial entity sync only**. There is no "equip a newly found sword mid-combat" flow — `equip_weapon` is never called again after `__post_init__` |
+| Proficiency on weapon attacks | ❌ bug, confirmed still present | ✅ (unfortunately reachable) | `dnd_engine_wrapper.py:259-293`, own in-code comment: "STR 16 (+3) with a longsword: level 1 rolls +7 vs RAW +5 ... level 17 rolls +15 vs RAW +9" | Matches `SESSION_HANDOFF_2026-09-11.md` item 8 exactly — **still not fixed**. Pinned (and currently failing) by `tests/combat/test_proficiency_on_attacks.py`: **2 passed, 7 failed** when re-run just now | COMMENT: implement and wire now completely
+| Armor equip → AC change | ❌ | ❌ | Exhaustive grep for `Armor(`/`equip_armor` in `dnd_engine_wrapper.py`: zero hits. `_sync_characters_to_entities()` (`:754`) does `EquipmentConfig(unarmored_ac=character.armor_class)` — a static, pre-baked number copied straight in | **No armor-item-to-AC formula exists at all.** `armor_class` is authored once at character creation and never recalculated. Equipping/unequipping armor mid-game has zero mechanical effect |COMMENT: implement and wire now completely
+| Attunement (max 3) | ❌ | ❌ | Zero hits | Not modeled |COMMENT: implement and wire in future version
+| Currency / buying / selling | ❌ | ❌ | Zero hits | No economy system in any form, not even a data structure |COMMENT: implement and wire now completely
+| Two parallel equipment representations | 🟡 | — | `CharacterData.equipment: List[str]` (flat names, decorative after startup) vs. the engine's real `entity.equipment: EquipmentConfig` (weapon slots, feeds attack bonus) | Connected **one-way, read-only, at initial entity sync only**. There is no "equip a newly found sword mid-combat" flow — `equip_weapon` is never called again after `__post_init__` | COMMENT: implement and wire now completely
 
 ---
 
@@ -392,14 +393,14 @@ still filtered," which is a real but incomplete step forward.
 
 | Mechanic | Combat | Exploration/scenario |
 |---|---|---|
-| `roll_skill_check` / dice, DCs | Uses a separate resolver, not this tool | ✅ reachable via `dm_tools.py` |
-| `cast_spell` / spellcasting | ❌ registered but filtered from the menu | Not offered at all outside combat (no exploration-mode casting exists) |
-| Class features (Rage, Second Wind, etc.) | ❌ engine exists, not offered in any menu | N/A — combat-only concept |
-| Advantage/disadvantage, cover, flanking, darkvision | ✅ full tactical layer | ❌ no exploration-side equivalent |
-| Persuasion/Deception/Intimidation as dice checks | N/A | ❌ social pipeline never calls `roll_skill_check`, despite it fully supporting these skills |
+| `roll_skill_check` / dice, DCs | Uses a separate resolver, not this tool | ✅ reachable via `dm_tools.py` | COMMENT: is it possible to combine to have one source of truth
+| `cast_spell` / spellcasting | ❌ registered but filtered from the menu | Not offered at all outside combat (no exploration-mode casting exists) | COMMENT: should be available in non-combat implement and wire now completely
+| Class features (Rage, Second Wind, etc.) | ❌ engine exists, not offered in any menu | N/A — combat-only concept | COMMENT: implement and wire now completely
+| Advantage/disadvantage, cover, flanking, darkvision | ✅ full tactical layer | ❌ no exploration-side equivalent | COMMENT: implement and wire in future version
+| Persuasion/Deception/Intimidation as dice checks | N/A | ❌ social pipeline never calls `roll_skill_check`, despite it fully supporting these skills | COMMENT: implement and wire now completely
 | Travel | N/A (combat has tactical grid movement instead) | ✅ location-graph `travel_to_location`, but no pace/distance model |
 | Weapon-equip effects on attack | ✅ wired (with the proficiency bug) | N/A |
-| Armor-equip effects on AC | ❌ absent in both modes | ❌ absent in both modes |
+| Armor-equip effects on AC | ❌ absent in both modes | ❌ absent in both modes | COMMENT: implement and wire now completely
 
 ---
 
