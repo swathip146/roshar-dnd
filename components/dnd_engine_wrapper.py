@@ -43,8 +43,9 @@ from dnd.blocks.equipment import EquipmentConfig
 from dnd.blocks.action_economy import ActionEconomyConfig
 from dnd.core.events import SkillCheckEvent, SkillName, AbilityName
 from dnd.core.dice import Dice, RollType
-from dnd.core.modifiers import DamageType
+from dnd.core.modifiers import DamageType, ResistanceModifier, ResistanceStatus
 from dnd.core.values import ModifiableValue
+from dnd.blocks.sensory import SensesType
 
 # Corrections to the vendored engine, applied before any roll happens.
 # Advantage/disadvantage rolled ONE die and took max() of a single-element
@@ -57,6 +58,70 @@ apply_engine_patches()
 from config.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _parse_damage_type(damage_type_str: str) -> Optional[DamageType]:
+    """
+    Parse a damage type string to DamageType enum.
+
+    Handles simple types like "acid", "poison", "fire".
+    Skips complex conditions like "bludgeoning from nonmagical weapons".
+
+    Args:
+        damage_type_str: String like "acid" or "bludgeoning from nonmagical weapons"
+
+    Returns:
+        DamageType enum value or None if not parseable
+    """
+    if not damage_type_str:
+        return None
+
+    # Normalize to lowercase for comparison
+    dtype_lower = damage_type_str.strip().lower()
+
+    # Skip complex conditions (contain "from" or commas indicating multiple types)
+    if " from " in dtype_lower or "," in dtype_lower:
+        return None
+
+    # Map common damage type strings to enum values
+    damage_type_map = {
+        "acid": DamageType.ACID,
+        "bludgeoning": DamageType.BLUDGEONING,
+        "cold": DamageType.COLD,
+        "fire": DamageType.FIRE,
+        "force": DamageType.FORCE,
+        "lightning": DamageType.LIGHTNING,
+        "necrotic": DamageType.NECROTIC,
+        "piercing": DamageType.PIERCING,
+        "poison": DamageType.POISON,
+        "psychic": DamageType.PSYCHIC,
+        "radiant": DamageType.RADIANT,
+        "slashing": DamageType.SLASHING,
+        "thunder": DamageType.THUNDER,
+    }
+
+    return damage_type_map.get(dtype_lower)
+
+
+def _parse_sense_range(sense_str: str) -> int:
+    """
+    Parse sense range from string like "60 ft." or "120 ft.".
+
+    Args:
+        sense_str: String like "60 ft." or "120 ft."
+
+    Returns:
+        Range in feet, or 60 (default darkvision range) if unparseable
+    """
+    if not sense_str:
+        return 60
+
+    # Extract first number from string
+    import re
+    match = re.search(r'(\d+)', sense_str)
+    if match:
+        return int(match.group(1))
+    return 60
 
 
 @dataclass
@@ -790,7 +855,7 @@ class DnDEngineWrapper:
                 config=entity_config
             )
 
-            # Set damage_taken to match current HP
+            # Set damage_taken to match current HP, but clamp it to ensure invariant holds
             entity.health.damage_taken = damage_taken
 
             # LOG ENTITY HP VALUES AFTER CREATION
@@ -798,11 +863,106 @@ class DnDEngineWrapper:
             entity_max_hp = self.get_entity_max_hp(entity)
             entity_total_hp = entity.health.get_total_hit_points(con_mod)
 
+            # HP SYNC INVARIANT: Ensure total_hp <= max_hp (plan 3, HP-sync fix).
+            # The engine's max_hp is hit-dice-derived; if CharacterManager's max is
+            # higher, the bonus bridges it. But if damage_taken was computed from
+            # CharacterManager's current/max delta and that delta is larger than
+            # the engine's max_hp, total_hp wraps negative or exceeds max_hp.
+            # Clamp damage_taken so the invariant holds.
+            if entity_total_hp > entity_max_hp:
+                # Recalculate damage_taken to make total = max (full health)
+                clamped_damage = max(0, entity_max_hp - current_hp)
+                logger.warning(
+                    f"      ⚠️ HP sync clamped for {character.name}: "
+                    f"damage_taken {damage_taken} -> {clamped_damage} "
+                    f"(total was {entity_total_hp}, max is {entity_max_hp})")
+                entity.health.damage_taken = clamped_damage
+                entity_total_hp = entity.health.get_total_hit_points(con_mod)
+
             logger.info(f"      ✅ Entity created:")
             logger.info(f"         Constitution modifier: {con_mod}")
             logger.info(f"         entity.health.get_max_hit_dices_points(con_mod): {entity_max_hp}")
             logger.info(f"         entity.health.damage_taken: {entity.health.damage_taken}")
             logger.info(f"         entity.health.get_total_hit_points(con_mod): {entity_total_hp}")
+
+            # WIRE DAMAGE RESISTANCES / VULNERABILITIES / IMMUNITIES (plan 1)
+            # Monster data carries these in arrays; apply them to the entity so
+            # poison immunity and bludgeoning vulnerability actually take effect.
+            resistances_applied = 0
+            vulnerabilities_applied = 0
+            immunities_applied = 0
+
+            for vuln_str in (character.damage_vulnerabilities or []):
+                dtype = _parse_damage_type(vuln_str)
+                if dtype:
+                    from uuid import uuid4
+                    entity.health.damage_reduction.self_static.add_resistance_modifier(
+                        ResistanceModifier(
+                            source_entity_uuid=entity.uuid,
+                            target_entity_uuid=entity.uuid,
+                            value=ResistanceStatus.VULNERABILITY,
+                            damage_type=dtype,
+                            name=f"Vulnerability to {dtype.value}"
+                        )
+                    )
+                    vulnerabilities_applied += 1
+
+            for resist_str in (character.damage_resistances or []):
+                dtype = _parse_damage_type(resist_str)
+                if dtype:
+                    from uuid import uuid4
+                    entity.health.damage_reduction.self_static.add_resistance_modifier(
+                        ResistanceModifier(
+                            source_entity_uuid=entity.uuid,
+                            target_entity_uuid=entity.uuid,
+                            value=ResistanceStatus.RESISTANCE,
+                            damage_type=dtype,
+                            name=f"Resistance to {dtype.value}"
+                        )
+                    )
+                    resistances_applied += 1
+
+            for immune_str in (character.damage_immunities or []):
+                dtype = _parse_damage_type(immune_str)
+                if dtype:
+                    from uuid import uuid4
+                    entity.health.damage_reduction.self_static.add_resistance_modifier(
+                        ResistanceModifier(
+                            source_entity_uuid=entity.uuid,
+                            target_entity_uuid=entity.uuid,
+                            value=ResistanceStatus.IMMUNITY,
+                            damage_type=dtype,
+                            name=f"Immunity to {dtype.value}"
+                        )
+                    )
+                    immunities_applied += 1
+
+            if vulnerabilities_applied + resistances_applied + immunities_applied > 0:
+                logger.info(
+                    f"         🛡️ Applied {vulnerabilities_applied} vulnerability, "
+                    f"{resistances_applied} resistance, {immunities_applied} immunity")
+
+            # WIRE MONSTER SENSES (plan 2)
+            # Surface darkvision/blindsight/truesight from stat blocks so they
+            # affect sight range in combat.
+            senses_applied = []
+            senses_dict = character.senses if hasattr(character, 'senses') else {}
+            if isinstance(senses_dict, dict):
+                if "darkvision" in senses_dict and senses_dict["darkvision"]:
+                    entity.senses.extra_senses.append(SensesType.DARKVISION)
+                    senses_applied.append(f"darkvision {senses_dict['darkvision']}")
+                if "blindsight" in senses_dict and senses_dict["blindsight"]:
+                    entity.senses.extra_senses.append(SensesType.BLINDSIGHT)
+                    senses_applied.append(f"blindsight {senses_dict['blindsight']}")
+                if "truesight" in senses_dict and senses_dict["truesight"]:
+                    entity.senses.extra_senses.append(SensesType.TRUESIGHT)
+                    senses_applied.append(f"truesight {senses_dict['truesight']}")
+                if "tremorsense" in senses_dict and senses_dict["tremorsense"]:
+                    entity.senses.extra_senses.append(SensesType.TREMORSENSE)
+                    senses_applied.append(f"tremorsense {senses_dict['tremorsense']}")
+
+            if senses_applied:
+                logger.info(f"         👁️ Applied senses: {', '.join(senses_applied)}")
 
             self.entities[char_id] = entity
             logger.debug(f"Created entity for {character.name} (ID: {char_id})")
