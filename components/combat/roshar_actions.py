@@ -36,6 +36,56 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
+# SHARED BOOK-DERIVED SCALING HELPERS (Cosmere 5e)
+#
+# These read values straight off the mirrored dnd_engine Entity and map them to
+# the book's own tables — no invented numbers. Each is cited at its use site.
+# ============================================================================
+
+def _proficiency_bonus(entity) -> int:
+    """Proficiency bonus as a plain int (the entity field is a ModifiableValue)."""
+    value = getattr(entity, "proficiency_bonus", None)
+    if value is None:
+        return 2
+    return int(getattr(value, "normalized_score",
+                       getattr(value, "score", value)) or 2)
+
+
+def _character_level(entity) -> int:
+    """Character level if mirrored onto the entity, else 0 (unknown)."""
+    return int(getattr(entity, "level", 0) or 0)
+
+
+def _radiant_ideal(entity) -> int:
+    """Ideal/Surgebinding tier (Third Ideal == 3), else 0."""
+    for attr in ("ideal_level", "surgebinding_level"):
+        value = getattr(entity, attr, None)
+        if value:
+            return int(value)
+    return 0
+
+
+def _best_modifier(entity, abilities) -> int:
+    """Highest ability modifier among `abilities`, or 0 if the block is absent."""
+    scores = getattr(entity, "ability_scores", None)
+    if scores is None:
+        return 0
+    mods = [int(getattr(scores, a).modifier)
+            for a in abilities if hasattr(scores, a)]
+    return max(mods) if mods else 0
+
+
+def _shardblade_die_faces(entity) -> int:
+    """
+    Shardblade weapon die by proficiency band, per the Windrunner class table
+    (HB:1739-1757): d4 (prof +2), d6 (+3), d8 (+4), d10 (+5), d12 (+6). The die
+    column tracks the proficiency column one-for-one across all 20 rows.
+    """
+    prof = _proficiency_bonus(entity)
+    return {2: 4, 3: 6, 4: 8, 5: 10, 6: 12}.get(prof, max(4, min(12, prof * 2)))
+
+
+# ============================================================================
 # EVENT CLASS WIRING
 # ============================================================================
 
@@ -82,35 +132,38 @@ class LashingEvent(ActionEvent):
     name: str = "Lashing"
     event_type: EventType = EventType.BASE_ACTION  # Roshar-specific action
     lashing_type: str = "basic"  # "basic", "full", "reverse"
-    # Needs a DEFAULT. `ActionEvent.from_costs` constructs the event with only
-    # source/target/costs/parent, so a required field with no default makes
-    # construction fail outright:
-    #   ValidationError: stormlight_cost Field required
-    # This was latent while the class was dead code — every Lashing ran on a plain
-    # ActionEvent — and surfaced the moment the event classes were wired up.
-    stormlight_cost: int = 1  # Stormlight spheres consumed
+    # A cantrip is FREE — the earlier per-use Stormlight-sphere cost was invented
+    # (AUDIT_HARDCODED_SURGE_ACCURACY.md §4.1; surgebinding.json Gravitation.cost
+    # is {investiture_points: 0}). The field is kept at 0 so `from_costs` — which
+    # passes only source/target/costs/parent — can still construct the event.
+    stormlight_cost: int = 0
     target_direction: Optional[Tuple[int, int, int]] = None  # Gravity direction vector
+    # Adhesion cantrip's "stick an object" escape check (IA:345-346): the STR
+    # (Athletics) DC to pull a Lashed object free. 0 until computed in _apply.
+    escape_dc: int = 0
 
 
 class Lashing(_TypedEventAction):
     """
     Windrunner/Skybreaker Lashing - Roshar Surgebinding ability
 
-    Manipulates gravity through Surgebinding (Gravitation Surge).
-    Consumes Stormlight spheres and requires Windrunner or Skybreaker Order.
+    Manipulates gravity through Surgebinding (the Basic Lashing / Gravitation and
+    Full Lashing / Adhesion cantrips). Requires the Windrunner or Skybreaker Order.
 
-    **Mechanics:**
-    - Cost: 1 Action + 1 Stormlight sphere
+    **Mechanics (Cosmere 5e — Invested Arts, Gravitation cantrip IA:348-373,
+    Adhesion cantrip IA:321-346):**
+    - Cost: FREE (a cantrip costs 0 Investiture — the old 1-sphere cost and the
+      "10 rounds" duration were invented; see AUDIT_HARDCODED_SURGE_ACCURACY.md §4.1)
     - Range: Touch
-    - Duration: 10 rounds (concentration)
-    - Effect: Changes target's gravity direction
+    - Duration: Instantaneous
+    - Effect: Lash an object/creature in a chosen direction; a Lashed/stuck object
+      is freed with a Strength (Athletics) check vs an escape DC of `8 + proficiency`,
+      rising to 9/10/11 + proficiency at 5th/11th/17th level (Adhesion, IA:345-346).
 
     **Types:**
     - basic: Change gravity direction for target
     - full: Reverse gravity completely (up becomes down)
     - reverse: Create gravity source on object
-
-    Based on: Cosmere 5e Radiant's Handbook v2.0, pg. 47
     """
 
     event_class: type = LashingEvent
@@ -118,7 +171,7 @@ class Lashing(_TypedEventAction):
     description: str = "Manipulate gravity through Surgebinding"
     lashing_type: str = "basic"  # "basic", "full", "reverse"
     target_direction: Tuple[int, int, int] = (0, 0, -1)  # Default: down
-    stormlight_cost: int = 1
+    stormlight_cost: int = 0  # Free cantrip (IA:368; surgebinding.json Gravitation)
 
     # NOTE: no custom __init__.
     # The original hand-wrote one that assigned fields directly and never
@@ -151,13 +204,10 @@ class Lashing(_TypedEventAction):
                     status_message="Insufficient Windrunner/Skybreaker attunement"
                 )
 
-        # Check Stormlight availability
-        if hasattr(entity, 'stormlight_current'):
-            if entity.stormlight_current < self.stormlight_cost:
-                logger.warning(f"Entity {entity.name} has insufficient Stormlight ({entity.stormlight_current}/{self.stormlight_cost})")
-                return declaration_event.cancel(
-                    status_message=f"Insufficient Stormlight ({entity.stormlight_current}/{self.stormlight_cost} needed)"
-                )
+        # NO Stormlight gate: Gravitation/Adhesion are cantrips and cost nothing
+        # (IA:368; surgebinding.json Gravitation.cost = {investiture_points: 0}).
+        # A drained Radiant can still use a cantrip — the old 1-sphere gate was
+        # the invented cost this rewrite removes.
 
         logger.debug(f"✅ Lashing validated for {entity.name}")
         return declaration_event.phase_to(
@@ -193,16 +243,16 @@ class Lashing(_TypedEventAction):
                 target.is_gravity_source = True
                 logger.debug(f"   Made {target.name} a gravity source")
 
-        # Consume Stormlight
-        # Plan 1.6: `entity.stormlight_current -= cost` raises -- Entity is a
-        # pydantic model without extra="allow". Write through __dict__ so the
-        # mirror stays readable for the next guard; DnDEngineWrapper
-        # .sync_roshar_attrs_from_entity() persists it to CharacterData.
-        if hasattr(entity, 'stormlight_current'):
-            entity.__dict__['stormlight_current'] = (
-                entity.stormlight_current - self.stormlight_cost
-            )
-            logger.debug(f"   Consumed {self.stormlight_cost} Stormlight ({entity.stormlight_current} remaining)")
+        # Adhesion cantrip escape DC (IA:345-346): STR (Athletics) DC to pull a
+        # Lashed/stuck object free is 8 + proficiency, rising to 9/10/11 at levels
+        # 5/11/17. Recorded on the event so the DM/session can adjudicate a break.
+        level = _character_level(entity)
+        bump = (level >= 5) + (level >= 11) + (level >= 17)
+        escape_dc = 8 + bump + _proficiency_bonus(entity)
+        execution_event.escape_dc = escape_dc
+        logger.debug(f"   Adhesion escape DC (STR/Athletics): {escape_dc}")
+
+        # NO Stormlight consumption — a cantrip is free (IA:368).
 
         return execution_event.phase_to(
             new_phase=EventPhase.COMPLETION,
@@ -215,35 +265,51 @@ class Lashing(_TypedEventAction):
 # ============================================================================
 
 class ShardbladeAttackEvent(ActionEvent):
-    """Event for Shardblade attack"""
+    """
+    Event for a Shardblade attack — a REAL weapon attack roll vs AC.
+
+    The old "2d6 necrotic, ignores armour, 10 heartbeats to kill" was invented
+    wholesale (AUDIT_HARDCODED_SURGE_ACCURACY.md §4.2). A Shardweapon is a normal
+    attack: roll to hit against AC, and on a hit deal a level-scaled weapon die of
+    the wielder's CHOSEN damage type plus the Shardweapon's magic bonus.
+    """
     name: str = "Shardblade Attack"
     event_type: EventType = EventType.ATTACK
-    soul_damage: int = 0  # 2d6 necrotic damage (ignores armor)
-    target_killed: bool = False  # If soul severed (10 heartbeats)
+    attack_roll: int = 0
+    target_ac: int = 0
+    hit: bool = False
+    soul_damage: int = 0  # damage dealt (name kept: the resolver reads it)
+    damage_type: str = "slashing"  # the wielder's chosen weapon type, not necrotic
 
 
 class ShardbladeAttack(_TypedEventAction):
     """
     Shardblade Attack - Soul-severing weapon attack
 
-    Attacks with a summoned Shardblade, dealing soul damage that ignores armor.
+    Attacks with a summoned Shardblade as a normal weapon attack against AC.
 
-    **Mechanics:**
+    **Mechanics (Cosmere 5e — Radiant's Handbook; corrections per
+    AUDIT_HARDCODED_SURGE_ACCURACY.md §4.2):**
     - Cost: 1 Action
     - Range: Reach (5 ft)
-    - Damage: 2d6 necrotic (soul damage, ignores AC)
-    - Special: Severs soul on hit (10 heartbeats to kill if not healed)
+    - To hit: a real attack roll (d20 + Investiture ability modifier +
+      proficiency) vs the target's AC — NOT armour-ignoring, NOT auto-hit
+    - Damage: one level-scaled weapon die (d4->d12 across the Windrunner table,
+      HB:1739-1757) + the Investiture ability modifier + the Shardweapon's magic
+      bonus (+1 at the Third Ideal, +2 at the Fourth; HB:1898-1902), of the
+      wielder's CHOSEN damage type (default slashing — a blade), not necrotic
 
     **Requirements:**
-    - Must have shardblade_summoned = True
-    - Typically unlocked at Third Ideal for living Shardblades
-
-    Based on: Cosmere 5e Radiant's Handbook v2.0, pg. 82
+    - shardblade_summoned = True
+    - Third Ideal (7th level): a Windrunner's honorspren manifests a Shardweapon
+      only on swearing the 3rd Ideal (HB:1898-1902)
     """
 
     event_class: type = ShardbladeAttackEvent
     name: str = "Shardblade Attack"
-    description: str = "Attack with Shardblade (soul damage)"
+    description: str = "Attack with a summoned Shardblade"
+    #: The wielder's chosen weapon damage type (a Shardblade is a bladed weapon).
+    damage_type: str = "slashing"
 
     # NOTE: no custom __init__.
     # The original hand-wrote one that assigned fields directly and never
@@ -272,6 +338,16 @@ class ShardbladeAttack(_TypedEventAction):
                 status_message="No Shardblade bonded"
             )
 
+        # Third Ideal (7th-level) gate (HB:1898-1902): the honorspren manifests a
+        # Shardweapon only on swearing the 3rd Ideal. Enforced by the Ideal tier
+        # when it is known; if the tier is absent we defer to shardblade_summoned.
+        ideal = _radiant_ideal(entity)
+        if ideal and ideal < 3:
+            logger.warning(f"Entity {entity.name} below Third Ideal for a Shardblade")
+            return declaration_event.cancel(
+                status_message="A Shardblade requires the Third Ideal"
+            )
+
         logger.debug(f"✅ Shardblade attack validated for {entity.name}")
         return declaration_event.phase_to(
             new_phase=EventPhase.EXECUTION,
@@ -279,38 +355,70 @@ class ShardbladeAttack(_TypedEventAction):
         )
 
     def _apply(self, execution_event: ShardbladeAttackEvent) -> ShardbladeAttackEvent:
-        """Apply Shardblade attack effects"""
+        """Apply a Shardblade attack: a real attack roll vs AC, then scaled damage."""
+        import random
+
         entity = Entity.get(self.source_entity_uuid)
         target = Entity.get(execution_event.target_entity_uuid)
+        if target is None:
+            return execution_event.cancel(status_message="No target for the Shardblade")
 
-        logger.info(f"⚔️  {entity.name} attacks {target.name} with Shardblade")
+        # Real attack roll vs AC (no armour-ignoring auto-hit). To hit:
+        # d20 + Investiture ability modifier (highest of STR/DEX for a Windrunner)
+        # + proficiency, against the target's real AC.
+        attack_mod = _best_modifier(entity, ("strength", "dexterity"))
+        prof = _proficiency_bonus(entity)
+        d20 = random.randint(1, 20)
+        attack_total = d20 + attack_mod + prof
+        try:
+            target_ac = int(target.ac_bonus().normalized_score)
+        except Exception:
+            target_ac = 10
 
-        # Roll soul damage: 2d6 necrotic
-        import random
-        d6_1 = random.randint(1, 6)
-        d6_2 = random.randint(1, 6)
-        soul_damage = d6_1 + d6_2
+        crit = d20 == 20
+        hit = crit or (d20 != 1 and attack_total >= target_ac)
+        execution_event.attack_roll = attack_total
+        execution_event.target_ac = target_ac
+        execution_event.hit = hit
 
-        logger.debug(f"   Rolled soul damage: {d6_1} + {d6_2} = {soul_damage}")
-
-        # Apply damage directly to health (ignores AC)
-        if hasattr(target, 'health'):
-            # Plan 1.2: take_damage requires source_entity_uuid as a third
-            # positional argument; omitting it raised TypeError.
-            target.health.take_damage(
-                soul_damage,
-                DamageType.NECROTIC,
-                self.source_entity_uuid,
+        if not hit:
+            execution_event.soul_damage = 0
+            logger.info(f"⚔️  {entity.name}'s Shardblade misses {target.name} "
+                        f"({attack_total} vs AC {target_ac})")
+            return execution_event.phase_to(
+                new_phase=EventPhase.COMPLETION,
+                status_message=f"Shardblade attack missed {target.name}"
             )
-            logger.info(f"   💀 {target.name} takes {soul_damage} soul damage (ignores armor)")
 
-        # Track soul damage for potential instant kill
-        # (In full implementation, would track if target has been soul-damaged for 10 heartbeats)
-        execution_event.soul_damage = soul_damage
+        # Damage: one level-scaled weapon die (HB Windrunner table d4->d12) + the
+        # Investiture ability modifier + the Shardweapon's magic bonus (+1 at the
+        # Third Ideal, +2 at the Fourth). Crit doubles the weapon dice.
+        faces = _shardblade_die_faces(entity)
+        dice_count = 2 if crit else 1
+        die_total = sum(random.randint(1, faces) for _ in range(dice_count))
+        magic_bonus = 2 if _radiant_ideal(entity) >= 4 else 1
+        damage = max(1, die_total + attack_mod + magic_bonus)
+
+        damage_type = getattr(self, "damage_type", "slashing")
+        try:
+            resolved = DamageType(damage_type.capitalize())
+        except ValueError:
+            resolved = DamageType.SLASHING
+
+        if hasattr(target, 'health'):
+            # take_damage requires source_entity_uuid as a third positional arg.
+            target.health.take_damage(damage, resolved, self.source_entity_uuid)
+
+        execution_event.soul_damage = damage
+        execution_event.damage_type = damage_type
+        logger.info(
+            f"⚔️  {entity.name}'s Shardblade {'CRITS' if crit else 'hits'} "
+            f"{target.name} for {damage} {damage_type} "
+            f"(d{faces}, {attack_total} vs AC {target_ac})")
 
         return execution_event.phase_to(
             new_phase=EventPhase.COMPLETION,
-            status_message=f"Shardblade attack dealt {soul_damage} soul damage"
+            status_message=f"Shardblade dealt {damage} {damage_type} damage"
         )
 
 
@@ -319,37 +427,38 @@ class ShardbladeAttack(_TypedEventAction):
 # ============================================================================
 
 class ProgressionHealingEvent(ActionEvent):
-    """Event for Progression healing"""
+    """Event for Progression healing (the 1st-level Regrowth Art)."""
     name: str = "Progression Healing"
     event_type: EventType = EventType.HEAL
     healing_amount: int = 0
-    stormlight_cost: int = 2
+    # Regrowth is a costed Invested Art (2 Investiture Points at Art level 1,
+    # IA:6731-6753 + surgebinding.json economies.investiture_points), NOT a
+    # Stormlight-sphere cost. The IP is spent by the resolver through
+    # InvestiturePointLedger; this field is kept at 0 so the class no longer
+    # deducts a sphere (AUDIT_HARDCODED_SURGE_ACCURACY.md §4.3).
+    stormlight_cost: int = 0
 
 
 class ProgressionHealing(_TypedEventAction):
     """
     Progression Healing - Edgedancer/Truthwatcher healing ability
 
-    Heals wounds using Progression Surge (Surgebinding).
-    Consumes Stormlight spheres and requires Edgedancer or Truthwatcher Order.
+    Heals wounds using the Progression Surge — the 1st-level "Regrowth" Art.
+    Requires the Edgedancer or Truthwatcher Order.
 
-    **Mechanics:**
-    - Cost: 1 Action + 2 Stormlight spheres
+    **Mechanics (Cosmere 5e — Regrowth, IA:6731-6753):**
+    - Cost: 1 Action + 2 Investiture Points (Art level 1) — spent through
+      InvestiturePointLedger by the resolver, NOT a Stormlight sphere
     - Range: Touch
-    - Healing: 2d8 + Wisdom modifier
-    - Special: Can restore lost limbs at higher Ideals
-
-    **Requirements:**
-    - Edgedancer or Truthwatcher Order
-    - Surgebinding level 2+
-
-    Based on: Cosmere 5e Radiant's Handbook v2.0, pg. 53
+    - Healing: 2d8 + the caster's Investiture ability modifier (WIS for an
+      Edgedancer; a Truthwatcher's chosen ability)
+    - Level gate: 1st level / First Ideal (not 2nd)
     """
 
     event_class: type = ProgressionHealingEvent
     name: str = "Progression Healing"
-    description: str = "Heal wounds with Progression Surge"
-    stormlight_cost: int = 2
+    description: str = "Heal wounds with Progression (Regrowth)"
+    stormlight_cost: int = 0
     # Declared HERE, not only on ProgressionHealingEvent. _apply() reads
     # `self.healing_amount` to decide whether to roll 2d8 or use a fixed value,
     # but the field existed only on the Event class — so a live combat crashed
@@ -388,13 +497,9 @@ class ProgressionHealing(_TypedEventAction):
                     status_message="Insufficient Surgebinding level (need 1+)"
                 )
 
-        # Check Stormlight availability
-        if hasattr(entity, 'stormlight_current'):
-            if entity.stormlight_current < self.stormlight_cost:
-                logger.warning(f"Entity {entity.name} has insufficient Stormlight ({entity.stormlight_current}/{self.stormlight_cost})")
-                return declaration_event.cancel(
-                    status_message=f"Insufficient Stormlight ({entity.stormlight_current}/{self.stormlight_cost} needed)"
-                )
+        # NO Stormlight gate: Regrowth is paid in Investiture Points, and the
+        # resolver spends them through InvestiturePointLedger BEFORE this action
+        # runs (refunding if it cancels). The old per-cast sphere cost was invented.
 
         logger.debug(f"✅ Progression healing validated for {entity.name}")
         return declaration_event.phase_to(
@@ -452,16 +557,8 @@ class ProgressionHealing(_TypedEventAction):
             target.health.heal(healing)
             logger.info(f"   💚 {target.name} healed for {healing} HP")
 
-        # Consume Stormlight
-        # Plan 1.6: `entity.stormlight_current -= cost` raises -- Entity is a
-        # pydantic model without extra="allow". Write through __dict__ so the
-        # mirror stays readable for the next guard; DnDEngineWrapper
-        # .sync_roshar_attrs_from_entity() persists it to CharacterData.
-        if hasattr(entity, 'stormlight_current'):
-            entity.__dict__['stormlight_current'] = (
-                entity.stormlight_current - self.stormlight_cost
-            )
-            logger.debug(f"   Consumed {self.stormlight_cost} Stormlight ({entity.stormlight_current} remaining)")
+        # NO Stormlight consumption — Regrowth's cost is Investiture Points, spent
+        # by the resolver via InvestiturePointLedger (see combat_action_resolver).
 
         execution_event.healing_amount = healing
 
@@ -485,10 +582,10 @@ class ProgressionHealing(_TypedEventAction):
 
 
 class IlluminationEvent(ActionEvent):
-    """Event for a Lightweaver Illumination (illusion)."""
+    """Event for a Lightweaver Illumination (illusion) — a free cantrip."""
     name: str = "Illumination"
     event_type: EventType = EventType.BASE_ACTION
-    stormlight_cost: int = 1
+    stormlight_cost: int = 0  # free cantrip (IA:469; surgebinding.json Illumination)
     illusion_type: str = "visual"
 
 
@@ -496,19 +593,19 @@ class Illumination(_TypedEventAction):
     """
     Illumination — Lightweaver light/sound illusion.
 
-    **Mechanics:**
-    - Cost: 1 Action + 1 Stormlight sphere
-    - Effect: creates a convincing illusion; observers contest with
-      Investigation vs the Lightweaver's Deception
+    **Mechanics (Cosmere 5e — Illumination cantrip, IA:449-476):**
+    - Cost: FREE (a cantrip costs 0 Investiture)
+    - Effect: a sensory illusion; observers contest with Intelligence
+      (Investigation) vs the Lightweaver's Invested save DC
     - At higher Ideals the illusion can include sound and motion
 
-    **Requirements:** Lightweaver Order, Surgebinding level 1+
+    **Requirements:** Lightweaver or Truthwatcher Order, Surgebinding level 1+
     """
 
     event_class: type = IlluminationEvent
     name: str = "Illumination"
     description: str = "Weave light and sound into an illusion (Lightweaver)"
-    stormlight_cost: int = 1
+    stormlight_cost: int = 0  # free cantrip (IA:469)
     illusion_type: str = "visual"
 
     def _validate(self, declaration_event: IlluminationEvent) -> IlluminationEvent:
@@ -530,14 +627,7 @@ class Illumination(_TypedEventAction):
                     status_message="Insufficient Lightweaver attunement"
                 )
 
-        if hasattr(entity, 'stormlight_current'):
-            if entity.stormlight_current < self.stormlight_cost:
-                return declaration_event.cancel(
-                    status_message=(
-                        f"Insufficient Stormlight "
-                        f"({entity.stormlight_current}/{self.stormlight_cost} needed)"
-                    )
-                )
+        # NO Stormlight gate: Illumination is a free cantrip (IA:469).
 
         return declaration_event.phase_to(
             new_phase=EventPhase.EXECUTION,
@@ -567,14 +657,7 @@ class Illumination(_TypedEventAction):
         except Exception as e:
             logger.debug(f"   Could not apply illusion concealment: {e}")
 
-        # Consume Stormlight. See plan 1.6: Entity is a pydantic model without
-        # extra="allow", so `-=` raises; write through __dict__.
-        if hasattr(entity, 'stormlight_current'):
-            entity.__dict__['stormlight_current'] = (
-                entity.stormlight_current - self.stormlight_cost
-            )
-            logger.debug(f"   Consumed {self.stormlight_cost} Stormlight "
-                         f"({entity.stormlight_current} remaining)")
+        # NO Stormlight consumption — a cantrip is free (IA:469).
 
         return execution_event.phase_to(
             new_phase=EventPhase.COMPLETION,
@@ -586,28 +669,43 @@ class SoulcastEvent(ActionEvent):
     """Event for a Lightweaver/Elsecaller Transformation (Soulcasting)."""
     name: str = "Soulcast"
     event_type: EventType = EventType.BASE_ACTION
-    stormlight_cost: int = 3
+    stormlight_cost: int = 0  # cantrip tier is free (IA:498)
     target_essence: str = "stone"
+    # 0 = the free Transformation cantrip; >=5 = the costed 5th-level Soulcast Art.
+    art_level: int = 0
+    save_dc: int = 0        # Invested save DC the target rolls against (art tier)
+    saved: bool = False     # True if the target's save succeeded (no effect)
+    restrained: bool = False
 
 
 class Soulcast(_TypedEventAction):
     """
-    Soulcast — Transformation Surge, changing one substance into another.
+    Soulcast — the Transformation Surge, in TWO tiers (the old single
+    always-succeeding, unresisted "apply Restrained" collapsed three different
+    book mechanics; AUDIT_HARDCODED_SURGE_ACCURACY.md §4.5).
 
-    **Mechanics:**
-    - Cost: 1 Action + 3 Stormlight spheres
-    - Effect: transforms matter (stone to smoke, water to wine, and so on);
-      difficult transformations need a higher Ideal
-    - Combat use: transform the ground to restrain a target
+    **Cantrip tier — `art_level = 0` (the default):** the free Transformation
+    cantrip (IA:478-503). Minor effects only (clean/soil an object, warm/chill
+    material, flicker flames). No cost, no save, no combat restraint.
 
-    **Requirements:** Lightweaver or Elsecaller Order, Surgebinding level 2+
+    **Costed Art tier — `art_level = 5`:** the 5th-level "Soulcast" Art
+    (IA:7472-7515), costed in Investiture Points and spent through
+    InvestiturePointLedger. Soulcasting a creature toward stone forces a
+    Constitution saving throw against the caster's Invested save DC; on a FAILED
+    save the target is Restrained as its flesh hardens, and on a success there is
+    no effect (the save-based combat Soulcast, IA:2386-2392). It is no longer an
+    unconditional, auto-success effect.
+
+    **Requirements:** Lightweaver or Elsecaller Order.
     """
 
     event_class: type = SoulcastEvent
     name: str = "Soulcast"
     description: str = "Transform matter with the Transformation Surge"
-    stormlight_cost: int = 3
+    stormlight_cost: int = 0
     target_essence: str = "stone"
+    #: 0 = free cantrip; >=5 = the costed, save-based 5th-level Soulcast Art.
+    art_level: int = 0
 
     def _validate(self, declaration_event: SoulcastEvent) -> SoulcastEvent:
         entity = Entity.get(self.source_entity_uuid)
@@ -618,21 +716,16 @@ class Soulcast(_TypedEventAction):
                     status_message="Soulcasting requires the Lightweaver or Elsecaller Order"
                 )
 
-        # Soulcasting is harder than Illumination: needs the Second Ideal.
+        # The menu Surge is gated at the Second Ideal (registry min_surgebinding_level);
+        # the free cantrip is available from there and the 5th-level Art tier above it.
         if hasattr(entity, 'surgebinding_level'):
             if entity.surgebinding_level < 2:
                 return declaration_event.cancel(
                     status_message="Soulcasting requires the Second Ideal or higher"
                 )
 
-        if hasattr(entity, 'stormlight_current'):
-            if entity.stormlight_current < self.stormlight_cost:
-                return declaration_event.cancel(
-                    status_message=(
-                        f"Insufficient Stormlight "
-                        f"({entity.stormlight_current}/{self.stormlight_cost} needed)"
-                    )
-                )
+        # NO Stormlight gate: the cantrip is free and the Art tier is paid in
+        # Investiture Points (spent by the resolver), never a Stormlight sphere.
 
         return declaration_event.phase_to(
             new_phase=EventPhase.EXECUTION,
@@ -642,35 +735,74 @@ class Soulcast(_TypedEventAction):
     def _apply(self, execution_event: SoulcastEvent) -> SoulcastEvent:
         entity = Entity.get(self.source_entity_uuid)
         target = Entity.get(execution_event.target_entity_uuid)
-        logger.info(f"✨ {entity.name} Soulcasts toward {self.target_essence}")
+        execution_event.art_level = int(self.art_level or 0)
 
-        # Transforming the ground underfoot restrains the target.
-        if target is not None:
-            try:
-                from dnd.conditions import Restrained
-                condition = Restrained(
-                    source_entity_uuid=self.source_entity_uuid,
-                    target_entity_uuid=target.uuid,
-                )
-                applied = condition.apply()
-                if applied and not getattr(applied, "canceled", False):
-                    target.active_conditions[condition.name] = condition
-                    target.active_conditions_by_uuid[condition.uuid] = condition
-                    target.active_conditions_by_source[
-                        condition.source_entity_uuid
-                    ].append(condition.name)
-                    logger.info(f"   🪨 {target.name} is restrained by transformed matter")
-            except Exception as e:
-                logger.debug(f"   Could not apply Soulcast restraint: {e}")
-
-        if hasattr(entity, 'stormlight_current'):
-            entity.__dict__['stormlight_current'] = (
-                entity.stormlight_current - self.stormlight_cost
+        # ---- Cantrip tier: a free, minor transformation. No save, no restraint.
+        if execution_event.art_level < 5:
+            logger.info(f"✨ {entity.name} Soulcasts (cantrip) toward {self.target_essence}")
+            return execution_event.phase_to(
+                new_phase=EventPhase.COMPLETION,
+                status_message=(f"{entity.name} Soulcasts {self.target_essence} "
+                                f"(minor transformation)"),
             )
-            logger.debug(f"   Consumed {self.stormlight_cost} Stormlight "
-                         f"({entity.stormlight_current} remaining)")
+
+        # ---- 5th-level Art tier: Soulcast a creature toward stone. The target
+        # makes a Constitution saving throw vs the caster's Invested save DC; only
+        # a FAILURE restrains it (IA:2386-2392). No target => nothing to resist.
+        if target is None:
+            logger.warning("⚠️ Soulcast (Art) has no target to affect")
+            return execution_event.cancel(status_message="No target to Soulcast")
+
+        import random
+        from components.cosmere_rules import get_cosmere_rules
+
+        prof = _proficiency_bonus(entity)
+        investiture_mod = _best_modifier(entity, ("intelligence", "wisdom", "charisma"))
+        save_dc = get_cosmere_rules().invested_save_dc(prof, investiture_mod)
+        execution_event.save_dc = save_dc
+
+        con_mod = int(target.ability_scores.constitution.modifier)
+        save_prof = 0
+        try:
+            st = target.saving_throws.get_saving_throw("constitution")
+            bonus = getattr(st, "bonus", None)
+            save_prof = int(getattr(bonus, "normalized_score",
+                                    getattr(bonus, "score", 0)) or 0)
+        except Exception:
+            save_prof = 0
+        save_roll = random.randint(1, 20) + con_mod + save_prof
+        saved = save_roll >= save_dc
+        execution_event.saved = saved
+
+        logger.info(f"✨ {entity.name} Soulcasts {target.name} toward stone — "
+                    f"CON save {save_roll} vs DC {save_dc}: "
+                    f"{'SAVED' if saved else 'FAILED'}")
+
+        if saved:
+            return execution_event.phase_to(
+                new_phase=EventPhase.COMPLETION,
+                status_message=f"{target.name} resists the Soulcast",
+            )
+
+        try:
+            from dnd.conditions import Restrained
+            condition = Restrained(
+                source_entity_uuid=self.source_entity_uuid,
+                target_entity_uuid=target.uuid,
+            )
+            applied = condition.apply()
+            if applied and not getattr(applied, "canceled", False):
+                target.active_conditions[condition.name] = condition
+                target.active_conditions_by_uuid[condition.uuid] = condition
+                target.active_conditions_by_source[
+                    condition.source_entity_uuid
+                ].append(condition.name)
+                execution_event.restrained = True
+                logger.info(f"   🪨 {target.name} is restrained as its flesh hardens")
+        except Exception as e:
+            logger.debug(f"   Could not apply Soulcast restraint: {e}")
 
         return execution_event.phase_to(
             new_phase=EventPhase.COMPLETION,
-            status_message=f"{entity.name} Soulcasts {self.target_essence}",
+            status_message=f"{entity.name} Soulcasts {target.name} into hardening stone",
         )

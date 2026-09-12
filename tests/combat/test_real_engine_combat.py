@@ -602,8 +602,26 @@ class TestRosharState:
             radiant_order="Lightweaver",
             stormlight_current=8, stormlight_capacity=10, ideal_level=3,
         ))
+        # An Edgedancer funds the COSTED Regrowth art (2 Investiture Points); the
+        # IP pool is the resource the new economy spends (not Stormlight spheres).
+        mgr.add_character(_character(
+            "lift", "Lift", level=5, character_class="Edgedancer",
+            radiant_order="Edgedancer",
+            stormlight_current=8, stormlight_capacity=10, ideal_level=3,
+            investiture_points={"current": 6, "maximum": 6},
+        ))
         mgr.add_character(_character("fused", "Fused", armor_class=13))
         return DnDEngineWrapper(game_engine=_StubGameEngine(), character_manager=mgr)
+
+    @staticmethod
+    def _resolver(radiant):
+        """A CombatActionResolver over the fixture wrapper (for the IP economy)."""
+        from components.combat.combat_action_resolver import CombatActionResolver
+        state = {"combatant_states": {cid: {} for cid in radiant.entities}}
+        return CombatActionResolver(
+            dnd_engine_wrapper=radiant,
+            character_manager=radiant.character_manager,
+            combat_state=state)
 
     def test_surge_classes_can_be_constructed(self):
         """All three raised AttributeError before the __init__ fix."""
@@ -635,23 +653,40 @@ class TestRosharState:
         )
 
     def test_surge_consumes_exactly_its_cost(self, radiant):
+        """
+        Retargeted to the COSTED art (Regrowth = 2 Investiture Points). A free
+        cantrip like Lashing now deducts nothing; the resource that IS spent is
+        Investiture, through the ledger in CombatActionResolver.
+        """
+        resolver = self._resolver(radiant)
+        pool = radiant.character_manager.characters["lift"].investiture_points
+        before = pool["current"]
+        result = resolver.resolve_action({
+            "actor": "lift", "action_type": "progression_healing",
+            "target": "fused"})
+        assert result["success"] is True, result
+        assert pool["current"] == before - 2, (
+            "Regrowth must spend exactly its 2 Investiture Points")
+        assert result.get("ip_spent") == 2
+
+    def test_consumption_persists_to_character_data(self, radiant):
+        """Investiture lives on CharacterData, so consumption persists with no resync."""
+        resolver = self._resolver(radiant)
+        resolver.resolve_action({
+            "actor": "lift", "action_type": "progression_healing",
+            "target": "fused"})
+        assert radiant.character_manager.characters["lift"].investiture_points["current"] == 4, (
+            "consumption lost — Investiture would be effectively infinite")
+
+    def test_free_cantrip_deducts_no_stormlight(self, radiant):
+        """A cantrip is free: Lashing must not deduct Stormlight (was an invented cost)."""
         from components.combat.roshar_actions import Lashing
         entity = radiant.entities["kal"]
         before = entity.stormlight_current
         Lashing(source_entity_uuid=entity.uuid,
                 target_entity_uuid=radiant.entities["fused"].uuid).apply()
-        assert entity.stormlight_current == before - 1, (
-            "Stormlight was not deducted — the cost guard is inert again"
-        )
-
-    def test_consumption_persists_to_character_data(self, radiant):
-        from components.combat.roshar_actions import Lashing
-        Lashing(source_entity_uuid=radiant.entities["kal"].uuid,
-                target_entity_uuid=radiant.entities["fused"].uuid).apply()
-        radiant.sync_roshar_attrs_from_entity("kal")
-        assert radiant.character_manager.characters["kal"].stormlight_current == 7, (
-            "consumption lost on resync — Stormlight would be effectively infinite"
-        )
+        assert entity.stormlight_current == before, (
+            "a free cantrip must not consume Stormlight")
 
     def test_wrong_order_is_refused(self, radiant):
         """A Lightweaver cannot Lash."""
@@ -662,15 +697,28 @@ class TestRosharState:
         ).apply()
         assert event is None or getattr(event, "canceled", False)
 
-    def test_empty_stormlight_is_refused(self, radiant):
+    def test_empty_investiture_is_refused(self, radiant):
+        """
+        Retargeted: an empty Investiture pool refuses the COSTED art (Regrowth),
+        while the FREE Lashing cantrip still succeeds with zero Stormlight.
+        """
+        resolver = self._resolver(radiant)
+        radiant.character_manager.characters["lift"].investiture_points["current"] = 0
+        result = resolver.resolve_action({
+            "actor": "lift", "action_type": "progression_healing",
+            "target": "fused"})
+        assert result["success"] is False, "Regrowth cast with zero Investiture"
+        assert result.get("refused") is True
+
+        # A free cantrip is unaffected by an empty resource pool.
         from components.combat.roshar_actions import Lashing
         radiant.set_roshar_attr("kal", "stormlight_current", 0)
         event = Lashing(
             source_entity_uuid=radiant.entities["kal"].uuid,
             target_entity_uuid=radiant.entities["fused"].uuid,
         ).apply()
-        assert event is None or getattr(event, "canceled", False), \
-            "surge succeeded with zero Stormlight"
+        assert event is not None and not getattr(event, "canceled", False), \
+            "a free cantrip must remain usable with zero Stormlight"
 
     def test_spend_stormlight_helper(self, radiant):
         assert radiant.can_afford_stormlight("kal", 5) is True

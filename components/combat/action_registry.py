@@ -181,7 +181,9 @@ if ROSHAR_ACTIONS_AVAILABLE:
                                "target_direction": (0, 0, -1)},
             "cost_type": "actions",
             "cost": 1,
-            "stormlight_cost": 1,
+            # Gravitation/Adhesion are cantrips: FREE (was an invented 1-sphere
+            # cost). The key stays present (metadata contract) but 0 = no gate.
+            "stormlight_cost": 0,
             "requires_order": ["Windrunner", "Skybreaker"],
             "min_surgebinding_level": 1,
             "surge_type": "Gravitation"
@@ -207,9 +209,15 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "param_defaults": {"healing_amount": None},
             "cost_type": "actions",
             "cost": 1,
-            "stormlight_cost": 2,
+            # Regrowth is a COSTED Invested Art, not a Stormlight-sphere cantrip.
+            # `stormlight_cost` stays present (metadata contract) but 0; the real
+            # cost is `art_level` Investiture Points, spent through the ledger and
+            # gated in unusable_reason via cosmere_rules.investiture_cost().
+            "stormlight_cost": 0,
+            "art_level": 1,   # Regrowth (1st-level) -> 2 IP (Elsecaller: 1)
             "requires_order": ["Edgedancer", "Truthwatcher"],
-            "min_surgebinding_level": 2,
+            # First Ideal / 1st level, not the Second (AUDIT §4.3).
+            "min_surgebinding_level": 1,
             "surge_type": "Progression"
         },
 
@@ -225,7 +233,8 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "param_defaults": {"illusion_type": "figment"},
             "cost_type": "actions",
             "cost": 1,
-            "stormlight_cost": 1,
+            # Illumination is a free cantrip (IA:469). Key kept, value 0.
+            "stormlight_cost": 0,
             # Fix per AUDIT_HARDCODED_SURGE_ACCURACY.md §4.4: Illumination belongs to
             # Lightweaver + Truthwatcher, not Lightweaver + Elsecaller
             "requires_order": ["Lightweaver", "Truthwatcher"],
@@ -240,7 +249,10 @@ if ROSHAR_ACTIONS_AVAILABLE:
             "param_defaults": {"target_essence": "smoke"},
             "cost_type": "actions",
             "cost": 1,
-            "stormlight_cost": 3,
+            # The menu Surge is the free Transformation cantrip (IA:498). The
+            # costed, save-based 5th-level Soulcast Art is the class's art_level>=5
+            # tier (paid in Investiture Points), not this menu entry.
+            "stormlight_cost": 0,
             "requires_order": ["Lightweaver", "Elsecaller"],
             "min_surgebinding_level": 2,
             "surge_type": "Transformation"
@@ -483,6 +495,25 @@ def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
         if stormlight < cost:
             return (f"requires {cost} Stormlight, actor has {stormlight}")
 
+    # Costed Invested Arts (plan 2.9 economy): a surge/art marked with `art_level`
+    # is paid in Investiture Points, not Stormlight. The book-accurate cost comes
+    # from cosmere_rules.investiture_cost(art_level, order); a drained IP pool
+    # filters it off the menu, exactly as the sphere gate did for the old model.
+    # A cantrip (art_level 0) is free and never reaches here.
+    art_level = metadata.get("art_level")
+    if art_level:
+        from components.cosmere_rules import get_cosmere_rules
+
+        order = read("radiant_order") or ""
+        ip_cost = get_cosmere_rules().investiture_cost(int(art_level), order)
+        if ip_cost > 0:
+            ip_pool = read("investiture_points", {})
+            current_ip = (int(ip_pool.get("current", 0) or 0)
+                          if isinstance(ip_pool, dict) else 0)
+            if current_ip < ip_cost:
+                return (f"requires {ip_cost} Investiture Points, "
+                        f"actor has {current_ip}")
+
     requires = metadata.get("requires")
     if requires == "shardblade_summoned":
         if not read("shardblade_summoned", False):
@@ -515,6 +546,15 @@ def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
         max_ip = int(ip_pool.get("maximum", 0) or 0)
         if max_ip <= 0:
             return "no Invested Arts capability"
+        # And there must be a CASTABLE art. `_cast_art` compiles and runs an art's
+        # `automation` tree; the only arts authored so far are cantrips that carry
+        # no automation (they defer to surgebinding.json prose), so cast_art would
+        # refuse every time — the same menu-trap the gates above exist to stop.
+        # Gate on a real automation tree so cast_art becomes offerable
+        # automatically once an executable art is authored.
+        from components.cosmere_rules import get_cosmere_rules
+        if not any(a.get("automation") for a in get_cosmere_rules().arts()):
+            return "no castable Invested Art available yet"
 
     return None
 

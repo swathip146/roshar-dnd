@@ -117,6 +117,21 @@ class CosmereRules:
                 return m
         return None
 
+    def arts(self, reviewed_only: bool = True) -> List[Dict[str, Any]]:
+        """
+        Every Invested Art across the `invested_arts`/`arts` buckets (plan 2.9).
+
+        Empty until the authoring agent fills the bucket. Used to decide whether
+        `cast_art` should even be offered — an art menu with nothing to cast is a
+        trap, exactly like offering a Surge no _validate can accept.
+        """
+        items: List[Dict[str, Any]] = []
+        for bucket_name in ("invested_arts", "arts"):
+            items.extend(self._data.get(bucket_name, []) or [])
+        if reviewed_only:
+            items = [a for a in items if self._reviewed(a)]
+        return items
+
     def get_art(self, art_name: str,
                 reviewed_only: bool = True) -> Optional[Dict[str, Any]]:
         """

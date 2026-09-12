@@ -314,7 +314,43 @@ class CombatActionResolver:
 
         # Dispatch based on type
         if metadata["type"] in ["dnd_action", "roshar_action", "roshar_equipment"]:
+            # Costed Invested Arts (plan 2.9 economy): a surge marked with
+            # `art_level` is paid in Investiture Points. Spend through the ledger
+            # BEFORE executing (so an empty pool refuses the action without eating
+            # the turn), and refund if the action then cancels or is refused.
+            art_level = metadata.get("art_level")
+            spend = None
+            if art_level:
+                character = self.character_manager.characters.get(actor_id)
+                order = getattr(character, "radiant_order", "") if character else ""
+                spend = self.investiture_ledger.spend(
+                    actor_id, int(art_level), order or "")
+                if not spend.spent:
+                    self.logger.info(
+                        f"   ⛔ {action_type} refused: {spend.reason}")
+                    return {
+                        "success": False, "attempted": False, "refused": True,
+                        "event": None, "error": spend.reason,
+                        "description": (f"{actor_id} cannot use {action_type}: "
+                                        f"{spend.reason}"),
+                    }
+
             result = self._execute_action(action, metadata)
+
+            if spend is not None and spend.spent:
+                event = result.get("event")
+                declined = (result.get("refused") is True
+                            or event is None
+                            or getattr(event, "canceled", False))
+                if declined:
+                    self.investiture_ledger.restore(actor_id, spend.cost)
+                    self.logger.debug(
+                        f"   ↩️  refunded {spend.cost} IP to {actor_id} "
+                        f"(action did not take effect)")
+                else:
+                    result["ip_spent"] = spend.cost
+                    result["ip_remaining"] = spend.remaining
+
             self._consume_action_cost(actor_id, metadata)
             return result
         elif metadata["type"] == "spell_action":
