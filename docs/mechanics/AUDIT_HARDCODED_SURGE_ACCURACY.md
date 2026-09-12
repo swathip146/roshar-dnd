@@ -1,5 +1,9 @@
 # Audit — hardcoded surge accuracy vs the authoritative book
 
+> **SESSION UPDATE — 2026-09-12:** Attempted, then REVERTED to keep the tree green — BLOCKED on source.
+> - The 5-class corrections (free cantrips; Illumination order gate → **Lightweaver + Truthwatcher**; ShardbladeAttack as a real attack-roll-vs-AC with a level-scaled die; ProgressionHealing Investiture-mod/level-1; Soulcast cantrip-vs-5th-level-art split) **and** the 10 surge-cantrip automation trees were implemented but **reverted**, because: (a) the Invested Arts `docling.md` is missing, so the authored citations can't verify (2 phase2 quote tests fail); and (b) making cantrips free (correct per the book) broke **7 resource-gating tests** since the replacement **Investiture-Point ledger does not exist yet** — the cost rework and the IP ledger are coupled and must land together, **ledger first**.
+> - **To unblock:** restore `parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md`, then land the IP ledger + surge-cost corrections + updated gating tests as ONE coordinated change (not piecemeal).
+
 **Do the 5 hand-written surge classes match the real rules?** Until 2026-09-12 there was no
 way to know: the *Radiant's Handbook* deferred all 10 surges to *The Invested Arts of the
 Cosmere*, which was missing. That book is now present, so these classes can be checked for

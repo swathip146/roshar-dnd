@@ -1,5 +1,10 @@
 # Audit — Invested Arts readiness
 
+> **SESSION UPDATE — 2026-09-12:** Partial progress + a hard BLOCKER.
+> - ✅ 17 Windrunner **maneuvers** and 10 **order features** authored into `surgebinding.json` with `verify_citations()` passing (`5a0a764`).
+> - ⛔ **BLOCKED — missing source:** the Invested Arts execution path (new executor nodes — AoE/heal/teleport/etc. — plus `InvestiturePointLedger`, `cast_art`, and authoring the 661 arts) could NOT proceed because `parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md` is **not present** in the tree (only the Radiant's Handbook `docling.md` was restored). **Restore that parsed doc to unblock.**
+> - ⚠️ **Sequencing note:** the economy rework must build the IP ledger BEFORE flipping surge costs to free — they are coupled (see the hardcoded-surge audit's session update for why an isolated attempt broke 7 resource-gating tests and was reverted).
+
 **Can this codebase execute the 661 Invested Arts?** Scored the same way as
 `AUDIT_CHARACTER_AND_NONCOMBAT.md`, on two axes that come apart constantly in this
 project:

@@ -1,5 +1,12 @@
 # Audit: Character, Progression, Spellcasting, and Non-Combat Mechanics
 
+> **SESSION UPDATE — 2026-09-12 (commits `5a0a764`, `84000b6`, `66b04e0`):** DONE & tested on `phase-0-fixes`:
+> - ✅ **ASI at levels 4/8/12/16/19**, **Extra Attack** at class levels (drives multiattack), **AC recalculation from equipped armor**, **per-class saving-throw proficiencies**, **currency (gp/sp/cp/pp/ep)**, **carrying capacity + encumbrance** (`84000b6`).
+> - ✅ **Social skill checks as real dice** — Persuasion/Deception/Intimidation now roll via `process_skill_check` and feed attitude; **passive perception**; **inventory add/remove @tools**; **`export_game_state` character-branch fix** (uses `to_dict()`, no more HP/AC/equipment reset on import); **routing-history cap 20/50 → 200** (`66b04e0`).
+> - ✅ **cast_spell offerability** and the **proficiency double-count** bug fixed; **Help** action wired (`5a0a764`).
+> - ✅ Verified: expertise stored, exhaustion reduced on long rest, death saves working.
+> - 🟡 **DEFERRED/blocked:** exploration-mode `cast_spell` (skipped as risky this pass); tool-proficiency mechanical gate; live mid-combat re-equip; shops/buying-selling; concentration/ritual/components for spellcasting. Feats/subclass/multiclass/inspiration remain "future" per the original triage.
+
 **Date**: 2026-09-12
 **Branch**: `phase-0-fixes` (HEAD `ac4b680`, built on the `439df7a` commit that landed
 the uncommitted work described in `docs/SESSION_HANDOFF_2026-09-11.md`)
