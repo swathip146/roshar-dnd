@@ -142,7 +142,7 @@ class SessionManager:
                 
                 # Fixed System routing history (SessionManager owns this)
                 "fixed_system_data": {
-                    "routing_history": getattr(self, '_routing_history', [])[-20:],  # Last 20 decisions
+                    "routing_history": getattr(self, '_routing_history', [])[-200:],  # Last 200 decisions (raised from 20, plan 0.3 §10)
                 }
             }
             
@@ -356,9 +356,9 @@ class SessionManager:
         
         self._routing_history.append(routing_entry)
         
-        # Keep only last 50 entries to manage memory
-        if len(self._routing_history) > 50:
-            self._routing_history = self._routing_history[-50:]
+        # Keep only last 200 entries to manage memory (raised from 50, plan 0.3 §10)
+        if len(self._routing_history) > 200:
+            self._routing_history = self._routing_history[-200:]
     
     def get_routing_statistics(self) -> Dict[str, Any]:
         """Get routing decision statistics for Fixed System analysis"""

@@ -217,6 +217,35 @@ def roll_skill_check(skill: str, dc: int, actor: str = "") -> Dict[str, Any]:
 
 
 @tool
+def get_passive_perception(actor: str = "") -> Dict[str, Any]:
+    """
+    Get a character's Passive Perception score.
+
+    This is used for noticing hidden threats, traps, or creatures without actively
+    searching. It's calculated as 10 + Wisdom modifier + proficiency (if proficient
+    in Perception).
+
+    Args:
+        actor: Character id; defaults to the acting party member
+
+    Returns:
+        passive_score, breakdown
+    """
+    try:
+        manager = _need("character_manager")
+        actor_id = _active_actor(actor)
+        result = manager.get_passive_score(actor_id, "perception")
+        return {
+            "actor": actor_id,
+            "passive_perception": result["passive_score"],
+            "breakdown": result["breakdown"],
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ get_passive_perception failed: {e}")
+        return {"error": str(e)}
+
+
+@tool
 def roll_dice(expression: str, reason: str = "") -> Dict[str, Any]:
     """
     Roll a dice expression and return the real total.
@@ -836,9 +865,102 @@ def travel_to_location(destination: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+@tool
+def add_item_to_inventory(item: str, actor: str = "", quantity: int = 1) -> Dict[str, Any]:
+    """
+    Give an item to a character.
+
+    Use this when the player finds, buys, or is given equipment. Items can be
+    weapons, armor, tools, consumables, or any other object.
+
+    Args:
+        item: Name of the item to add
+        actor: Character id; defaults to the acting party member
+        quantity: How many to add (default 1)
+
+    Returns:
+        added, item, quantity, current_inventory
+    """
+    try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
+        manager = _need("character_manager")
+        actor_id = _active_actor(actor)
+        character = manager.characters.get(actor_id)
+        if character is None:
+            return {"error": f"unknown character {actor_id!r}"}
+
+        # add_equipment only adds one item at a time, so call it quantity times
+        added = False
+        for _ in range(max(1, int(quantity))):
+            result = manager.add_equipment(actor_id, item)
+            if result:
+                added = True
+
+        logger.info(f"🎒 {character.name} received {quantity}× {item}")
+        return {
+            "added": added,
+            "actor": actor_id,
+            "name": character.name,
+            "item": item,
+            "quantity": quantity,
+            "current_inventory": list(character.equipment or []),
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ add_item_to_inventory failed: {e}")
+        return {"error": str(e)}
+
+
+@tool
+def remove_item_from_inventory(item: str, actor: str = "", quantity: int = 1) -> Dict[str, Any]:
+    """
+    Remove an item from a character's inventory.
+
+    Use this when the player uses a consumable, sells/trades equipment, or loses
+    an item. If the character doesn't have enough, removes what they have.
+
+    Args:
+        item: Name of the item to remove
+        actor: Character id; defaults to the acting party member
+        quantity: How many to remove (default 1)
+
+    Returns:
+        removed, item, quantity_removed, current_inventory
+    """
+    try:
+        invalidate_dm_tool_reads()  # cached reads are now stale
+        manager = _need("character_manager")
+        actor_id = _active_actor(actor)
+        character = manager.characters.get(actor_id)
+        if character is None:
+            return {"error": f"unknown character {actor_id!r}"}
+
+        # remove_equipment only removes one item at a time, so call it quantity times
+        removed_count = 0
+        for _ in range(max(1, int(quantity))):
+            result = manager.remove_equipment(actor_id, item)
+            if result:
+                removed_count += 1
+            else:
+                break  # No more of this item to remove
+
+        logger.info(f"🎒 {character.name} lost {removed_count}× {item}")
+        return {
+            "removed": removed_count > 0,
+            "actor": actor_id,
+            "name": character.name,
+            "item": item,
+            "quantity_removed": removed_count,
+            "current_inventory": list(character.equipment or []),
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ remove_item_from_inventory failed: {e}")
+        return {"error": str(e)}
+
+
 # All DM tools, for wiring into an Agent.
 DM_TOOLS = [
     roll_skill_check,
+    get_passive_perception,
     roll_dice,
     get_character_state,
     get_party_state,
@@ -853,6 +975,8 @@ DM_TOOLS = [
     advance_quest,
     award_experience,
     travel_to_location,
+    add_item_to_inventory,
+    remove_item_from_inventory,
 ]
 
 

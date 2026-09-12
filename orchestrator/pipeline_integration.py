@@ -257,6 +257,11 @@ class PipelineOrchestrator:
                     rules_judge=self._build_rules_judge(),
                 )
                 logger.info("🔧 DM tools wired to live game components")
+
+                # Plan 0.3 §8: wire NPC controller tools for social skill checks
+                from agents.npc_controller_agent import set_npc_tool_context
+                set_npc_tool_context(game_engine=self.game_engine)
+                logger.info("🔧 NPC tools wired for social skill checks")
             except Exception as e:
                 logger.warning(f"⚠️ Could not wire DM tools: {e}")
 
