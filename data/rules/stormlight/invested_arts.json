@@ -1,0 +1,90 @@
+{
+ "_meta": {
+  "schema_version": "1.0",
+  "tier": 2,
+  "description": "Cosmere 5e Invested Arts (plan 2.9) - leveled arts beyond cantrips. Windrunners and Skybreakers have NO leveled Invested Arts per the source: their art lists (Invested Arts book lines 129-138) show only cantrips. They use the Lashing Dice economy for maneuvers instead of Investiture Points for arts. Orders with rich art lists: Edgedancer (79 arts), Truthwatcher (101 arts), Lightweaver (~132 arts), Elsecaller (~96 arts).",
+  "source_document": "parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md",
+  "extraction_note": "Every entry carries source.book to distinguish between handbook_md (Radiant's Handbook) and invested_arts (The Invested Arts of the Cosmere). The source.line points to the appropriate document. Unreviewed entries MUST NOT adjudicate (plan D5)."
+ },
+ "invested_arts": [
+  {
+   "id": "adhesion_cantrip",
+   "name": "Adhesion",
+   "art_level": 0,
+   "orders": ["Windrunner"],
+   "surge": "Adhesion",
+   "casting_time": "1 bonus action",
+   "range": "Touch",
+   "duration": "Instantaneous or up to 1 minute",
+   "source": {
+    "book": "invested_arts",
+    "line": 341,
+    "reviewed": true
+   },
+   "quote": "This Invested Art is a minor Full Lashing Surge. You create one of the following effects:",
+   "description_ref": "See surgebinding.json surges.Adhesion for full mechanics",
+   "notes": "Windrunner cantrip. Three-choice utility (stabilize, difficult terrain, stick object with scaling DC)."
+  },
+  {
+   "id": "gravitation_cantrip",
+   "name": "Gravitation",
+   "art_level": 0,
+   "orders": ["Windrunner", "Skybreaker"],
+   "surge": "Gravitation",
+   "casting_time": "1 bonus action, 1 action, or 1 reaction",
+   "range": "Touch",
+   "duration": "Instantaneous",
+   "source": {
+    "book": "invested_arts",
+    "line": 368,
+    "reviewed": true
+   },
+   "quote": "This Invested Art is a minor Basic Lashing Surge. You can use Lashings to do one of the following:",
+   "description_ref": "See surgebinding.json surges.Gravitation for full mechanics",
+   "notes": "Windrunner/Skybreaker cantrip. Four effects with level-based scaling: Lash objects (Tiny→Large), Lash creatures (attack roll at 11th), slow fall (reaction)."
+  },
+  {
+   "id": "division_cantrip",
+   "name": "Division",
+   "art_level": 0,
+   "orders": ["Skybreaker"],
+   "surge": "Division",
+   "casting_time": "1 action or 1 bonus action",
+   "range": "Touch",
+   "duration": "Instantaneous",
+   "source": {
+    "book": "invested_arts",
+    "line": 393,
+    "reviewed": true
+   },
+   "quote": "This Invested Art is a minor Division Surge. You can use your action to kindle a fire, lighting a torch, kindling, or something else with abundant, exposed fuel. Instead, you can create one of the following effects using your bonus action:",
+   "description_ref": "See surgebinding.json surges.Division for full mechanics",
+   "notes": "Skybreaker cantrip (available at 5th level per Skybreaker art list line 135). Pure utility: kindle fire, decay corpse/plant, burn mark.",
+   "level_gate": 5
+  }
+ ],
+ "order_art_counts": {
+  "Windrunner": {
+   "cantrips": 2,
+   "leveled_arts": 0,
+   "source": {
+    "book": "invested_arts",
+    "line": 129,
+    "reviewed": true
+   },
+   "quote": "Windrunner Invested Arts\n\nCantrips Adhesion Gravitation",
+   "notes": "Windrunners have zero leveled Invested Arts. They use Lashing Dice for maneuvers (Full Lashing, Reverse Lashing, etc.) instead of Investiture Points for arts."
+  },
+  "Skybreaker": {
+   "cantrips": 2,
+   "leveled_arts": 0,
+   "source": {
+    "book": "invested_arts",
+    "line": 133,
+    "reviewed": true
+   },
+   "quote": "Skybreaker Invested Arts\n\nCantrips Division (5th level)",
+   "notes": "Skybreakers have zero leveled Invested Arts. Division cantrip unlocks at 5th level. They use Lashing Dice for maneuvers instead of Investiture Points for arts."
+  }
+ }
+}

@@ -1246,26 +1246,6 @@
   }
  ],
  "surges": {
-  "Abrasion": {
-   "id": "abrasion",
-   "name": "Abrasion",
-   "orders": [
-    "Dustbringer",
-    "Edgedancer"
-   ],
-   "description": "Reduce or increase friction on a surface or creature.",
-   "role": "utility",
-   "cantrip": true,
-   "cost": {
-    "investiture_points": 0
-   },
-   "source": {
-    "line": 3030,
-    "reviewed": true
-   },
-   "automation": null,
-   "automation_status": "not_in_source"
-  },
   "Adhesion": {
    "id": "adhesion",
    "name": "Adhesion",
@@ -1280,51 +1260,14 @@
     "investiture_points": 0
    },
    "source": {
-    "line": 1808,
+    "book": "invested_arts",
+    "line": 341,
     "reviewed": true
    },
+   "quote": "This Invested Art is a minor Full Lashing Surge. You create one of the following effects:",
    "automation": null,
-   "automation_status": "not_in_source"
-  },
-  "Cohesion": {
-   "id": "cohesion",
-   "name": "Cohesion",
-   "orders": [
-    "Stoneward",
-    "Willshaper"
-   ],
-   "description": "Soften, mold and reshape stone and crystal.",
-   "role": "utility",
-   "cantrip": true,
-   "cost": {
-    "investiture_points": 0
-   },
-   "source": {
-    "line": 5934,
-    "reviewed": true
-   },
-   "automation": null,
-   "automation_status": "not_in_source"
-  },
-  "Division": {
-   "id": "division",
-   "name": "Division",
-   "orders": [
-    "Dustbringer",
-    "Skybreaker"
-   ],
-   "description": "Degrade, burn and disintegrate matter.",
-   "role": "damage",
-   "cantrip": true,
-   "cost": {
-    "investiture_points": 0
-   },
-   "source": {
-    "line": 0,
-    "reviewed": false
-   },
-   "automation": null,
-   "automation_status": "not_in_source"
+   "automation_status": "needs_adjudication",
+   "adjudication_reason": "Cantrip offers 3 distinct effects (stabilize, difficult terrain, stick object). Choice mechanic not modeled. Individual effects are automatable (stabilize is simple, difficult terrain uses area_of_effect, stick uses check with scaling DC)."
   },
   "Gravitation": {
    "id": "gravitation",
@@ -1340,31 +1283,60 @@
     "investiture_points": 0
    },
    "source": {
-    "line": 1808,
+    "book": "invested_arts",
+    "line": 368,
     "reviewed": true
    },
+   "quote": "This Invested Art is a minor Basic Lashing Surge. You can use Lashings to do one of the following:",
    "automation": null,
-   "automation_status": "not_in_source"
+   "automation_status": "needs_adjudication",
+   "adjudication_reason": "Cantrip offers 4+ distinct effects with level-based scaling (Lash Tiny→Large object, Lash creatures with attack roll at 11th level, slow fall as reaction). Choice mechanic and scaling thresholds need modeling. Attack-roll effect is automatable once choice is resolved."
   },
-  "Illumination": {
-   "id": "illumination",
-   "name": "Illumination",
+  "Division": {
+   "id": "division",
+   "name": "Division",
    "orders": [
-    "Lightweaver",
-    "Truthwatcher"
+    "Dustbringer",
+    "Skybreaker"
    ],
-   "description": "Weave light and sound into illusion.",
-   "role": "illusion",
+   "description": "Degrade, burn and disintegrate matter.",
+   "role": "damage",
    "cantrip": true,
    "cost": {
     "investiture_points": 0
    },
    "source": {
-    "line": 4428,
+    "book": "invested_arts",
+    "line": 393,
     "reviewed": true
    },
+   "quote": "This Invested Art is a minor Division Surge. You can use your action to kindle a fire, lighting a torch, kindling, or something else with abundant, exposed fuel. Instead, you can create one of the following effects using your bonus action:",
    "automation": null,
-   "automation_status": "not_in_source"
+   "automation_status": "utility_only",
+   "adjudication_reason": "All effects are pure utility/flavor (kindle fire, decay corpse spot, decay Tiny plant, burn mark). No combat mechanics to automate. Falls through to narrative adjudication."
+  },
+  "Abrasion": {
+   "id": "abrasion",
+   "name": "Abrasion",
+   "orders": [
+    "Dustbringer",
+    "Edgedancer"
+   ],
+   "description": "Reduce or increase friction on a surface or creature.",
+   "role": "utility",
+   "cantrip": true,
+   "cost": {
+    "investiture_points": 0
+   },
+   "source": {
+    "book": "invested_arts",
+    "line": 419,
+    "reviewed": true
+   },
+   "quote": "This Invested Art is a minor Abrasion Surge. You create one of the following effects within range:",
+   "automation": null,
+   "automation_status": "needs_adjudication",
+   "adjudication_reason": "2 effects: (1) make object slippery with DC 8+prof DEX (Acrobatics) check to grab, (2) slide half movement with DC 14 DEX (Acrobatics) check or fall prone. Both use 'check' nodes but choice mechanic not modeled."
   },
   "Progression": {
    "id": "progression",
@@ -1380,31 +1352,49 @@
     "investiture_points": 0
    },
    "source": {
-    "line": 3630,
+    "book": "invested_arts",
+    "line": 444,
     "reviewed": true
    },
-   "automation": null,
-   "automation_status": "not_in_source"
-  },
-  "Tension": {
-   "id": "tension",
-   "name": "Tension",
-   "orders": [
-    "Bondsmith",
-    "Stoneward"
+   "quote": "This Invested Art is a minor Regrowth or Growth Surge. You create one of the following effect within range:",
+   "automation": [
+    {
+     "type": "target",
+     "target": "chosen",
+     "effects": [
+      {
+       "type": "ieffect2",
+       "name": "Stabilized",
+       "description": "Stabilize one creature at 0 HP (no effect on splinters/entities)"
+      }
+     ]
+    }
    ],
-   "description": "Make the flexible rigid, or the rigid flexible.",
-   "role": "utility",
+   "automation_status": "partial",
+   "adjudication_reason": "Stabilize effect is fully modeled. Second effect (make tiny plant grow instantly) is pure flavor with no mechanics."
+  },
+  "Illumination": {
+   "id": "illumination",
+   "name": "Illumination",
+   "orders": [
+    "Lightweaver",
+    "Truthwatcher"
+   ],
+   "description": "Weave light and sound into illusion.",
+   "role": "illusion",
    "cantrip": true,
    "cost": {
     "investiture_points": 0
    },
    "source": {
-    "line": 6580,
+    "book": "invested_arts",
+    "line": 469,
     "reviewed": true
    },
+   "quote": "This Invested Art is a minor Lightweaving Surge. You create one of the following effects within range:",
    "automation": null,
-   "automation_status": "not_in_source"
+   "automation_status": "needs_illusion_nodes",
+   "adjudication_reason": "All 4 effects are illusions (sensory effect, change eye color, mark/glyph, voice change). Requires illusion node type not in executor. Can have 3 active at once."
   },
   "Transformation": {
    "id": "transformation",
@@ -1420,11 +1410,14 @@
     "investiture_points": 0
    },
    "source": {
-    "line": 4904,
+    "book": "invested_arts",
+    "line": 498,
     "reviewed": true
    },
+   "quote": "This Invested Art is a minor Soulcasting Surge. You create one of the following effects within range:",
    "automation": null,
-   "automation_status": "not_in_source"
+   "automation_status": "utility_and_realm_mechanics",
+   "adjudication_reason": "Effects: clean/soil object, temperature change, flicker flames (all utility), plus Cognitive Realm bead manifestation (complex resource + duration tracking). No combat automation needed."
   },
   "Transportation": {
    "id": "transportation",
@@ -1440,11 +1433,60 @@
     "investiture_points": 0
    },
    "source": {
-    "line": 5375,
+    "book": "invested_arts",
+    "line": 525,
     "reviewed": true
    },
+   "quote": "This Invested Art is a minor Elsecalling Surge. When you use it, you can see partially into the Cognitive Realm (or the Physical Realm if you're already in the Cognitive Realm) to see around you in a 10-foot radius.",
    "automation": null,
-   "automation_status": "not_in_source"
+   "automation_status": "realm_vision_mechanic",
+   "adjudication_reason": "Grants cross-realm vision (Physical ↔ Cognitive) in 10ft radius, hazily seeing terrain only. Requires realm-travel/vision node type not in executor."
+  },
+  "Cohesion": {
+   "id": "cohesion",
+   "name": "Cohesion",
+   "orders": [
+    "Stoneward",
+    "Willshaper"
+   ],
+   "description": "Soften, mold and reshape stone and crystal.",
+   "role": "utility",
+   "cantrip": true,
+   "cost": {
+    "investiture_points": 0
+   },
+   "source": {
+    "book": "invested_arts",
+    "line": 549,
+    "reviewed": true
+   },
+   "quote": "This Invested Art is a minor Surge of Strong Axial Interconnection. Using your bonus action, you can create one of the following effects on non-Invested stone or rock that you can touch:",
+   "automation": null,
+   "automation_status": "needs_adjudication",
+   "adjudication_reason": "4 effects with variable casting times (bonus action for Tiny, 1 action for Small, 1 min for Medium, 10 min for Large stone shaping). Difficult terrain toggle (5ft square, 1 min duration) is automatable with area_of_effect. Stone shaping is utility/narrative."
+  },
+  "Tension": {
+   "id": "tension",
+   "name": "Tension",
+   "orders": [
+    "Bondsmith",
+    "Stoneward"
+   ],
+   "description": "Make the flexible rigid, or the rigid flexible.",
+   "role": "utility",
+   "cantrip": true,
+   "cost": {
+    "investiture_points": 0
+   },
+   "source": {
+    "book": "invested_arts",
+    "line": 574,
+    "reviewed": true
+   },
+   "quote": "This Invested Art is a minor Surge of Soft Axial Interconnection. You create one of the following effects on a non-Invested object or piece of clothing you can touch:",
+   "automation": null,
+   "automation_status": "needs_adjudication",
+   "adjudication_reason": "3 effects: (1) stiffen object into 1d6 improvised weapon, (2) stiffen fabric into +1 AC improvised shield, (3) stiffen clothing for +2 AC / -10 ft speed. AC modification is automatable with ieffect2 but choice + conditional eligibility (no armor worn) needs modeling."
   }
  }
 }
