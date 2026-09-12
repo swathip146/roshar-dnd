@@ -115,6 +115,26 @@ class CosmereRules:
                 return m
         return None
 
+    def get_art(self, art_name: str,
+                reviewed_only: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        One Invested Art by name (plan 2.9).
+
+        Searches the top-level `invested_arts` bucket (or `arts`), mirroring
+        `get_maneuver()`. The bucket may be empty for now — the authoring agent
+        fills it. Returns None if not found.
+        """
+        needle = (art_name or "").strip().lower()
+        # Try both possible bucket names
+        for bucket_name in ("invested_arts", "arts"):
+            items = self._data.get(bucket_name, []) or []
+            if reviewed_only:
+                items = [a for a in items if self._reviewed(a)]
+            for art in items:
+                if art.get("name", "").lower() == needle:
+                    return art
+        return None
+
     def order(self, name: str) -> Optional[Dict[str, Any]]:
         """The surges and economy of one Radiant order."""
         orders = self._data.get("orders", {}) or {}

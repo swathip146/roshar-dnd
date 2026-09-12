@@ -43,10 +43,18 @@ from config.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# The six node types the authored data actually uses. An unrecognised type is an
-# error, not something to skip: silently ignoring a node would execute half a
-# maneuver and report success.
-KNOWN_NODES = frozenset({"target", "save", "damage", "attack", "roll", "ieffect2"})
+# Node types the automation trees can use. An unrecognised type is an error, not
+# something to skip: silently ignoring a node would execute half a maneuver and
+# report success.
+#
+# ORIGINAL 6: target, save, damage, attack, roll, ieffect2
+# INVESTED ARTS ADDITIONS (plan 2.9): area_of_effect, check, resistance
+# NOTE: 'heal' is in SpellEffectExecutor.SPELL_NODES, not here, to preserve
+# the test contract that spell nodes are additions to maneuver nodes.
+KNOWN_NODES = frozenset({
+    "target", "save", "damage", "attack", "roll", "ieffect2",
+    "area_of_effect", "check", "resistance"
+})
 
 # The only placeholder in the reviewed data.
 LASHING_DIE = "{lashing_die}"
@@ -487,3 +495,127 @@ class ManeuverExecutor:
         except ValueError:
             resolved = DamageType.BLUDGEONING
         return int(entity.health.take_damage(amount, resolved, entity.uuid))
+
+    # --------------------------------------------------------- new nodes (plan 2.9)
+    # NOTE: 'heal' is in SpellEffectExecutor, not here, to preserve the test
+    # contract that spell nodes are additions to maneuver nodes.
+
+    def _node_area_of_effect(self, node, actor, targets, result) -> None:
+        """
+        Expand a single chosen target to all entities inside an area (Invested Arts addition).
+
+        The grid already computes distance and FOV. This node queries it for everyone
+        inside the shape (sphere/cone/cube/line) and runs the child effects on each.
+        """
+        shape = str(node.get("shape") or "").lower()  # sphere, cone, cube, line
+        size = int(node.get("size", 0) or 0)  # radius/length in feet
+
+        if not shape or size <= 0:
+            raise AutomationError(
+                f"area_of_effect node needs shape and size (got {shape!r}, {size})")
+
+        # For now, use the first chosen target as the center/origin
+        center = targets[0] if targets else actor
+        affected = self._get_entities_in_area(center, shape, size)
+
+        result.events.append({"type": "area_of_effect", "shape": shape,
+                              "size": size, "center": center,
+                              "affected": affected})
+        logger.info(f"      🌊 AoE {shape} ({size}ft) affects {len(affected)} entities")
+
+        self._run_nodes(node.get("effects") or [], actor, affected, result)
+
+    def _get_entities_in_area(self, center: str, shape: str, size: int) -> List[str]:
+        """
+        Query the tactical grid for entities inside an area.
+
+        For now, return everyone within `size` feet of `center` as a sphere approximation.
+        The shape parameter is recorded but all shapes use distance for now.
+        """
+        center_entity = self.wrapper.entities.get(center) if self.wrapper else None
+        if center_entity is None or not hasattr(center_entity, "position"):
+            return []
+
+        center_pos = center_entity.position
+        all_entities = list(self.wrapper.entities.keys())
+        affected = []
+
+        for entity_id in all_entities:
+            entity = self.wrapper.entities.get(entity_id)
+            if entity is None or not hasattr(entity, "position"):
+                continue
+            # Simple Euclidean distance in feet (assuming 5ft grid squares)
+            dx = (entity.position[0] - center_pos[0]) * 5
+            dy = (entity.position[1] - center_pos[1]) * 5
+            distance = int((dx ** 2 + dy ** 2) ** 0.5)
+            if distance <= size:
+                affected.append(entity_id)
+
+        return affected
+
+    def _node_check(self, node, actor, targets, result) -> None:
+        """
+        Ability check vs DC (Invested Arts addition).
+
+        Used by Dispel/Counter-Invest mechanics that check ability vs a level-derived DC.
+        """
+        stat = str(node.get("stat") or "").lower()
+        if not stat:
+            raise AutomationError("check node has no `stat`")
+
+        dc = self._resolve_dc(node.get("dc"), actor)
+
+        for target in (targets or [actor]):
+            roll = self._roll_check(target, stat)
+            passed = roll >= dc
+
+            result.events.append({"type": "check", "target": target, "stat": stat,
+                                  "dc": dc, "roll": roll, "passed": passed})
+            logger.info(f"      🎲 {target} {stat} check: {roll} vs DC {dc} "
+                        f"— {'success' if passed else 'FAIL'}")
+
+            branch = node.get("success" if passed else "fail") or []
+            self._run_nodes(branch, actor, [target], result)
+
+    def _roll_check(self, target: str, stat: str) -> int:
+        """Roll an ability check (d20 + modifier + proficiency if applicable)."""
+        entity = self.wrapper.entities.get(target) if self.wrapper else None
+        if entity is None:
+            return 0
+
+        modifier = getattr(entity.ability_scores, stat).modifier
+        # For now, assume no proficiency on raw ability checks
+        # (skill checks would need the skill proficiency lookup)
+        outcome = self.dice.ability_check(modifier, proficiency=0)
+        return int(outcome.get("total", 0))
+
+    def _node_resistance(self, node, actor, targets, result) -> None:
+        """
+        Grant damage resistance (Invested Arts addition).
+
+        The engine already supports resistances via `health.damage_reduction`. This
+        node records the resistance so it can be applied.
+
+        NOTE: Full resistance wiring to the engine's damage pipeline is needed for
+        this to actually reduce damage. This node records the intent.
+        """
+        damage_type = str(node.get("damage_type") or "").lower()
+        if not damage_type:
+            raise AutomationError("resistance node has no `damage_type`")
+
+        duration = str(node.get("duration") or "")
+
+        for target in (targets or [actor]):
+            # Record as an inline effect so the session can see and apply it
+            effect = {
+                "name": f"Resistance to {damage_type}",
+                "target": target,
+                "duration": duration,
+                "effects": {"resistance": damage_type}
+            }
+            result.effects_applied.append(effect)
+            self._record_effect(target, effect)
+
+            result.events.append({"type": "resistance", "target": target,
+                                  "damage_type": damage_type, "duration": duration})
+            logger.info(f"      🛡️  {target} gains resistance to {damage_type} ({duration})")

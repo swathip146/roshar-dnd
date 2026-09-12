@@ -379,12 +379,13 @@ class ProgressionHealing(_TypedEventAction):
                     status_message="Only Edgedancers and Truthwatchers can use Progression"
                 )
 
-        # Check Surgebinding level
+        # Check Surgebinding level - fix per AUDIT_HARDCODED_SURGE_ACCURACY.md §4.3:
+        # Progression is available at First Ideal (level 1), not Second Ideal (level 2)
         if hasattr(entity, 'surgebinding_level'):
-            if entity.surgebinding_level < 2:
+            if entity.surgebinding_level < 1:
                 logger.warning(f"Entity {entity.name} has insufficient Surgebinding level for Progression")
                 return declaration_event.cancel(
-                    status_message="Insufficient Surgebinding level (need 2+)"
+                    status_message="Insufficient Surgebinding level (need 1+)"
                 )
 
         # Check Stormlight availability
@@ -427,22 +428,21 @@ class ProgressionHealing(_TypedEventAction):
             d8_1 = random.randint(1, 8)
             d8_2 = random.randint(1, 8)
 
-            # Get Wisdom modifier if available.
+            # Get Investiture ability modifier. Per AUDIT_HARDCODED_SURGE_ACCURACY.md §4.3:
+            # should use the caster's Investiture ability (order-specific), not always WIS.
+            # WIS is correct for Edgedancer; Truthwatcher chooses INT, WIS, or CHA.
             #
             # `Ability` exposes `.modifier`, NOT `.score` — it is a computed field on
-            # the block, and there is no `score` attribute at all. This read
-            # `ability_scores.wisdom.score` and then derived the modifier by hand with
-            # `(score - 10) // 2`, so the rolled-healing path raised
-            #   AttributeError: 'Ability' object has no attribute 'score'
-            # every time. It was unreachable until the event classes were wired up,
-            # because a bare `ActionEvent` could not carry `healing_amount` and the
-            # explicit-amount branch was the only one anyone had exercised.
-            wis_mod = 0
-            if hasattr(entity, 'ability_scores') and hasattr(entity.ability_scores, 'wisdom'):
-                wis_mod = entity.ability_scores.wisdom.modifier
+            # the block, and there is no `score` attribute at all.
+            ability_mod = 0
+            if hasattr(entity, 'ability_scores'):
+                # Try to read the investiture_ability field (e.g., "wisdom", "intelligence")
+                investiture_ability = getattr(entity, 'investiture_ability', 'wisdom')
+                if hasattr(entity.ability_scores, investiture_ability):
+                    ability_mod = getattr(entity.ability_scores, investiture_ability).modifier
 
-            healing = d8_1 + d8_2 + wis_mod
-            logger.debug(f"   Rolled healing: {d8_1} + {d8_2} + {wis_mod} = {healing}")
+            healing = d8_1 + d8_2 + ability_mod
+            logger.debug(f"   Rolled healing: {d8_1} + {d8_2} + {ability_mod} = {healing}")
         else:
             healing = self.healing_amount
             logger.debug(f"   Using specified healing: {healing}")
@@ -515,10 +515,13 @@ class Illumination(_TypedEventAction):
         entity = Entity.get(self.source_entity_uuid)
 
         if hasattr(entity, 'radiant_order'):
-            if entity.radiant_order not in ["Lightweaver", "Elsecaller"]:
+            # Fix per AUDIT_HARDCODED_SURGE_ACCURACY.md §4.4: Illumination belongs to
+            # Lightweaver + Truthwatcher, not Lightweaver + Elsecaller. Elsecaller has
+            # Transformation + Transportation.
+            if entity.radiant_order not in ["Lightweaver", "Truthwatcher"]:
                 logger.warning(f"Entity {entity.name} cannot use Illumination")
                 return declaration_event.cancel(
-                    status_message="Illumination requires the Lightweaver or Elsecaller Order"
+                    status_message="Illumination requires the Lightweaver or Truthwatcher Order"
                 )
 
         if hasattr(entity, 'surgebinding_level'):

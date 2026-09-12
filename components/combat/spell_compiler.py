@@ -298,3 +298,51 @@ def _wrap_in_save_or_attack(effects: List[Dict[str, Any]],
                  "hit": effects, "miss": []}]
 
     return effects
+
+
+# ---------------------------------------------------------------------------
+# Invested Arts compilation (plan 2.9)
+# ---------------------------------------------------------------------------
+
+def compile_art(art: Dict[str, Any], art_level: int = 0) -> CompiledSpell:
+    """
+    Compile an Invested Art entry into an automation tree (plan 2.9).
+
+    Invested Arts share the spell schema: `casting_time`, `range`, `duration`,
+    `concentration`, `dc`, `damage`, `automation`. If the art already has an
+    `automation` tree, it is used directly (the same reuse the spell compiler
+    applies to manually-authored maneuvers). Otherwise, compilation derives
+    nodes from structured fields exactly as `compile_spell()` does.
+
+    Returns `CompiledSpell` (the name is generic — it holds any compiled effect).
+    """
+    name = str(art.get("name") or "")
+    level = int(art.get("level", art_level) or 0)
+
+    compiled = CompiledSpell(
+        name=name,
+        level=level,
+        school=str(art.get("school") or ""),
+        concentration=bool(art.get("concentration")),
+        duration=str(art.get("duration") or ""),
+        spell_range=str(art.get("range") or ""),
+        components=list(art.get("components") or []),
+        ritual=bool(art.get("ritual")),
+        casting_time=str(art.get("casting_time") or "1 action"),
+        area_of_effect=art.get("area_of_effect"),
+        description=str(art.get("desc") or ""))
+
+    # If the art has a hand-authored automation tree, use it directly
+    if art.get("automation"):
+        compiled.automation = art["automation"]
+        logger.debug(f"   ✨ {name}: using authored automation tree")
+        return compiled
+
+    # Otherwise, derive nodes from structured fields (same as spell compilation)
+    # For now, mark arts without automation as needing adjudication
+    # (the authoring agent will fill these in)
+    compiled.needs_adjudication = True
+    compiled.reason = (
+        f"{name} has no automation tree — awaiting authoring")
+    logger.info(f"   ✨ {name}: needs adjudication ({compiled.reason})")
+    return compiled

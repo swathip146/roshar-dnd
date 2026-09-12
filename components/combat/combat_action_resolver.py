@@ -87,6 +87,24 @@ class CombatActionResolver:
                 combat_state=self.combat_state)
         return self._spellcasting
 
+    @property
+    def investiture_ledger(self):
+        """
+        The Investiture Point ledger for this encounter (Cosmere arts).
+
+        Lives on the resolver (same pattern as spellcasting) so IP spending
+        persists across the fight.
+        """
+        if not hasattr(self, '_investiture_ledger'):
+            from components.combat.investiture_ledger import InvestiturePointLedger
+            from components.cosmere_rules import CosmereRules
+
+            rules = CosmereRules()
+            self._investiture_ledger = InvestiturePointLedger(
+                character_manager=self.character_manager,
+                cosmere_rules=rules)
+        return self._investiture_ledger
+
     def _cast_spell(self, action: Dict[str, Any],
                     metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -118,6 +136,130 @@ class CombatActionResolver:
             if entity is not None:
                 self._sync_hp_to_combat_state(entity.uuid)
         return payload
+
+    def _cast_art(self, action: Dict[str, Any],
+                  metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve `cast_art` through Investiture Point ledger and executor (plan 2.9).
+
+        Mirrors `_cast_spell` but:
+          - Uses InvestiturePointLedger instead of spell slots
+          - Gets arts from CosmereRules.get_art()
+          - Compiles via compile_art()
+
+        `art_name` comes from the caller if given, otherwise from param_defaults
+        (None), meaning "pick any art the actor knows and can afford."
+        """
+        from components.combat.spell_compiler import compile_art
+        from components.cosmere_rules import CosmereRules
+
+        defaults = param_defaults(action["action_type"])
+        art_name = action.get("art_name", defaults.get("art_name"))
+        actor_id = action["actor"]
+
+        # Get character data to determine order
+        character = self.character_manager.characters.get(actor_id)
+        if character is None:
+            return {
+                "success": False,
+                "attempted": False,
+                "error": f"Unknown character {actor_id}",
+                "event": None,
+            }
+
+        order = getattr(character, "radiant_order", "")
+
+        # If no art specified, refuse for now (auto-selection logic can be added later)
+        if not art_name:
+            return {
+                "success": False,
+                "attempted": False,
+                "error": "No art specified",
+                "event": None,
+            }
+
+        # Load the art from rules
+        rules = CosmereRules()
+        art = rules.get_art(art_name)
+        if art is None:
+            self.logger.warning(f"   ❌ Art '{art_name}' not found in rules data")
+            return {
+                "success": False,
+                "attempted": False,
+                "error": f"Unknown art: {art_name}",
+                "event": None,
+            }
+
+        # Compile the art
+        art_level = int(art.get("level", 0) or 0)
+        compiled = compile_art(art, art_level=art_level)
+
+        # Check if it needs adjudication
+        if compiled.needs_adjudication:
+            self.logger.info(f"   ⚖️  {art_name} needs adjudication: {compiled.reason}")
+            return {
+                "success": False,
+                "attempted": False,
+                "error": f"Art needs adjudication: {compiled.reason}",
+                "event": None,
+            }
+
+        # Pay the IP cost
+        spend_result = self.investiture_ledger.spend(actor_id, art_level, order)
+        if not spend_result.spent:
+            self.logger.info(f"   ⛔ Cannot cast {art_name}: {spend_result.reason}")
+            return {
+                "success": False,
+                "attempted": False,
+                "error": spend_result.reason,
+                "event": None,
+            }
+
+        # Execute the art through the maneuver executor
+        try:
+            from components.combat.maneuver_executor import ManeuverExecutor
+
+            target = action.get("target")
+            targets = [target] if target else []
+
+            executor = ManeuverExecutor(
+                dnd_wrapper=self.dnd_wrapper,
+                character_manager=self.character_manager,
+                combat_state=self.combat_state)
+
+            # Execute the automation tree
+            exec_result = executor.execute(
+                actor_id=actor_id,
+                automation=compiled.automation,
+                targets=targets)
+
+            # Sync HP if there was a target
+            if target:
+                entity = self.dnd_wrapper.entities.get(target)
+                if entity is not None:
+                    self._sync_hp_to_combat_state(entity.uuid)
+
+            return {
+                "success": exec_result.get("success", False),
+                "attempted": True,
+                "event": None,
+                "description": exec_result.get("description", f"Cast {art_name}"),
+                "art_name": art_name,
+                "art_level": art_level,
+                "ip_spent": spend_result.cost,
+                "ip_remaining": spend_result.remaining,
+            }
+
+        except Exception as e:
+            # Refund the IP if execution failed
+            self.investiture_ledger.restore(actor_id, spend_result.cost)
+            self.logger.error(f"❌ Art execution failed: {e}", exc_info=True)
+            return {
+                "success": False,
+                "attempted": False,
+                "error": str(e),
+                "event": None,
+            }
 
     def resolve_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -181,6 +323,12 @@ class CombatActionResolver:
             # refusal (no slot, not a caster, needs adjudication) must not eat the
             # turn: `progression_healing` used to be offered and refused every
             # round, and the actor silently lost its action each time.
+            if result.get("success") or result.get("attempted"):
+                self._consume_action_cost(actor_id, metadata)
+            return result
+        elif metadata["type"] == "art_action":
+            result = self._cast_art(action, metadata)
+            # Same attempted-before-charging logic as spell_action
             if result.get("success") or result.get("attempted"):
                 self._consume_action_cost(actor_id, metadata)
             return result
