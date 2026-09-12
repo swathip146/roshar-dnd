@@ -33,15 +33,84 @@ for the project owner's triage.
 
 | Implementation | Implemented? | Reachable? | Accuracy | Evidence | Gap/notes | Comment |
 |---|---|---|---|---|---|---|
-| `Lashing` | ✅ | ✅ | ❌ | `roshar_actions.py:95`; offerable → **True** | Invents a per-use sphere cost and a 10-round duration found in neither book. No save, no DC, no damage. | |
-| `ShardbladeAttack` | ✅ | ✅ | ❌ | `roshar_actions.py:225`; offerable → **True** | **Highest severity.** "2d6 necrotic, ignores armour, 10 heartbeats to kill" has no basis in either book. Confirmed to have no Invested Art counterpart at all. | |
-| `ProgressionHealing` | ✅ | ✅ | ⚠️ | `roshar_actions.py:329`; offerable → **True** | Closest to correct — its 2d8 matches "Regrowth" verbatim — but wrong resource, wrong ability modifier for Truthwatchers, wrong level gate. | |
-| `Illumination` | ✅ | ✅ | ❌ | `roshar_actions.py:495`; offerable → **True** | Charges for a free cantrip, grants a stronger effect than the book allows, **and gates on the wrong order**. | |
-| `Soulcast` | ✅ | ✅ | ❌ | `roshar_actions.py:590`; offerable → **True** | Collapses three incompatible book mechanics into one always-succeeding, unresisted effect. | |
+| `Lashing` | ✅ | ✅ | ❌ | `roshar_actions.py:95`; offerable → **True** | Invents a per-use sphere cost and a 10-round duration found in neither book. No save, no DC, no damage. | COMMENT: implement and wire now completely |
+| `ShardbladeAttack` | ✅ | ✅ | ❌ | `roshar_actions.py:225`; offerable → **True** | **Highest severity.** "2d6 necrotic, ignores armour, 10 heartbeats to kill" has no basis in either book. Confirmed to have no Invested Art counterpart at all. | COMMENT: implement and wire now completely|
+| `ProgressionHealing` | ✅ | ✅ | ⚠️ | `roshar_actions.py:329`; offerable → **True** | Closest to correct — its 2d8 matches "Regrowth" verbatim — but wrong resource, wrong ability modifier for Truthwatchers, wrong level gate. |COMMENT: implement and wire now completely |
+| `Illumination` | ✅ | ✅ | ❌ | `roshar_actions.py:495`; offerable → **True** | Charges for a free cantrip, grants a stronger effect than the book allows, **and gates on the wrong order**. | COMMENT: implement and wire now completely|
+| `Soulcast` | ✅ | ✅ | ❌ | `roshar_actions.py:590`; offerable → **True** | Collapses three incompatible book mechanics into one always-succeeding, unresisted effect. | COMMENT: implement and wire now completely|
 
 Field-level tally across the five classes: **8 ✅ · 5 ⚠️ · 14 ❌** (27 fields compared).
 
-## 2. The resource economy — the systemic error
+## 2. Coverage — which surges and orders have any code at all
+
+**The "5 classes" audited here are ACTION implementations, not orders.** They are named after
+abilities (`Lashing`, `ShardbladeAttack`, `ProgressionHealing`, `Illumination`, `Soulcast`),
+and because two of those names are also surge names, the list reads like an order list at a
+glance. It is not. There are **10 orders** (9 playable — Bondsmith is absent from the source
+books), each with two surges.
+
+Computed from `data/rules/stormlight/surgebinding.json` and each entry's `surge_type` /
+`requires_order` in `ACTION_REGISTRY`, 2026-09-12:
+
+| Surge | Class | Orders holding this surge |
+|---|---|---|
+| Gravitation | `lashing` | Windrunner, Skybreaker |
+| Progression | `progression_healing` | Edgedancer, Truthwatcher |
+| Illumination | `illumination` | Truthwatcher, Lightweaver |
+| Transformation | `soulcast` | Lightweaver, Elsecaller |
+| **Abrasion** | ❌ none | Edgedancer, Dustbringer |
+| **Adhesion** | ❌ none | Windrunner, Bondsmith |
+| **Cohesion** | ❌ none | Willshaper, Stoneward |
+| **Division** | ❌ none | Skybreaker, Dustbringer |
+| **Tension** | ❌ none | Stoneward, Bondsmith |
+| **Transportation** | ❌ none | Elsecaller, Willshaper |
+
+**4 of 10 surges have an implementation. Six have none.**
+
+`ShardbladeAttack` appears in no row above because it has `surge_type: None` and
+`requires_order: None` — it is equipment, not a surge, which is why every one of its
+mechanical fields turned out to be invented (§4.2).
+
+### Per order
+
+| Order | Served by | Status |
+|---|---|---|
+| Windrunner | `lashing` | 🟡 one of two surges |
+| Skybreaker | `lashing` | 🟡 one of two surges |
+| Edgedancer | `progression_healing` | 🟡 one of two surges |
+| Truthwatcher | `illumination`, `progression_healing` | ✅ both surges |
+| Lightweaver | `illumination`, `soulcast` | ✅ both surges |
+| Elsecaller | `soulcast` | 🟡 one of two surges |
+| **Dustbringer** | — | ❌ **nothing at all** |
+| **Willshaper** | — | ❌ **nothing at all** |
+| **Stoneward** | — | ❌ **nothing at all** |
+| Bondsmith | — | ❌ not in the source books (0 hits in 19,794 lines) |
+
+**6 of 10 orders have any implementation. Three playable orders have none whatsoever** — pick
+Dustbringer, Willshaper or Stoneward today and you have no surge abilities.
+
+Only Truthwatcher and Lightweaver have code for both their surges, and both of those depend on
+`illumination`, which is **gated to the wrong orders**: `ACTION_REGISTRY` declares
+`requires_order: ['Lightweaver', 'Elsecaller']`, but Illumination belongs to **Lightweaver +
+Truthwatcher**. So Truthwatcher's coverage is nominal — the gate excludes it — while an
+Elsecaller can use a surge their order does not possess. See §4.4.
+
+### What closes the gap
+
+For the three unserved orders, the Invested Arts book is only a partial answer, because art
+coverage is itself uneven (see `AUDIT_INVESTED_ARTS_READINESS.md` §6):
+
+* **Stoneward** — 2 cantrips, 0 leveled arts. Its depth is the Handbook's Stance Masteries,
+  not arts.
+* **Dustbringer** — 2 cantrips, 0 leveled arts.
+* **Willshaper** — 2 cantrips, 3 leveled arts.
+
+So authoring arts alone will not make these three orders feel complete; they need their
+Handbook order features too. The orders where art authoring pays off most (Truthwatcher 101,
+Lightweaver ~132, Elsecaller ~96, Edgedancer 79) are largely the ones that already have
+partial class coverage.
+
+## 3. The resource economy — the systemic error
 
 Every one of the five charges a flat "Stormlight sphere" cost. The book uses neither.
 
@@ -52,9 +121,9 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 | Long-rest refill gated on Stormlight intake | ❌ | ❌ | ❌ | `HB:13133-13141`, verified verbatim | Refill requires intaking level × 5 sapphire marks, exactly as HP does. Not modelled. | |
 | Polestone crack/drain on material components | ❌ | ❌ | ❌ | `HB:13231-13241` | Three outcomes: crack (no change given), drain, or untouched if interrupted — and the cost is paid **even when the art fails**. | |
 
-## 3. Per-class field detail
+## 4. Per-class field detail
 
-### 3.1 `Lashing` (`roshar_actions.py:95`)
+### 4.1 `Lashing` (`roshar_actions.py:95`)
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -64,7 +133,7 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 | Damage | none | The maneuvers carry damage; the cantrip does not | ⚠️ | |
 | Order gate | Windrunner, Skybreaker | Correct — both have Gravitation | ✅ | |
 
-### 3.2 `ShardbladeAttack` (`roshar_actions.py:225`)
+### 4.2 `ShardbladeAttack` (`roshar_actions.py:225`)
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -74,7 +143,7 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 | Level gate | not enforced | Third Ideal (7th level) | ❌ | |
 | Is it an Invested Art? | modelled as a surge | **No** — confirmed absent from the Invested Arts book; it is equipment | ❌ | |
 
-### 3.3 `ProgressionHealing` (`roshar_actions.py:329`)
+### 4.3 `ProgressionHealing` (`roshar_actions.py:329`)
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -84,7 +153,7 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 | Level gate | 2 | 1 (First Ideal) | ❌ | |
 | Order gate | Edgedancer, Truthwatcher | Correct — both have Progression | ✅ | |
 
-### 3.4 `Illumination` (`roshar_actions.py:495`)
+### 4.4 `Illumination` (`roshar_actions.py:495`)
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -95,7 +164,7 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 The order gate is a correctness bug independent of the cost issue: a Lightweaver's ally who
 happens to be an Elsecaller can currently use an art their order does not possess.
 
-### 3.5 `Soulcast` (`roshar_actions.py:590`)
+### 4.5 `Soulcast` (`roshar_actions.py:590`)
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -103,14 +172,14 @@ happens to be an Elsecaller can currently use an art their order does not posses
 | Resource cost | 3 spheres | Varies by which of the three applies; the cantrip is free | ❌ | |
 | Save / DC | none | The combat arts require saves | ❌ | |
 
-## 4. The 10 nulled surges — 10 blockers became 10 authoring tasks
+## 5. The 10 nulled surges — 10 blockers became 10 authoring tasks
 
 | Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | Comment |
 |---|---|---|---|---|---|
 | `surges` automation trees | ❌ | ❌ | All 10 entries in `surgebinding.json` have `automation: null` and `automation_status: "not_in_source"` — verified by enumeration | Nulled **because the book was missing**. That reason no longer holds: every surge now has cited book text sufficient to author a real cantrip-tier tree, and 6 also have deep leveled-art lists. | |
 | Anything reads the `surges` key | ❌ | ❌ | `grep` for `['surges']` in components/agents → only `cosmere_rules.py:128`, which reads an order's surge *names*, not the entries | Authoring alone will not make them playable; a consumer is also needed. | |
 
-## 5. Numbers the code invented
+## 6. Numbers the code invented
 
 Values with no basis in either book. These are the dangerous ones, because each looks
 plausible:
@@ -129,16 +198,25 @@ plausible:
 12. `Soulcast`'s unresisted effect
 13. `Soulcast`'s single collapsed mechanic in place of three
 
-## 6. Summary counts
+## 7. Summary counts
 
 | | Count |
 |---|---|
+| **Surges with any implementation** | **4 of 10** |
+| **Orders with any implementation** | **6 of 10** |
+| **Playable orders with nothing at all** | **3** — Dustbringer, Willshaper, Stoneward |
+| Orders with code for *both* their surges | 2 (Truthwatcher, Lightweaver) — and both depend on `illumination`, which is gated to the wrong orders |
+| Action classes audited | 5 (`Lashing`, `ShardbladeAttack`, `ProgressionHealing`, `Illumination`, `Soulcast`) |
 | Fields ✅ matching the book | 8 |
 | Fields ⚠️ differing but defensible | 5 |
 | Fields ❌ wrong | 14 |
 | Classes reachable **and** materially wrong | 4 of 5 |
 | Invented values with no textual basis | 13 |
 | Highest-severity single item | `ShardbladeAttack` — every mechanical field invented |
+
+The first three rows are the ones to act on. "4 of 5 classes are wrong" understates the
+problem: the deeper issue is that **six surges have no code at all**, so three playable orders
+cannot use a single surge ability.
 
 ---
 
