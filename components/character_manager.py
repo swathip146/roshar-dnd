@@ -102,6 +102,20 @@ class CharacterData:
     # Action tracking for game session
     action_history: List[Dict[str, Any]] = None  # Track all actions taken during the session
 
+    # Class features (Rage, Second Wind, Sneak Attack, ...).
+    #
+    # `features` above is a list of NAMES and nothing ever read it -- a grep for
+    # class_features across components/agents/core returned zero production hits,
+    # so a Barbarian and a Wizard of the same level fought identically. That list
+    # stays (saves and prompts already carry it); what was missing is the
+    # RESOURCE: how many rages are left, whether Second Wind has been spent.
+    #
+    # Keyed by feature id -> uses spent since the last recovery. Spent rather than
+    # remaining because the MAXIMUM scales with level (a 6th-level barbarian has
+    # four rages, not two), so storing "remaining" would silently cap a character
+    # at whatever their maximum was when the field was written.
+    class_feature_uses: Dict[str, int] = None
+
     # Progression and survival (plan 2.5). All of this was entirely absent:
     # grep for award_xp / def level_up / def long_rest returned zero hits, so
     # characters were permanently level 1 and hp<=0 meant instantly out.
@@ -334,7 +348,10 @@ class CharacterManager:
             weapon_proficiencies=character_data.get("weapon_proficiencies", []),
 
             # Initialize action tracking
-            action_history=character_data.get("action_history", [])
+            action_history=character_data.get("action_history", []),
+
+            # Class-feature use counters, restored from a save when present.
+            class_feature_uses=character_data.get("class_feature_uses") or {},
         )
 
         # Auto-migrate investiture_points to stormlight if needed (backward compatibility)
@@ -361,6 +378,15 @@ class CharacterManager:
             logger.debug(f"   Calculated Shardplate HP for {character.name}: {character.shardplate_hp_maximum}")
 
         self.characters[char_id] = character
+
+        # Grant the class features this class and level entitles them to. Nothing
+        # did this: `core/game_initialization.py` authors
+        # `"features": ["Fighting Style", "Second Wind"]` on the shipped Fighter,
+        # and that list was written and never read, so no character had a usable
+        # feature. Granting here means every character built through the ONE
+        # entry point the game uses gets them.
+        self.grant_class_features(char_id)
+
         logger.info(f"👤 Added character: {character.name} (Level {level})")
 
         return char_id
@@ -413,6 +439,12 @@ class CharacterManager:
         character.attacks = npc_data.get("attacks", [])
         character.special_abilities = npc_data.get("special_abilities", [])
         character.challenge_rating = npc_data.get("challenge_rating", 0.5)
+        # MULTIATTACK (components/combat/multiattack.py). Without this the combat
+        # layer has no way to know a monster's stat block grants more than one
+        # attack, and every monster swings once regardless of its CR. Defaults to
+        # the 5e baseline of one.
+        character.attacks_per_turn = npc_data.get("attacks_per_turn", 1)
+        character.multiattack = npc_data.get("multiattack")
 
         logger.info(f"🧟 Added NPC: {character.name} (CR {character.challenge_rating})")
 
@@ -726,10 +758,127 @@ class CharacterManager:
         if getattr(character, "radiant_order", None):
             character.stormlight_capacity = character.level * 2
 
+        # New level, new class features. A Fighter reaching 2nd gains Action
+        # Surge; without this the feature table is consulted only at character
+        # creation, so a party that levelled during play never gained anything.
+        self.grant_class_features(character.character_id)
+
         logger.info(
             f"   ⬆️  {character.name} -> level {character.level} "
             f"(+{hp_gain} HP, proficiency +{character.proficiency_bonus})"
         )
+
+    # ------------------------------------------------------------------
+    # Class features
+    #
+    # CharacterManager is the authority for character data, so the feature
+    # RESOURCE (how many rages are left) lives here and combat reads it. See
+    # components/combat/class_features.py for the table and the engine-side
+    # effects; this half is only bookkeeping the sheet owns.
+    # ------------------------------------------------------------------
+
+    def grant_class_features(self, character_id: str) -> List[str]:
+        """
+        Add the features this character's class and level entitle them to.
+
+        Names are appended to `features` (the list saves and prompts already
+        carry) and a use counter is seeded. Idempotent, because it runs both at
+        creation and on every level-up.
+
+        Returns the feature names newly granted.
+        """
+        character = self.characters.get(character_id)
+        if character is None:
+            return []
+
+        try:
+            from components.combat.class_features import get_feature_table
+            table = get_feature_table()
+        except Exception as e:
+            logger.debug(f"   Class-feature table unavailable: {e}")
+            return []
+
+        if character.features is None:
+            character.features = []
+        if character.class_feature_uses is None:
+            character.class_feature_uses = {}
+
+        existing = {str(f).strip().lower() for f in character.features}
+        granted = []
+        for entry in table.for_character(character.character_class,
+                                        character.level):
+            character.class_feature_uses.setdefault(entry["id"], 0)
+            if entry["name"].strip().lower() in existing:
+                continue
+            character.features.append(entry["name"])
+            granted.append(entry["name"])
+
+        if granted:
+            logger.info(f"   🎖️  {character.name} gains: {', '.join(granted)}")
+        return granted
+
+    def class_feature_status(self, character_id: str) -> Dict[str, Any]:
+        """
+        Every class feature this character has, with uses remaining.
+
+        This is what a UI or the DM prompt should read: the point of the whole
+        subsystem is that "Rage (2/3 left)" is visible somewhere.
+        """
+        character = self.characters.get(character_id)
+        if character is None:
+            return {}
+        try:
+            from components.combat.class_features import (get_feature_table,
+                                                          max_uses)
+        except Exception:
+            return {}
+
+        out = {}
+        for entry in get_feature_table().for_character(
+                character.character_class, character.level):
+            maximum = max_uses(entry, character)
+            spent = int((character.class_feature_uses or {}).get(entry["id"], 0))
+            out[entry["id"]] = {
+                "name": entry["name"],
+                "activation": entry.get("activation"),
+                "uses_remaining": -1 if maximum < 0 else max(0, maximum - spent),
+                "uses_maximum": maximum,
+            }
+        return out
+
+    def recharge_class_features(self, character_id: str,
+                                long_rest: bool = False) -> List[str]:
+        """
+        Reset the use counters whose `recovery` this rest satisfies.
+
+        A long rest also recovers everything a short rest would — 5e says so, and
+        forgetting it is why "once per short rest" features are usually the ones
+        that end up permanently spent.
+
+        Returns the feature ids recharged.
+        """
+        character = self.characters.get(character_id)
+        if character is None or not character.class_feature_uses:
+            return []
+        try:
+            from components.combat.class_features import get_feature_table
+            table = get_feature_table()
+        except Exception:
+            return []
+
+        satisfied = {"short_rest", "long_rest"} if long_rest else {"short_rest"}
+        recharged = []
+        for feature_id, spent in list(character.class_feature_uses.items()):
+            entry = table.get(feature_id)
+            if entry is None or not spent:
+                continue
+            if str(entry.get("recovery")) in satisfied:
+                character.class_feature_uses[feature_id] = 0
+                recharged.append(feature_id)
+
+        if recharged:
+            logger.info(f"   🎖️  {character.name} recovers: {', '.join(recharged)}")
+        return recharged
 
     @staticmethod
     def _hit_die_for_class(character_class: str) -> int:
@@ -788,6 +937,11 @@ class CharacterManager:
         if character.hit_points["current"] > 0:
             self._reset_death_saves(character)
 
+        # Second Wind and Action Surge come back on a short rest. Without this a
+        # Fighter gets exactly one Second Wind per campaign, which is how a
+        # "once per rest" feature becomes "once, ever".
+        recharged = self.recharge_class_features(character_id, long_rest=False)
+
         logger.info(
             f"🏕️  {character.name} short rest: spent {spend} hit dice, "
             f"healed {actually_healed} ({character.hit_points['current']}/{maximum})"
@@ -797,6 +951,7 @@ class CharacterManager:
             "hit_dice_spent": spend,
             "hit_dice_remaining": character.hit_dice_remaining,
             "hit_points": dict(character.hit_points),
+            "class_features_recharged": recharged,
         }
 
     def long_rest(self, character_id: str) -> Dict[str, Any]:
@@ -831,6 +986,11 @@ class CharacterManager:
 
         self._reset_death_saves(character)
 
+        # Every class feature recovers on a long rest, including the ones a short
+        # rest would already have restored (Rage is long-rest only; Second Wind is
+        # short-rest and must come back here too).
+        recharged = self.recharge_class_features(character_id, long_rest=True)
+
         logger.info(
             f"🌙 {character.name} long rest: HP {before} -> {maximum}, "
             f"hit dice {character.hit_dice_remaining}/{character.level}"
@@ -839,6 +999,7 @@ class CharacterManager:
             "hit_points": dict(character.hit_points),
             "hit_dice_remaining": character.hit_dice_remaining,
             "stormlight_current": getattr(character, "stormlight_current", 0),
+            "class_features_recharged": recharged,
         }
 
     def rest_party(self, long: bool = True) -> Dict[str, Any]:
@@ -2193,6 +2354,54 @@ class CharacterManager:
         logger.debug(f"   Plate HP: {character.shardplate_hp_maximum}")
 
         return True
+
+
+# ----------------------------------------------------------------------
+# Class-feature use counters
+#
+# Module-level so components/combat/class_features.py can read and debit them
+# without importing CharacterManager (which would be a cycle: the manager
+# imports the feature table). CharacterData remains the single store; these are
+# just the two operations combat needs.
+# ----------------------------------------------------------------------
+
+def feature_uses_left(character: "CharacterData",
+                      entry: Dict[str, Any]) -> int:
+    """
+    Uses remaining before this feature's next recovery. -1 means unlimited.
+
+    Computed as maximum-minus-spent rather than stored, because the MAXIMUM
+    scales with level: a 6th-level barbarian has four rages. Storing "remaining"
+    would cap a character at whatever their maximum was when the field was last
+    written, so levelling up would not grant the extra rage.
+    """
+    from components.combat.class_features import max_uses
+
+    maximum = max_uses(entry, character)
+    if maximum < 0:
+        return -1
+    spent = int((getattr(character, "class_feature_uses", None) or {}).get(
+        entry["id"], 0))
+    return max(0, maximum - spent)
+
+
+def spend_feature_use(character: "CharacterData",
+                      entry: Dict[str, Any]) -> bool:
+    """
+    Debit one use. False (and nothing spent) when none remain.
+
+    Returning False rather than raising keeps a refused feature the same shape as
+    a refused action: the caller reports it and the turn continues.
+    """
+    remaining = feature_uses_left(character, entry)
+    if remaining == 0:
+        return False
+    if character.class_feature_uses is None:
+        character.class_feature_uses = {}
+    if remaining > 0:            # unlimited features need no counter
+        character.class_feature_uses[entry["id"]] = (
+            character.class_feature_uses.get(entry["id"], 0) + 1)
+    return True
 
 
 # Factory function for easy integration

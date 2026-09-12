@@ -116,7 +116,7 @@ pytest-xdist>=3.0.0               # Parallel test execution (-n 8 is the default
 # ----------------------------------------------------------------------------
 # Phase 3/4 additions (plan REBUILD_PLAN_V5.md)
 # ----------------------------------------------------------------------------
-d20>=1.1.2                          # Avrae dice parser (plan 0.11)
+d20>=1.1.2                          # Avrae dice parser — used by components/dice.py (plan 0.11)
 langgraph>=1.0                      # Durable turn loop (plan 3.5 / D4)
 langgraph-checkpoint-sqlite>=2.0    # Cross-process turn checkpoints
 langchain-google-genai>=4.0         # Gemini driver for LangGraph

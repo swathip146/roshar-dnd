@@ -65,6 +65,59 @@ class CombatActionResolver:
         self.combat_state = combat_state
         self.logger = get_logger(__name__)
         self.ACTION_REGISTRY = ACTION_REGISTRY  # Expose for CombatSessionManager
+        # Built lazily: constructing it loads the 319-spell SRD dataset, and every
+        # test that builds a resolver should not pay for that unless it casts.
+        self._spellcasting = None
+
+    @property
+    def spellcasting(self):
+        """
+        The SpellcastingService for this encounter (5e spells).
+
+        Lives on the resolver rather than being constructed per cast so slot
+        spending and concentration persist across a fight — a per-call service
+        would forget that the wizard is already concentrating on Bless.
+        """
+        if self._spellcasting is None:
+            from components.combat.spellcasting import SpellcastingService
+
+            self._spellcasting = SpellcastingService(
+                dnd_engine_wrapper=self.dnd_wrapper,
+                character_manager=self.character_manager,
+                combat_state=self.combat_state)
+        return self._spellcasting
+
+    def _cast_spell(self, action: Dict[str, Any],
+                    metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve `cast_spell` through SpellcastingService.
+
+        `spell_name` and `at_level` come from the caller if given, otherwise from
+        the registry's `param_defaults` (both None), which the service reads as
+        "pick a spell this caster knows and can pay for, using the cheapest legal
+        slot". That default is what makes `cast_spell` OFFERABLE at all — an
+        action needing a parameter nothing supplies is filtered out of both menus.
+        """
+        defaults = param_defaults(action["action_type"])
+        spell_name = action.get("spell_name", defaults.get("spell_name"))
+        at_level = action.get("at_level", defaults.get("at_level"))
+
+        target = action.get("target")
+        targets = [target] if target else []
+
+        result = self.spellcasting.cast(action["actor"], spell_name=spell_name,
+                                        targets=targets, at_level=at_level)
+        payload = result.as_dict()
+        # `attempted` tells resolve_action whether to charge the action economy: a
+        # cast that reached the executor spent its slot and its action, a refusal
+        # spent neither.
+        payload["attempted"] = bool(result.slot_level) or result.success
+        payload["event"] = None
+        if target:
+            entity = self.dnd_wrapper.entities.get(target)
+            if entity is not None:
+                self._sync_hp_to_combat_state(entity.uuid)
+        return payload
 
     def resolve_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -121,6 +174,15 @@ class CombatActionResolver:
         if metadata["type"] in ["dnd_action", "roshar_action", "roshar_equipment"]:
             result = self._execute_action(action, metadata)
             self._consume_action_cost(actor_id, metadata)
+            return result
+        elif metadata["type"] == "spell_action":
+            result = self._cast_spell(action, metadata)
+            # Only charge the action if the spell was actually attempted. A
+            # refusal (no slot, not a caster, needs adjudication) must not eat the
+            # turn: `progression_healing` used to be offered and refused every
+            # round, and the actor silently lost its action each time.
+            if result.get("success") or result.get("attempted"):
+                self._consume_action_cost(actor_id, metadata)
             return result
         elif metadata["type"] in ["dnd_condition", "roshar_condition"]:
             result = self._apply_condition(action, metadata)

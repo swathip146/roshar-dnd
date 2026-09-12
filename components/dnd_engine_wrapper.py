@@ -87,6 +87,12 @@ class DnDEngineWrapper:
         for char_id in list(self.entities):
             self.equip_from_character_data(char_id)
             self.sync_roshar_attrs_to_entity(char_id)
+            # Class features (Rage, Sneak Attack, Second Wind, ...). Mirrored for
+            # the same reason as the Roshar attributes: the action layer and the
+            # registry gates read the ENTITY, and `character_class` /
+            # `class_features` lived only on CharacterData. Without this every
+            # feature gate is False in exactly the way every surge guard was.
+            self.sync_class_features_to_entity(char_id)
         # Plan 1.1: senses must be computed AFTER all entities exist, or each
         # entity's sense map is missing everyone created after it.
         self.refresh_senses()
@@ -250,11 +256,30 @@ class DnDEngineWrapper:
             from dnd.blocks.equipment import Weapon, WeaponSlot
             from dnd.core.events import Range, RangeType
 
-            # PROFICIENCY. dnd_engine applies proficiency_bonus to SKILLS only —
-            # grep it in dnd/: entity.py declares the field, skills.py consumes
-            # it, and actions.py never mentions it. So a proficient level 5
-            # character attacked at STR alone, which is why a live combat showed
-            # a 38% hit rate against AC 14 where 5e expects ~60%.
+            # PROFICIENCY — WARNING: THIS IS CURRENTLY DOUBLE-COUNTED.
+            #
+            # The original note here said dnd_engine applies proficiency_bonus to
+            # SKILLS only, on the grounds that actions.py never mentions it. That
+            # grep is accurate but the inference from it is WRONG: actions.py
+            # consumes proficiency indirectly. `Attack.apply` calls
+            # `source_entity.attack_bonus(...)`, and `Entity._get_attack_bonuses`
+            # returns `self.proficiency_bonus`, which `Entity.attack_bonus` folds
+            # in via `proficiency_bonus.combine_values(bonuses)`. The engine
+            # therefore ALREADY adds proficiency to every weapon attack roll.
+            #
+            # Because this block also writes proficiency onto Weapon.attack_bonus
+            # (and the engine adds weapon_bonus as well), proficiency lands TWICE.
+            # Measured, STR 16 (+3) with a longsword:
+            #     level  1: roll +7, RAW +5   level  9: roll +11, RAW +7
+            #     level  5: roll +9, RAW +6   level 17: roll +15, RAW +9
+            # The excess equals the proficiency bonus, so it grows with level.
+            #
+            # Pinned by tests/combat/test_proficiency_on_attacks.py, which asserts
+            # the RAW total and fails both if proficiency is dropped AND while it
+            # is doubled. Setting base_value=0 below makes that file pass, but do
+            # not do so blindly: monsters generated from statblocks may rely on
+            # this path, so the fix belongs with a review of how NPC attack
+            # bonuses are authored. See docs/REBUILD_PLAN_V5.md.
             #
             # A PC is assumed proficient with their own carried weapon; monsters
             # get the same treatment, which matches how 5e statblocks bake
@@ -443,6 +468,82 @@ class DnDEngineWrapper:
             if hasattr(entity, attr) and hasattr(character, attr):
                 setattr(character, attr, getattr(entity, attr))
         return True
+
+    # Class-feature attributes the ENTITY must carry so the combat layer can gate
+    # on them without reaching back into CharacterManager. Same mechanism as
+    # _ROSHAR_ATTRS above, and the same pydantic constraint: Entity has no
+    # extra="allow", so `entity.character_class = x` raises
+    # 'Entity object has no field "character_class"'. Writes go through __dict__.
+    _CLASS_FEATURE_ATTRS = ("character_class", "level", "class_features",
+                            "class_feature_uses")
+
+    def sync_class_features_to_entity(self, char_id: str) -> bool:
+        """
+        Mirror class and feature state from CharacterData onto the engine Entity.
+
+        `character_class` and `level` are the two things every feature gate needs
+        and NEITHER was on the Entity: `dnd_engine`'s Entity has no notion of a
+        class at all. So `action_registry.unusable_reason` could gate a Surge on
+        `radiant_order` (mirrored) but nothing could gate Rage on "is a
+        barbarian", and `_dice_pool()` already reads `getattr(entity, "level", 1)`
+        with a silent default of 1 — meaning a level-11 rogue's Sneak Attack would
+        have been 1d6 instead of 6d6.
+
+        `class_features` is the resolved list of feature ids, so a consumer does
+        not have to re-derive it from the table.
+        """
+        entity = self.entities.get(char_id)
+        character = self.character_manager.characters.get(char_id)
+        if entity is None or character is None:
+            return False
+
+        entity.__dict__["character_class"] = getattr(
+            character, "character_class", "Unknown")
+        entity.__dict__["level"] = int(getattr(character, "level", 1) or 1)
+        entity.__dict__["class_feature_uses"] = dict(
+            getattr(character, "class_feature_uses", None) or {})
+
+        try:
+            from components.combat.class_features import get_feature_table
+            entity.__dict__["class_features"] = [
+                entry["id"] for entry in get_feature_table().for_character(
+                    character.character_class, character.level)]
+        except Exception as e:
+            # A missing table must not stop entity construction; features simply
+            # are not available, which is reported rather than pretended away.
+            logger.debug(f"   Class-feature table unavailable for {char_id}: {e}")
+            entity.__dict__["class_features"] = []
+
+        if entity.__dict__["class_features"]:
+            logger.debug(f"   🎖️  {char_id} features: "
+                         f"{', '.join(entity.__dict__['class_features'])}")
+        return True
+
+    def class_feature_engine(self, combat_state=None, tactical_grid=None):
+        """
+        The ClassFeatureEngine for this wrapper, built once and cached.
+
+        Lives on the wrapper rather than on the combat session because the wrapper
+        is what every consumer already holds, and because the engine must be the
+        SAME instance for the whole encounter: it is the only thing holding the
+        removal ids for the modifiers it applied. A second instance would leave
+        Rage's +2 damage and resistance permanently on the entity.
+        """
+        engine = getattr(self, "_class_feature_engine", None)
+        if engine is None:
+            from components.combat.class_features import ClassFeatureEngine
+
+            engine = ClassFeatureEngine(
+                self, character_manager=self.character_manager,
+                combat_state=combat_state, tactical_grid=tactical_grid)
+            # dataclass, not pydantic: plain assignment is fine here.
+            self._class_feature_engine = engine
+        else:
+            if combat_state is not None:
+                engine.combat_state = combat_state
+            if tactical_grid is not None:
+                engine.grid = tactical_grid
+        return engine
 
     def refresh_senses(self, max_distance: int = 30) -> None:
         """

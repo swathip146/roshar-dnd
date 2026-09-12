@@ -1,0 +1,162 @@
+{
+  "_meta": {
+    "title": "D&D 5e class features — the combat-relevant subset",
+    "license": "OGL 1.0a (SRD 5.1 content; rules text paraphrased, not reproduced verbatim)",
+    "read_by": "components/combat/class_features.py",
+    "why": [
+      "CharacterData has carried a `features` list since the first commit and NOTHING",
+      "read it: `grep -rn class_features components/ agents/ core/` returned zero",
+      "production hits. So a Barbarian and a Wizard of the same level fought",
+      "identically apart from their stats — no Rage, no Sneak Attack, no Second Wind.",
+      "",
+      "These entries are DATA, not code, for the same reason surgebinding.json is:",
+      "the lesson of plan 3.1b was that a new ability should be a JSON entry, not a",
+      "new Python class. Adding Uncanny Dodge or Reckless Attack means adding an",
+      "object here."
+    ],
+    "schema": {
+      "id": "stable key; also the ACTION_REGISTRY name when `activation` is an action",
+      "classes": "which character_class values grant it (lowercase); [] = any",
+      "min_level": "level at which the feature is granted",
+      "activation": "action | bonus_action | reaction | passive | on_hit",
+      "uses": "int, or 'proficiency_bonus', or 'unlimited'",
+      "recovery": "short_rest | long_rest | turn | never",
+      "trigger": "for on_hit features: the condition that must hold (see TRIGGERS)",
+      "effects": "list of effect nodes; see EFFECT NODES in class_features.py"
+    },
+    "deliberately_absent": [
+      "Extra Attack — components/combat/multiattack.py is another agent's file.",
+      "Wild Shape, Metamagic, Ki, Warlock invocations: no clean seam yet.",
+      "Subclass features (Battle Master maneuvers, Assassinate, ...) — the base",
+      "class features had to exist first."
+    ]
+  },
+
+  "features": [
+    {
+      "id": "second_wind",
+      "name": "Second Wind",
+      "classes": ["fighter"],
+      "min_level": 1,
+      "activation": "bonus_action",
+      "uses": 1,
+      "recovery": "short_rest",
+      "description": "Regain 1d10 + fighter level hit points as a bonus action.",
+      "quote": "You have a limited well of stamina you can draw on to protect yourself from harm. On your turn, you can use a bonus action to regain hit points equal to 1d10 + your fighter level.",
+      "effects": [
+        {"type": "heal", "amount": "1d10+level", "target": "self"}
+      ]
+    },
+
+    {
+      "id": "action_surge",
+      "name": "Action Surge",
+      "classes": ["fighter"],
+      "min_level": 2,
+      "activation": "free",
+      "uses": 1,
+      "recovery": "short_rest",
+      "description": "Take one additional action on your turn.",
+      "quote": "Starting at 2nd level, you can push yourself beyond your normal limits for a moment. On your turn, you can take one additional action.",
+      "effects": [
+        {"type": "grant_action", "cost_type": "actions", "amount": 1}
+      ]
+    },
+
+    {
+      "id": "rage",
+      "name": "Rage",
+      "classes": ["barbarian"],
+      "min_level": 1,
+      "activation": "bonus_action",
+      "uses": 2,
+      "recovery": "long_rest",
+      "duration_rounds": 10,
+      "description": "Bonus damage on Strength melee attacks and resistance to bludgeoning, piercing and slashing damage.",
+      "quote": "On your turn, you can enter a rage as a bonus action. While raging you gain bonus damage when you make a melee weapon attack using Strength, and you have resistance to bludgeoning, piercing, and slashing damage.",
+      "ends_when": "you have not attacked a hostile creature nor taken damage since your last turn",
+      "scaling": {
+        "damage_bonus": {"1": 2, "9": 3, "16": 4},
+        "uses": {"1": 2, "3": 3, "6": 4, "12": 5, "17": 6}
+      },
+      "effects": [
+        {"type": "melee_damage_bonus", "amount": "rage_damage", "ability": "strength"},
+        {"type": "resistance",
+         "damage_types": ["Bludgeoning", "Piercing", "Slashing"]}
+      ]
+    },
+
+    {
+      "id": "sneak_attack",
+      "name": "Sneak Attack",
+      "classes": ["rogue"],
+      "min_level": 1,
+      "activation": "on_hit",
+      "uses": 1,
+      "recovery": "turn",
+      "description": "Extra damage once per turn when you have advantage, or when an ally is next to the target.",
+      "quote": "Once per turn, you can deal extra damage to one creature you hit with an attack if you have advantage on the attack roll. You don't need advantage if another enemy of the target is within 5 feet of it.",
+      "trigger": "advantage_or_ally_adjacent",
+      "scaling": {"dice_by_level": {"1": 1, "3": 2, "5": 3, "7": 4, "9": 5,
+                                    "11": 6, "13": 7, "15": 8, "17": 9, "19": 10}},
+      "effects": [
+        {"type": "extra_attack_damage", "dice": 6, "count": "sneak_attack_dice",
+         "damage_type": "weapon"}
+      ]
+    },
+
+    {
+      "id": "divine_smite",
+      "name": "Divine Smite",
+      "classes": ["paladin"],
+      "min_level": 2,
+      "activation": "on_hit",
+      "uses": "unlimited",
+      "recovery": "never",
+      "description": "Expend a spell slot on a melee weapon hit for extra radiant damage.",
+      "quote": "When you hit a creature with a melee weapon attack, you can expend one spell slot to deal radiant damage to the target, in addition to the weapon's damage. The extra damage is 2d8 for a 1st-level spell slot, plus 1d8 for each spell level higher than 1st, to a maximum of 5d8.",
+      "trigger": "spell_slot_available",
+      "cost": {"spell_slot": 1},
+      "effects": [
+        {"type": "extra_attack_damage", "dice": 8, "count": "smite_dice",
+         "damage_type": "Radiant"}
+      ]
+    },
+
+    {
+      "id": "bardic_inspiration",
+      "name": "Bardic Inspiration",
+      "classes": ["bard"],
+      "min_level": 1,
+      "activation": "bonus_action",
+      "uses": "charisma_modifier",
+      "recovery": "long_rest",
+      "description": "Give an ally a die they can add to one roll.",
+      "quote": "You can use a bonus action on your turn to choose one creature other than yourself within 60 feet of you who can hear you. That creature gains one Bardic Inspiration die, a d6.",
+      "scaling": {"die_by_level": {"1": 6, "5": 8, "10": 10, "15": 12}},
+      "requires_target": true,
+      "beneficial": true,
+      "effects": [
+        {"type": "inspiration_die", "dice": "bardic_die", "target": "chosen"}
+      ]
+    },
+
+    {
+      "id": "channel_divinity_turn_undead",
+      "name": "Channel Divinity: Turn Undead",
+      "classes": ["cleric"],
+      "min_level": 2,
+      "activation": "action",
+      "uses": 1,
+      "recovery": "short_rest",
+      "description": "Undead within 30 feet must make a Wisdom save or be frightened.",
+      "quote": "As an action, you present your holy symbol and speak a prayer censuring the undead. Each undead that can see or hear you within 30 feet of you must make a Wisdom saving throw. If the creature fails its saving throw, it is turned for 1 minute or until it takes any damage.",
+      "scaling": {"uses": {"2": 1, "6": 2, "18": 3}},
+      "requires_target": true,
+      "effects": [
+        {"type": "save_or_condition", "ability": "wisdom",
+         "condition": "Frightened", "target": "chosen"}
+      ]
+    }
+  ]
+}

@@ -20,6 +20,8 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from config.logging_config import get_logger
 
+from components.combat.multiattack import attacks_per_turn_for
+
 logger = get_logger(__name__)
 
 
@@ -94,6 +96,10 @@ class CombatSessionManager:
         # binding `input` here would capture the unpatched builtin.
         self._input_provider_override = input_provider
         self.logger = get_logger(__name__)
+        # Multiattack bookkeeping: {char_id: {attack_index: modifier_uuid}} for
+        # the temporary action grants that pay for the 2nd..Nth attack of a
+        # Multiattack. See _resolve_extra_attacks.
+        self._extra_action_modifiers: Dict[str, Dict[int, Any]] = {}
 
     @property
     def input_provider(self):
@@ -540,10 +546,185 @@ class CombatSessionManager:
             )
             print(f"\n{narrative}")
 
+        # MULTIATTACK: the rest of the attacks this stat block grants.
+        self._resolve_extra_attacks(npc_char_id, action, result)
+
         # Consume action
         self._consume_action(npc_char_id, action["action_type"])
 
         self.logger.info(f"✅ NPC action executed: {action['action_type']}")
+
+    def _resolve_extra_attacks(self, npc_char_id: str, action: Dict[str, Any],
+                               first_result: Dict[str, Any]) -> int:
+        """
+        Take the SECOND and later attacks a Multiattack stat block grants.
+
+        THE BUG. Nothing anywhere read Multiattack, so every monster in the game
+        attacked exactly once per turn: an Ape that should throw two fists threw
+        one, an Owlbear beaked without clawing, and an Adult Black Dragon made a
+        single bite instead of bite + two claws. 148 of the 334 vendored SRD
+        monsters have Multiattack, so this halved or thirded most monsters'
+        damage — and since the CR HP/AC bands were tuned against MEASURED
+        time-to-kill (`scripts/derive_cr_bands.py`), every difficulty figure was
+        wrong in the party's favour.
+
+        WHY THE ECONOMY IS GRANTED RATHER THAN BYPASSED. dnd_engine's `Attack`
+        debits `action_economy.actions` itself and `apply()` returns None once the
+        pool is empty — that is what stops a monster attacking forever, and it must
+        keep doing so. In 5e, Multiattack is ONE action that makes several attack
+        rolls, which the engine has no concept of. So for each extra attack we
+        add one action to the pool, spend it on the attack, and then remove any
+        unspent remainder. The turn therefore stays bounded by
+        `attacks_per_turn` — a number that itself comes from the stat block and is
+        clamped to 1..MAX_ATTACKS_PER_TURN — and the actor still ends its turn
+        with an empty pool, so the turn loop advances exactly as before.
+
+        Only ATTACKS repeat. A monster that dodged, dashed or cast is unaffected,
+        and a first attack the engine refused is not retried.
+
+        Returns the number of extra attacks actually resolved (0 for a monster
+        without Multiattack), so tests can assert on the count.
+        """
+        if action.get("action_type") != "attack":
+            return 0
+        if first_result.get("refused"):
+            # The first swing never happened (no action, or the engine declined);
+            # granting more actions here would manufacture attacks out of nothing.
+            return 0
+
+        character = self.character_manager.characters.get(npc_char_id)
+        total_attacks = attacks_per_turn_for(character, default=1)
+        if total_attacks <= 1:
+            return 0
+
+        entity = self.dnd_wrapper.entities.get(npc_char_id)
+        economy = getattr(entity, "action_economy", None)
+        if economy is None:
+            self.logger.warning(
+                f"⚠️ {npc_char_id} has no action economy; multiattack skipped")
+            return 0
+
+        self.logger.info(
+            f"   ⚔️ Multiattack: {self._display_name(npc_char_id)} makes "
+            f"{total_attacks} attacks this turn")
+
+        resolved = 0
+        for index in range(2, total_attacks + 1):
+            # A target that has dropped ends the flurry — 5e lets a monster
+            # redirect, but silently beating a corpse is worse than stopping, and
+            # target reselection belongs to the NPC AI.
+            target = action.get("target")
+            if target and self._is_combatant_dead(target):
+                self.logger.info(
+                    f"   ⚔️ {target} is down; {self._display_name(npc_char_id)} "
+                    f"stops after {resolved + 1} of {total_attacks} attacks")
+                break
+
+            if not self._grant_extra_action(npc_char_id, economy, index):
+                break
+
+            pool_before = self._action_pool(economy)
+            extra = dict(action)
+            extra["multiattack_index"] = index
+            result = self.action_resolver.resolve_action(extra)
+            self._log_combat_action(extra, result)
+
+            if result.get("refused"):
+                self.logger.warning(
+                    f"⚠️ {npc_char_id} multiattack {index}/{total_attacks} was "
+                    f"refused despite a granted action; stopping")
+                self._revoke_extra_action(npc_char_id, economy, index,
+                                          pool_before)
+                break
+
+            resolved += 1
+            narrative = self.narrative_gen.generate_action_narrative(
+                action=extra, result=result, combat_state=self.combat_state)
+            print(f"\n{narrative}")
+
+            # Take the grant back ONLY if the attack did not spend it (a Roshar
+            # action, or a stubbed resolver). See _revoke_extra_action.
+            self._revoke_extra_action(npc_char_id, economy, index, pool_before)
+
+        self._sync_hp_from_engine()
+        self.logger.info(
+            f"   ⚔️ Multiattack complete: {resolved + 1}/{total_attacks} attacks "
+            f"made by {npc_char_id}")
+        return resolved
+
+    def _extra_action_modifier_name(self, index: int) -> str:
+        return f"multiattack_{index}"
+
+    @staticmethod
+    def _action_pool(economy) -> int:
+        """The actor's remaining actions, or 0 if the pool cannot be read."""
+        try:
+            return int(economy.actions.normalized_score)
+        except Exception:
+            return 0
+
+    def _grant_extra_action(self, char_id: str, economy,
+                            index: int) -> bool:
+        """
+        Add one action to the pool so the next attack of a Multiattack can be paid.
+
+        A POSITIVE modifier, named so `_revoke_extra_action` can find it again.
+        `ActionEconomy.consume()` only ever adds negative modifiers, so this is the
+        mirror image and uses the same machinery — no new state to keep in sync.
+        """
+        try:
+            from dnd.core.modifiers import NumericalModifier
+            modifier = NumericalModifier.create(
+                source_entity_uuid=economy.source_entity_uuid,
+                name=self._extra_action_modifier_name(index),
+                value=1,
+            )
+            economy.actions.self_static.add_value_modifier(modifier)
+            self._extra_action_modifiers.setdefault(char_id, {})[index] = modifier.uuid
+            return True
+        except Exception as e:
+            self.logger.warning(
+                f"⚠️ Could not grant a multiattack action to {char_id}: {e}")
+            return False
+
+    def _revoke_extra_action(self, char_id: str, economy, index: int,
+                             pool_before: Optional[int] = None) -> None:
+        """
+        Take a granted multiattack action back — but ONLY if it went unspent.
+
+        This is the subtle half of the mechanism, and getting it wrong cost the
+        third attack of every 3-attack monster. `Attack.apply()` pays by adding its
+        own -1 `cost` modifier; the grant's +1 stays in the pool as its
+        counterweight. Removing the grant afterwards therefore leaves an unmatched
+        -1 and drives the pool NEGATIVE, so the next attack is refused. Measured:
+        a Brute with attacks_per_turn=3 made 2 attacks, and the third was logged
+        as "refused despite a granted action".
+
+        So: if the pool DROPPED across the attack, the grant was consumed and must
+        stay. If it did not (a Roshar action that costs Stormlight instead, or a
+        stubbed resolver), the grant is removed so it cannot accumulate into a free
+        extra turn. Either way the actor ends the turn with a pool of zero, which
+        is what makes the turn loop advance.
+
+        `pool_before=None` forces removal, for the caller that never ran an attack.
+        """
+        modifier_uuid = self._extra_action_modifiers.get(char_id, {}).pop(index, None)
+        if modifier_uuid is None:
+            return
+
+        if pool_before is not None and self._action_pool(economy) < pool_before:
+            self.logger.debug(
+                f"   ⏳ {char_id} spent the multiattack {index} grant; keeping it "
+                f"to balance the action's own cost")
+            return
+
+        try:
+            economy.actions.self_static.remove_value_modifier(modifier_uuid)
+            self.logger.debug(
+                f"   ↩️ {char_id}: unspent multiattack {index} grant returned")
+        except Exception as e:
+            self.logger.debug(
+                f"   (multiattack grant {index} for {char_id} already gone: {e})")
 
     def _get_available_actions(self, char_id: str) -> Dict[str, Dict[str, Any]]:
         """

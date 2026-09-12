@@ -13,6 +13,10 @@ from pathlib import Path
 
 from config.logging_config import get_logger
 
+from components.combat.multiattack import (MAX_ATTACKS_PER_TURN,
+                                           find_multiattack_action,
+                                           parse_multiattack)
+
 logger = get_logger(__name__)
 
 
@@ -131,6 +135,22 @@ class NPCStats(BaseModel):
     attacks: List[Dict[str, Any]]
     special_abilities: List[str]
     challenge_rating: float
+
+    # MULTIATTACK. Number of attack ROLLS this NPC's Attack action grants per
+    # turn. Every monster in the game made exactly one, whatever its stat block
+    # said, because nothing read Multiattack (`grep -rn multiattack` over
+    # components/ agents/ core/ returned zero production hits). The default of 1
+    # is the 5e baseline, and it must stay a default rather than a guess: see
+    # components/combat/multiattack.py on why we never invent a count.
+    attacks_per_turn: int = 1
+    multiattack: Optional[Dict[str, Any]] = None
+
+    @validator('attacks_per_turn')
+    def validate_attacks_per_turn(cls, v):
+        """A count outside 1..MAX is a bad parse, not a monster — clamp it."""
+        if not isinstance(v, int) or v < 1:
+            return 1
+        return min(v, MAX_ATTACKS_PER_TURN)
 
     class Config:
         # Allow field alias for backward compatibility
@@ -291,10 +311,17 @@ Generate complete stat block:"""
         # Step 4: Parse JSON from response
         npc_dict = self._parse_json_response(response['replies'][0].text)
 
-        # Step 5: Validate with Pydantic
+        # Step 5: Validate with Pydantic.
+        #
+        # Multiattack is resolved BEFORE validation, because it strips a bogus
+        # "Multiattack" entry out of `attacks` — that entry has no damage_dice or
+        # damage_bonus, so leaving it in fails `validate_attacks` and sends a
+        # perfectly good stat block down the repair path.
+        npc_dict = self._resolve_multiattack(npc_dict)
+
         try:
             npc = NPCStats(**npc_dict)
-            self.logger.info(f"✅ Generated valid NPC: {npc.name} (AC {npc.armor_class}, HP {npc.hit_points['maximum']})")
+            self.logger.info(f"✅ Generated valid NPC: {npc.name} (AC {npc.armor_class}, HP {npc.hit_points['maximum']}, {npc.attacks_per_turn} attack(s)/turn)")
             return self._clamp_to_cr_band(npc.model_dump(), challenge_rating)
 
         except ValidationError as e:
@@ -333,6 +360,64 @@ Generate complete stat block:"""
         9.0:   (133, 200, 19, 3024),
         10.0:  (127, 178, 18, 3204),
     }
+
+    def _resolve_multiattack(self, npc: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fill `attacks_per_turn` for a generated stat block, from prose if present.
+
+        The LLM has no `attacks_per_turn` field in its schema, so a generated NPC
+        arrives with the 5e default of one attack — which is CORRECT and must stay
+        the default. But the model routinely describes multiattack anyway, in one
+        of two places:
+
+          * an entry in `attacks` literally named "Multiattack" (with a prose
+            `desc` and usually a nonsense attack_bonus), or
+          * a `special_abilities` string like
+            "Multiattack: The soldier makes two spear attacks."
+
+        Both were previously discarded, so the NPC swung once. This reads them
+        through the same parser the SRD path uses, and — importantly — a
+        Multiattack *entry* is removed from `attacks`, because it is not a weapon
+        and would otherwise be offered as one.
+
+        Unparseable text yields one attack and a warning naming the NPC, never a
+        guess.
+        """
+        if not isinstance(npc, dict):
+            return npc
+
+        name = npc.get("name", "generated NPC")
+
+        # Never overwrite a count a caller already supplied (e.g. an SRD-derived
+        # stat block passed through this generator).
+        if isinstance(npc.get("attacks_per_turn"), int) and npc["attacks_per_turn"] > 1:
+            return npc
+
+        parsed = None
+
+        attacks = npc.get("attacks")
+        if isinstance(attacks, list):
+            entry = find_multiattack_action(attacks)
+            if entry is not None:
+                parsed = parse_multiattack(entry, name)
+                npc["attacks"] = [a for a in attacks if a is not entry]
+
+        if parsed is None:
+            for ability in (npc.get("special_abilities") or []):
+                if isinstance(ability, str) and "multiattack" in ability.lower():
+                    parsed = parse_multiattack({"desc": ability}, name)
+                    break
+
+        if parsed is None:
+            npc.setdefault("attacks_per_turn", 1)
+            return npc
+
+        npc["attacks_per_turn"] = parsed["attacks_per_turn"]
+        npc["multiattack"] = parsed
+        self.logger.info(
+            f"   ⚔️ {name}: {parsed['attacks_per_turn']} attack(s) per turn "
+            f"(multiattack source: {parsed['source']})")
+        return npc
 
     def _clamp_to_cr_band(self, npc: Dict[str, Any],
                           target_cr: float) -> Dict[str, Any]:
@@ -511,6 +596,11 @@ Generate complete stat block:"""
         npc_data.setdefault("proficiency_bonus", 2)
         npc_data.setdefault("special_abilities", [])
         npc_data.setdefault("challenge_rating", target_cr)
+
+        # Repair is also reached directly (combat_initializer's error path, and
+        # tests), so multiattack must be resolved here too or a repaired NPC
+        # silently loses its extra attacks.
+        npc_data = self._resolve_multiattack(npc_data)
 
         # Try Pydantic validation again
         try:
