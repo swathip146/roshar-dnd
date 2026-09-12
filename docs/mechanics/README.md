@@ -34,25 +34,34 @@ Both audit documents report both columns for every mechanic.
 | Source | Path | Lines | Role |
 |---|---|---|---|
 | **SRD 5.2.1 (2024)** | `parsed_data/srd_cc_v5.2.1/docling.md` | 24,275 | Most authoritative and detailed. Its **Rules Glossary (~167 entries)** is the canonical mechanics checklist. |
-| **D&D Basic Rules (2018/2014-era)** | `parsed_data/dnd_basicrules_2018/docling.md` | 13,162 | The edition much of this codebase was written against. |
-| **Cosmere 5e Radiant's Handbook v2.0** | `parsed_data/863203275-cosmere-5e-radiant-s-handbook-v2-0/docling.md` | 14,396 | Roshar: 10 orders, ~118 order features, ~26 Windrunner maneuvers, Lashing Dice / Investiture economies. |
-| **Cosmere RPG excerpt** | `parsed_data/file_5035/docling.md` | 620 | Highstorms, spheres, world mechanics. |
+| **D&D Basic Rules (2018/2014-era)** | `parsed_data/dnd_basicrules_2018/docling.md` | 13,162 | **The edition this codebase implements** — confirmed by the author, and all 1,321 vendored SRD entries are 2014. |
+| **Cosmere 5e Radiant's Handbook v2.0** | `parsed_data/863203275-cosmere-5e-radiant-s-handbook-v2-0/docling.md` | 14,396 | Roshar: 9 playable orders, ~118 order features, ~26 Windrunner maneuvers, Lashing Dice / Investiture economies, **and the shared casting framework at `HB:13133-13241`**. |
+| **Cosmere 5e: The Invested Arts of the Cosmere v2.0** | `parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md` | 19,794 | **661 art entries** covering all 10 surges, plus Allomancy and Aonic magic. Added 2026-09-12. |
+| Cosmere RPG (Brotherwise) — *not used* | `parsed_data/sl015-*`, `cs006-*`, `cs007-*`, `sl019-*` | ~17,000 | A **different game system**. See `cosmere_rpg_unused/`. |
 
-**Known gap in the sources:** the Handbook defers all 10 surge *cantrip* mechanics to
-*The Invested Arts of the Cosmere* — the phrase "See The Invested Arts of the Cosmere"
-appears **16 times** (lines 1808, 2421, 2523, 3030, 3111, 3630, 3644, 4428, 4446, 4904,
-4918, 5375, 5391, 5469, 5934, 6580), and line 279 states it outright: *"Because of Google
-Docs character limitations, the detailed descriptions of each Invested Art are found in a
-separate document, The Invested Arts of the Cosmere."* **That document is not in
-`parsed_data/`.** So the 10 surges have names and order assignments but no effects, and
-they cannot be authored without it. The project owner is sourcing it separately.
-Everything else in the Handbook — the ~118 order features and ~26 maneuvers — *is* fully
-specified and can be implemented today.
+**The Invested Arts gap is CLOSED** (2026-09-12). The Handbook deferred all 10 surge
+mechanics to a separate book — the phrase "See The Invested Arts of the Cosmere" appears
+16 times, and line 279 says it outright. **That book has since been added.** All 10 surges
+now have real content; see `COSMERE_ARTS_SURGEBINDING_A.md` and `COSMERE_ARTS_SURGEBINDING_B.md`.
 
-All four sources are PDF-to-markdown conversions with OCR artifacts (mangled headings
-like `ONORSPREN`, `S KYBREAKER`, `ExpandinG and rEplacinG a spEllBook`, and at least one
+Note the coverage is very uneven: Truthwatcher has 101 leveled arts and Lightweaver ~132,
+while **Windrunner, Skybreaker, Dustbringer and Stoneward have two cantrips each and no
+leveled arts at all**. Windrunner's depth comes from the Handbook's Maneuvers instead. See
+`COSMERE_SYSTEMS_MAP.md`.
+
+**Still genuinely missing**, verified by looking: *Hoid's Guide* (Bondsmith — 0 occurrences
+in 19,794 lines, so 9 orders not 10), *Invested Items Collection* (full Shardplate), and the
+*Creature Compendium* (the Rosharan bestiary — which is why the game currently has 334 D&D
+monsters and zero Rosharan creatures).
+
+All sources are PDF-to-markdown conversions with OCR artifacts (mangled headings like
+`ONORSPREN`, `S KYBREAKER`, `ExpandinG and rEplacinG a spEllBook`, and at least one
 maneuver — "Quiet Lashing" — whose body text did not survive extraction). Every document
 here flags garbled passages rather than guessing at the rule.
+
+**One extraction hazard worth knowing:** art headings in the Invested Arts book often carry
+a `▶` concentration glyph, so `## <Art Name>` does not match them — `## ▶ Detect Investiture`
+does. A naive heading grep silently misses ~286 concentration arts.
 
 ## Documents
 
@@ -82,8 +91,8 @@ here flags garbled passages rather than guessing at the rule.
 | `COSMERE_ARTS_SURGEBINDING_A.md` | Invested Arts: Windrunner, Skybreaker, Dustbringer, Edgedancer, Truthwatcher |
 | `COSMERE_ARTS_SURGEBINDING_B.md` | Invested Arts: Lightweaver, Elsecaller, Willshaper, Stoneward, Bondsmith |
 | `COSMERE_ARTS_OTHER_SYSTEMS.md` | Allomancy and Aonic arts, plus the **shared casting framework** (IP costs, components, concentration, DC formulas) |
-| `COSMERE_RPG_CORE.md` | *Reference only.* The standalone Brotherwise system: plot die, Defenses, Focus, grazing, Deflect, fast/slow turns |
-| `COSMERE_RPG_SURGEBINDING.md` | *Reference only.* Its Radiant material — **0 of 10 surges specified**, deferred to a book we don't have |
+| `cosmere_rpg_unused/COSMERE_RPG_CORE.md` | *Reference only.* The standalone Brotherwise system: plot die, Defenses, Focus, grazing, Deflect, fast/slow turns |
+| `cosmere_rpg_unused/COSMERE_RPG_SURGEBINDING.md` | *Reference only.* Its Radiant material — **0 of 10 surges specified**, deferred to a book we don't have |
 
 ### Audit — what the code does
 
@@ -93,8 +102,8 @@ here flags garbled passages rather than guessing at the rule.
 | `AUDIT_CHARACTER_AND_NONCOMBAT.md` | Character sheet fidelity, progression/XP/levelling, class features, spellcasting reachability, skills, rests, exploration, social, quests, persistence, the rules tiers, DM tools |
 | `AUDIT_INVESTED_ARTS_READINESS.md` | Whether the engine can execute the 661 Invested Arts, and precisely which interpreter node types are missing |
 | `AUDIT_HARDCODED_SURGE_ACCURACY.md` | Where the 5 hand-written surge classes disagree with the now-authoritative book |
-| `AUDIT_COSMERE_RPG_FEASIBILITY.md` | Why the 5e engine cannot host the standalone Cosmere RPG — with live evidence of silent corruption |
-| `AUDIT_STORMLIGHT_CONTENT.md` | Rosharan **content** rather than rules: pregens, adversaries, locations, scenarios, unindexed lore. Largely system-independent |
+| `cosmere_rpg_unused/AUDIT_COSMERE_RPG_FEASIBILITY.md` | Why the 5e engine cannot host the standalone Cosmere RPG — with live evidence of silent corruption |
+| `cosmere_rpg_unused/AUDIT_STORMLIGHT_CONTENT.md` | Rosharan **content** rather than rules: pregens, adversaries, locations, scenarios, unindexed lore. Largely system-independent |
 
 ## How to use this
 

@@ -13,7 +13,7 @@ The reason is simply that the codebase already *is* a D&D 5e engine: it vendors
 `external/dnd_engine`, carries 1,321 entries of 2014 SRD data, and computes AC, saving
 throws, proficiency and concentration. Cosmere 5e is built on that same chassis, so these
 books *pair* with the engine. The standalone Cosmere RPG would require replacing it — see
-`AUDIT_COSMERE_RPG_FEASIBILITY.md`, which measured the cost and recommended against a
+`cosmere_rpg_unused/AUDIT_COSMERE_RPG_FEASIBILITY.md`, which measured the cost and recommended against a
 partial retrofit.
 
 ## The two systems
@@ -52,12 +52,12 @@ them is worse than choosing either one.
 
 | Document | Covers |
 |---|---|
-| `COSMERE_RPG_CORE.md` | Plot die, Defenses, Focus, grazing, Deflect, fast/slow turns, 13 conditions, injury rolls |
-| `COSMERE_RPG_SURGEBINDING.md` | Its Radiant/setting material. **0 of 10 surges specified** — it defers to a full *Stormlight Handbook* (cited 20×) |
-| `AUDIT_COSMERE_RPG_FEASIBILITY.md` | Why the 5e engine cannot host it, with live evidence of silent corruption |
-| `AUDIT_STORMLIGHT_CONTENT.md` | **Content, not rules** — pregens, adversaries, locations, scenarios. Largely reusable regardless of system, since fiction ports even when mechanics don't |
+| `cosmere_rpg_unused/COSMERE_RPG_CORE.md` | Plot die, Defenses, Focus, grazing, Deflect, fast/slow turns, 13 conditions, injury rolls |
+| `cosmere_rpg_unused/COSMERE_RPG_SURGEBINDING.md` | Its Radiant/setting material. **0 of 10 surges specified** — it defers to a full *Stormlight Handbook* (cited 20×) |
+| `cosmere_rpg_unused/AUDIT_COSMERE_RPG_FEASIBILITY.md` | Why the 5e engine cannot host it, with live evidence of silent corruption |
+| `cosmere_rpg_unused/AUDIT_STORMLIGHT_CONTENT.md` | **Content, not rules** — pregens, adversaries, locations, scenarios. Largely reusable regardless of system, since fiction ports even when mechanics don't |
 
-`AUDIT_STORMLIGHT_CONTENT.md` stays useful under the Cosmere 5e decision: its findings about
+`cosmere_rpg_unused/AUDIT_STORMLIGHT_CONTENT.md` stays useful under the Cosmere 5e decision: its findings about
 unindexed lore, the Rosharan currency table, and the missing bestiary are system-independent.
 
 ## Which book supplies what
