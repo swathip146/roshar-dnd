@@ -125,6 +125,14 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
         # of the five Surges. None means "the service picks a spell the caster
         # knows and can currently pay for" (SpellcastingService.default_spell),
         # cantrips before slots. `at_level` None means the cheapest legal slot.
+        #
+        # `spell_name` was MISSING from this dict while the comment above already
+        # described the fix, so required_caller_params() returned ['spell_name'],
+        # is_offerable() returned False, and cast_spell was excluded from both the
+        # player menu (combat_session_manager.py:790) and the NPC menu (:1976).
+        # All 319 SRD spells compiled and resolved correctly and NONE were castable
+        # in a real session. spellcasting.py:790-791 already falls back to
+        # default_spell() when the name is absent, so None is the correct value.
         "param_defaults": {"spell_name": None, "at_level": None},
         "cost_type": "actions",
         "cost": 1,
