@@ -521,8 +521,10 @@ class GameEngine:
                 "quest_context": self.game_state.quest_context
             },
             # BREAKING CHANGE: Export full character data from CharacterManager (authority)
+            # Plan 0.3 fix: use to_dict() for lossless serialization, not get_character_summary()
+            # which is an analytics view that drops HP, equipment, AC, spell_slots, and Roshar fields
             "character_data": {
-                char_id: self.character_manager.get_character_summary(char_id)
+                char_id: self.character_manager.characters[char_id].to_dict()
                 for char_id in self.character_manager.characters.keys()
             },
             "policy_profile": self.policy_engine.active_profile_type.value,

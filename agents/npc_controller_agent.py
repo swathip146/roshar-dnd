@@ -14,6 +14,20 @@ from config.logging_config import get_logger
 # Initialize logger
 logger = get_logger(__name__)
 
+# Context for accessing game_engine (similar to dm_tools pattern)
+_NPC_CONTEXT: Dict[str, Any] = {}
+
+
+def set_npc_tool_context(*, game_engine=None) -> None:
+    """Wire the game engine for social skill checks (plan 0.3 §8)."""
+    if game_engine is not None:
+        _NPC_CONTEXT["game_engine"] = game_engine
+    logger.info(f"🔧 NPC tool context set: {sorted(_NPC_CONTEXT)}")
+
+
+def clear_npc_tool_context() -> None:
+    _NPC_CONTEXT.clear()
+
 
 
 @tool(
@@ -104,17 +118,83 @@ def update_npc_memory(npc_id: str, interaction_data: Dict[str, Any]) -> Dict[str
 
 
 @tool
-def assess_attitude_change(npc_id: str, player_action: str, npc_personality: str, 
-                          current_attitude: str) -> Dict[str, Any]:
+def roll_social_check(skill: str, dc: int, actor: str = "") -> Dict[str, Any]:
+    """
+    Roll a social skill check (Persuasion, Deception, Intimidation, or Insight).
+
+    Use this when the player attempts to influence, deceive, intimidate, or read
+    an NPC. The result determines whether the attempt succeeds and should affect
+    the NPC's attitude and response.
+
+    Args:
+        skill: "persuasion", "deception", "intimidation", or "insight"
+        dc: Difficulty Class (10=easy, 15=moderate, 20=hard, 25=very hard)
+        actor: Character id performing the check (usually the player)
+
+    Returns:
+        success, roll_total, dc, character_modifier, selected_roll
+    """
+    try:
+        engine = _NPC_CONTEXT.get("game_engine")
+        if engine is None:
+            logger.warning("⚠️ roll_social_check: game_engine not available")
+            return {"error": "game_engine not available", "success": False}
+
+        # Default to first party member if no actor specified
+        if not actor:
+            manager = getattr(engine, "character_manager", None)
+            if manager:
+                try:
+                    npcs = set(manager.get_npcs() or [])
+                except Exception:
+                    npcs = set()
+                for char_id in manager.characters:
+                    if char_id not in npcs:
+                        actor = char_id
+                        break
+
+        result = engine.process_skill_check({
+            "actor": actor,
+            "skill": skill.lower(),
+            "dc": int(dc),
+            "context": {"source": "npc_social_interaction"},
+        })
+
+        success = bool(result.get("success"))
+        logger.info(f"🎲 Social check ({skill}): {'success' if success else 'failure'} "
+                   f"(rolled {result.get('roll_total')} vs DC {dc})")
+
+        return {
+            "actor": actor,
+            "skill": skill,
+            "dc": result.get("dc", dc),
+            "selected_roll": result.get("selected_roll"),
+            "roll_total": result.get("roll_total"),
+            "character_modifier": result.get("character_modifier", 0),
+            "success": success,
+            "advantage_state": result.get("advantage_state", "normal"),
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ roll_social_check failed: {e}")
+        return {"error": str(e), "success": False}
+
+
+@tool
+def assess_attitude_change(npc_id: str, player_action: str, npc_personality: str,
+                          current_attitude: str, skill_check_success: Optional[bool] = None) -> Dict[str, Any]:
     """
     Determine how the NPC's attitude toward the player should change.
-    
+
+    Plan 0.3 §8: Now considers real skill check results. If skill_check_success
+    is provided (from roll_social_check), it affects the outcome.
+
     Args:
         npc_id: NPC identifier
         player_action: Player's action
         npc_personality: NPC's personality type
         current_attitude: Current attitude toward player
-        
+        skill_check_success: Whether a social skill check succeeded (if one was rolled)
+
     Returns:
         Attitude assessment and changes
     """
@@ -126,35 +206,62 @@ def assess_attitude_change(npc_id: str, player_action: str, npc_personality: str
         "suspicious": {"positive_actions": +1, "negative_actions": -2},
         "helpful": {"positive_actions": +3, "negative_actions": -1}
     }
-    
+
     # Assess action type (simplified - would be enhanced by LLM)
     action_lower = player_action.lower()
     positive_triggers = ["help", "assist", "please", "thank", "gift", "compliment"]
     negative_triggers = ["threaten", "attack", "insult", "steal", "lie", "demand"]
-    
+
     is_positive = any(trigger in action_lower for trigger in positive_triggers)
     is_negative = any(trigger in action_lower for trigger in negative_triggers)
-    
+
     personality_mod = personality_responses.get(npc_personality, {"positive_actions": 1, "negative_actions": -1})
-    
+
     attitude_change = 0
     if is_positive:
         attitude_change = personality_mod["positive_actions"]
     elif is_negative:
         attitude_change = personality_mod["negative_actions"]
-    
+
+    # Apply skill check modifier: success boosts positive or mitigates negative,
+    # failure reduces positive or worsens negative
+    if skill_check_success is not None:
+        if skill_check_success:
+            # Success: enhance positive interactions, mitigate negative ones
+            if is_positive:
+                attitude_change += 1
+            elif is_negative:
+                attitude_change = max(attitude_change + 1, 0)  # Reduce penalty
+        else:
+            # Failure: reduce positive gains, worsen negative impacts
+            if is_positive:
+                attitude_change = max(attitude_change - 1, 0)  # Reduce benefit
+            elif is_negative:
+                attitude_change -= 1  # Worsen penalty
+
     # Map attitude levels
     attitude_levels = ["hostile", "unfriendly", "neutral", "friendly", "helpful"]
     current_level = attitude_levels.index(current_attitude) if current_attitude in attitude_levels else 2
     new_level = max(0, min(len(attitude_levels) - 1, current_level + attitude_change))
     new_attitude = attitude_levels[new_level]
-    
+
+    reasoning_parts = []
+    if is_positive:
+        reasoning_parts.append("positive action")
+    elif is_negative:
+        reasoning_parts.append("negative action")
+    else:
+        reasoning_parts.append("neutral action")
+
+    if skill_check_success is not None:
+        reasoning_parts.append(f"skill check {'succeeded' if skill_check_success else 'failed'}")
+
     return {
         "npc_id": npc_id,
         "attitude_change": attitude_change,
         "old_attitude": current_attitude,
         "new_attitude": new_attitude,
-        "reasoning": f"Player action was {'positive' if is_positive else 'negative' if is_negative else 'neutral'}"
+        "reasoning": ", ".join(reasoning_parts)
     }
 
 
@@ -238,10 +345,15 @@ ATTITUDE LEVELS (toward player):
 - helpful: Actively supports player, goes out of way to assist
 
 WORKFLOW:
-1. Use assess_attitude_change to determine how the NPC feels about the player action
-2. Use generate_npc_response to create dialogue and behavior
-3. Use update_npc_memory to record the interaction
-4. Use determine_npc_action if the situation requires specific actions
+1. If the player is attempting PERSUASION, DECEPTION, or INTIMIDATION, use
+   roll_social_check FIRST to determine if the attempt succeeds
+   - Set an appropriate DC: 10 (easy), 15 (moderate), 20 (hard), 25 (very hard)
+   - Consider the NPC's personality, current attitude, and the difficulty of what's being asked
+2. Use assess_attitude_change to determine how the NPC feels about the player action
+   - Pass skill_check_success if you rolled a social check in step 1
+3. Use generate_npc_response to create dialogue and behavior that reflects the check result
+4. Use update_npc_memory to record the interaction
+5. Use determine_npc_action if the situation requires specific actions
 
 GUIDELINES:
 - Stay in character based on NPC personality and background
@@ -275,10 +387,10 @@ def create_npc_controller_agent(chat_generator: Optional[Any] = None) -> Agent:
 
     agent = Agent(
         chat_generator=generator,
-        tools=[generate_npc_response, update_npc_memory, assess_attitude_change, determine_npc_action],
+        tools=[roll_social_check, generate_npc_response, update_npc_memory, assess_attitude_change, determine_npc_action],
         system_prompt=system_prompt,
         exit_conditions=["generate_npc_response"],
-        max_agent_steps=4,
+        max_agent_steps=6,  # Raised from 4 to allow for skill check + response
         raise_on_tool_invocation_failure=False,
         state_schema={
             "npc_response": {"type": dict}
