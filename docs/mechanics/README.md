@@ -56,6 +56,12 @@ here flags garbled passages rather than guessing at the rule.
 
 ## Documents
 
+> **Anything Cosmere: start at `COSMERE_SYSTEMS_MAP.md`.** This directory documents **two
+> different games** that share the same fiction — Cosmere 5e (which the project implements)
+> and the standalone Cosmere RPG (reference only). Picking the wrong document means
+> implementing rules from a system this project is not building, and the two fail silently
+> when mixed rather than loudly.
+
 ### Requirements — what the rules say
 
 | Document | Covers |
@@ -64,8 +70,20 @@ here flags garbled passages rather than guessing at the rule.
 | `SRD_SPELLCASTING.md` | Slots, upcasting, concentration, rituals, components, the per-class casting differences, Metamagic, a spell-effect taxonomy, and a field audit of the 319-spell `spells.json` |
 | `SRD_CLASSES_AND_PROGRESSION.md` | Character creation, multiclassing, and every feature at every level for all 12 classes; feats; species; Weapon Mastery; a cross-class resource inventory |
 | `SRD_EQUIPMENT_MONSTERS_DM.md` | Weapons/properties/mastery, armor + Armor Training, magic items and attunement, monster stat-block anatomy, and the **encounter XP budget** rules |
-| `COSMERE_MECHANICS.md` | The 10 orders and their Investiture abilities, ~118 order features, ~26 maneuvers, Lashing Dice and Investiture Points, Stormlight, Shardblades/Shardplate, spren, Ideals |
 | `EDITION_DIFFERENCES.md` | Where 2014 and 2024 disagree, and which this project should follow. **Read before implementing anything** — mixing editions silently produces an incoherent rules set |
+| `EDITION_CONFLICTS_IN_CODE.md` | The edition conflicts already shipped in the code (Exhaustion, grapple/shove, XP budget), and the decision each needs |
+
+### Cosmere — two systems, one of them authoritative
+
+| Document | Covers |
+|---|---|
+| **`COSMERE_SYSTEMS_MAP.md`** | **Start here.** Which system the project implements and why, how the documents divide, and which source books are still missing |
+| `COSMERE_MECHANICS.md` | *Radiant's Handbook*: 9 playable orders, ~118 order features, ~26 maneuvers, Lashing Dice / Investiture Points, Shardweapons, Stances, spren, Ideals. **Carries a dated correction** — its "surges cannot be authored" claim is obsolete |
+| `COSMERE_ARTS_SURGEBINDING_A.md` | Invested Arts: Windrunner, Skybreaker, Dustbringer, Edgedancer, Truthwatcher |
+| `COSMERE_ARTS_SURGEBINDING_B.md` | Invested Arts: Lightweaver, Elsecaller, Willshaper, Stoneward, Bondsmith |
+| `COSMERE_ARTS_OTHER_SYSTEMS.md` | Allomancy and Aonic arts, plus the **shared casting framework** (IP costs, components, concentration, DC formulas) |
+| `COSMERE_RPG_CORE.md` | *Reference only.* The standalone Brotherwise system: plot die, Defenses, Focus, grazing, Deflect, fast/slow turns |
+| `COSMERE_RPG_SURGEBINDING.md` | *Reference only.* Its Radiant material — **0 of 10 surges specified**, deferred to a book we don't have |
 
 ### Audit — what the code does
 
@@ -73,13 +91,20 @@ here flags garbled passages rather than guessing at the rule.
 |---|---|
 | `AUDIT_COMBAT.md` | Attack resolution, advantage, action economy, conditions, death/dying, initiative, the tactical grid, multiattack, monsters/CR/encounter difficulty |
 | `AUDIT_CHARACTER_AND_NONCOMBAT.md` | Character sheet fidelity, progression/XP/levelling, class features, spellcasting reachability, skills, rests, exploration, social, quests, persistence, the rules tiers, DM tools |
+| `AUDIT_INVESTED_ARTS_READINESS.md` | Whether the engine can execute the 661 Invested Arts, and precisely which interpreter node types are missing |
+| `AUDIT_HARDCODED_SURGE_ACCURACY.md` | Where the 5 hand-written surge classes disagree with the now-authoritative book |
+| `AUDIT_COSMERE_RPG_FEASIBILITY.md` | Why the 5e engine cannot host the standalone Cosmere RPG — with live evidence of silent corruption |
+| `AUDIT_STORMLIGHT_CONTENT.md` | Rosharan **content** rather than rules: pregens, adversaries, locations, scenarios, unindexed lore. Largely system-independent |
 
 ## How to use this
 
 - **Implementing a mechanic?** Find it in the requirements doc for the exact rule and
   line number, check `EDITION_DIFFERENCES.md` for which version to follow, then check the
   audit doc for what already exists.
+- **Implementing anything Cosmere?** Read `COSMERE_SYSTEMS_MAP.md` first, or you may build
+  from the wrong system.
 - **Deciding what to build next?** The audit docs' "Built but unreachable" sections are
   the cheapest wins — the code already exists and just needs wiring.
 - **Adding to these docs?** Cite `file:line` or show the command and its output. That
   standard is the whole point of this directory.
+

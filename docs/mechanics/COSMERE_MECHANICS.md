@@ -1,5 +1,49 @@
 # Cosmere / Roshar Mechanics Catalogue
 
+> ## CORRECTION — 2026-09-12
+>
+> **The central claim of this document (Part 0 and Final List (b) below) is
+> obsolete.** They state that all 10 surge cantrip effects "CANNOT be
+> authored" because *The Invested Arts of the Cosmere* was missing.
+> **That book has since been added to the project** and is parsed at
+> `parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md`
+> (19,794 lines). Verified directly: it contains roughly **661 Invested Art
+> entries** (counted via `Casting Time` header occurrences, its per-entry
+> delimiter), split across Surgebinding (~322), Allomancy (~69), and Aonic
+> (~270) arts, and its Surgebinding section gives full mechanical write-ups —
+> casting time, range, components, duration, save/attack, damage dice — for
+> **all 10 Rosharan surges** (Adhesion, Gravitation, Division, Abrasion,
+> Progression, Illumination, Transformation, Transportation, Cohesion,
+> Tension), not just names.
+>
+> This document's own body is **left unmodified below** (per the instruction
+> not to rewrite it) so its extraction work on the ~118 order features,
+> maneuvers, and Stormlight economy remains intact and citable. But wherever
+> it says a surge/Invested-Art mechanic "cannot be authored" or is "not in
+> `parsed_data/`," read that as **historical, not current**. For the actual
+> surge/Invested Art mechanics, see the new documents that extract *The
+> Invested Arts of the Cosmere*:
+> - `COSMERE_ARTS_SURGEBINDING_A.md`
+> - `COSMERE_ARTS_SURGEBINDING_B.md`
+> - `COSMERE_ARTS_OTHER_SYSTEMS.md` (Allomancy, Aonic)
+>
+> Two books cited below as "missing" in the same breath as the Invested Arts
+> are **still genuinely absent** — do not assume they arrived too:
+> **Invested Items Collection** (full Shardplate AC/HP/cost rules, 400+
+> Invested items) and **Hoid's Guide to the Cosmere** (Honorblades,
+> Nightblood, the Bondsmith class, non-Roshar classes). Confirmed by direct
+> search: no file matching either title exists anywhere under `resources/rules/`
+> or `parsed_data/` as of this correction. See `COSMERE_SYSTEMS_MAP.md` for
+> the full "which book supplies what" table and current gap list.
+>
+> This document also assumes the Cosmere 5e system generally (d20, AC, saving
+> throws) is the one this project implements, which remains the project's
+> decision — see `COSMERE_SYSTEMS_MAP.md` for why, and for how the unrelated
+> **Cosmere RPG** (Brotherwise Games' standalone Plotweaver system, covered by
+> `COSMERE_RPG_CORE.md` / `COSMERE_RPG_SURGEBINDING.md`) fits in.
+
+---
+
 Exhaustive extraction of Cosmere 5e mechanics from the Radiant's Handbook, for a
 game-engine implementation audit. This document does **not** assess what the
 codebase has implemented — it only catalogues what the source material says.
@@ -27,28 +71,39 @@ with its line number rather than guessed at.
 
 ---
 
-## PART 0 — The central constraint
+## PART 0 — The central constraint (RESOLVED — see correction banner at top)
 
-**The 10 surge cantrip mechanics are not in our source.** The Handbook defers
-them to a separate document seven times, verbatim: *"See The Invested Arts of
-the Cosmere for detailed information about these cantrips"* — `HB:1808`
-(Windrunner), `HB:3630` (Edgedancer), `HB:4428` (Truthwatcher), `HB:4904`
-(Lightweaver), `HB:5375` (Elsecaller), `HB:5934` (Willshaper), `HB:6580`
-(Stoneward). `HB:279` confirms generally: *"the detailed descriptions of each
-Invested Art are found in a separate document."* `HB:13333-13337` (Chapter 10
-close) restates it: full Invested Art write-ups, including the two basic
-Surge cantrips every class gets for free, live in *The Invested Arts of the
-Cosmere*, not this book.
+> **This section is preserved for historical/citation purposes only. Its
+> conclusion no longer holds** — *The Invested Arts of the Cosmere (v2.0)* has
+> since been added at
+> `parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md`
+> and fully specifies all 10 surges' cantrip and leveled-Art effects. See the
+> correction banner at the top of this document and `COSMERE_SYSTEMS_MAP.md`.
+> The text below describes the state of the sources *before* that book was
+> added, and remains accurate as a description of the Handbook alone.
 
-**That document is not in `parsed_data/`.** Confirmed independently by direct
-reading (Part 6 below) — Chapter 10 ("Investiture Casting") gives the entire
-generic casting *chassis* (levels, points, components, duration, targets,
-saves) but at no point states what any specific surge, cantrip, or named
-Invested Art actually does. The 10 surges (Adhesion, Gravitation, Division,
-Abrasion, Progression, Illumination, Transformation, Transportation,
-Cohesion, Tension) have **names and order-assignments only**. Their spell
-effects cannot be authored without the missing document — see the closing
-list.
+**The 10 surge cantrip mechanics are not in the Handbook alone.** The Handbook
+defers them to a separate document seven times, verbatim: *"See The Invested
+Arts of the Cosmere for detailed information about these cantrips"* —
+`HB:1808` (Windrunner), `HB:3630` (Edgedancer), `HB:4428` (Truthwatcher),
+`HB:4904` (Lightweaver), `HB:5375` (Elsecaller), `HB:5934` (Willshaper),
+`HB:6580` (Stoneward). `HB:279` confirms generally: *"the detailed
+descriptions of each Invested Art are found in a separate document."*
+`HB:13333-13337` (Chapter 10 close) restates it: full Invested Art write-ups,
+including the two basic Surge cantrips every class gets for free, live in
+*The Invested Arts of the Cosmere*, not this book.
+
+**That document was not in `parsed_data/` at the time this catalogue was
+written; it has since been added.** Confirmed independently by direct reading
+(Part 6 below) — Chapter 10 ("Investiture Casting") gives the entire generic
+casting *chassis* (levels, points, components, duration, targets, saves) but
+at no point states what any specific surge, cantrip, or named Invested Art
+actually does. The 10 surges (Adhesion, Gravitation, Division, Abrasion,
+Progression, Illumination, Transformation, Transportation, Cohesion,
+Tension) had, **in the Handbook alone**, names and order-assignments only.
+Their spell effects are now available in the Invested Arts document — see
+the correction banner and `COSMERE_ARTS_SURGEBINDING_A.md` /
+`COSMERE_ARTS_SURGEBINDING_B.md`.
 
 ---
 
@@ -803,28 +858,53 @@ too narrowly, to fully general and verified):
 - Realms chapter: Perpendicularities, Oathgates, Elsecalling, Cognitive
   Realm compression/limitations, Beads (Part 8).
 
-### (b) Mechanics that CANNOT be authored without the missing "Invested Arts of the Cosmere" document
+### (b) Mechanics that could not be authored from the Handbook alone — STATUS AS OF 2026-09-12
 
-- **All 10 surge effects** (Adhesion, Gravitation, Division, Abrasion,
-  Progression, Illumination, Transformation, Transportation, Cohesion,
-  Tension) — names and order-assignments only exist in our source.
-- Every named Invested Art referenced in passing by other features (e.g.
-  *ice shard*, *fireball*, *revivify*, *resurrection*, *cultivate*,
-  *conjure Castweaving*, *Soulcast*, *detect Investiture*, *identify*,
-  *locate object*, *invisibility*, *water breathing*, *regress*, *vex*,
-  *detect Intention*, *elsecast*, *bloodcast creature*, *Realmatic Door* —
-  this list is illustrative, not exhaustive) — their names surface as
-  incidental references throughout Part 3, but none has a stat block here.
-- Full Shardplate item rules (AC formula, HP, cost) — explicitly deferred to
-  the also-missing *Invested Items Collection* (`HB:9007`); only the generic
-  don/doff time and no-default-proficiency rule are in this source.
-- Honorblades, Nightblood, and other named legendary Shardblades — deferred
-  to *Hoid's Guide to the Cosmere* (`HB:9064`), not in `parsed_data/`.
-- The Bondsmith class in full (surges Tension+Adhesion) — deferred to
-  *Hoid's Guide to the Cosmere* (`HB:1631`).
-- Voidbringer/Fused ability stat blocks — not found anywhere in the read
-  ranges of this source; only their storm-mechanical interactions (Fused
-  Resurrection during an Everstorm) are present.
+> This section originally asserted these mechanics "CANNOT be authored"
+> because *The Invested Arts of the Cosmere* was missing from `parsed_data/`.
+> **That premise is now false for the first two bullets** — the book has been
+> added (`parsed_data/cosmere-5e-the-invested-arts-of-the-cosmere-v2-0/docling.md`,
+> 19,794 lines, ~661 Invested Art entries) and fully specifies all 10 surges
+> and their named Invested Arts. The remaining bullets are **still accurate**:
+> those books were independently confirmed absent by direct search of both
+> `resources/rules/` and `parsed_data/` as of this correction — no file or
+> directory matching "Invested Items Collection" or "Hoid" exists anywhere in
+> either tree.
+
+- ~~All 10 surge effects... names and order-assignments only exist in our
+  source.~~ **RESOLVED.** All 10 surges (Adhesion, Gravitation, Division,
+  Abrasion, Progression, Illumination, Transformation, Transportation,
+  Cohesion, Tension) now have full mechanical write-ups — casting time,
+  range, components, duration, attack/save, damage — in the Invested Arts
+  document. See `COSMERE_ARTS_SURGEBINDING_A.md` /
+  `COSMERE_ARTS_SURGEBINDING_B.md` for the extraction.
+- ~~Every named Invested Art referenced in passing... none has a stat block
+  here.~~ **RESOLVED for Surgebinding Arts** (*ice shard*, *fireball*,
+  *revivify*, *conjure Castweaving*, *Soulcast*, etc. are now stat-blocked in
+  the Invested Arts document's Surgebinding section). The same document also
+  covers **Allomancy** and **Aonic** Invested Arts (Mistborn/Elantrian
+  content) — out of scope for a Roshar-only campaign but present if needed;
+  see `COSMERE_ARTS_OTHER_SYSTEMS.md`.
+- **Still missing — verified by direct search, not assumed:** Full Shardplate
+  item rules (AC formula, HP, cost, and the other 400+ Invested items) —
+  explicitly deferred to *Invested Items Collection* (`HB:9007`); only the
+  generic don/doff time and no-default-proficiency rule are in the Handbook.
+  No file for this book exists under `resources/rules/` or `parsed_data/`.
+- **Still missing:** Honorblades, Nightblood, and other named legendary
+  Shardblades — deferred to *Hoid's Guide to the Cosmere* (`HB:9064`). No
+  file for this book exists under `resources/rules/` or `parsed_data/`.
+- **Still missing:** The Bondsmith class in full (surges Tension+Adhesion) —
+  deferred to *Hoid's Guide to the Cosmere* (`HB:1631`). Same absence as
+  above; the Invested Arts document does **not** add a Bondsmith class or
+  fill this gap (it supplies Art *effects* keyed to surges, not new classes).
+- **Still missing:** Voidbringer/Fused ability stat blocks — not found
+  anywhere in the read ranges of the Handbook, nor in the Invested Arts
+  document (which is a spell-effect reference, not a monster manual); only
+  their storm-mechanical interactions (Fused Resurrection during an
+  Everstorm) are present.
+
+See `COSMERE_SYSTEMS_MAP.md` for the authoritative, currently-maintained
+"which book supplies what" table across every Cosmere source in the repo.
 
 ### Data-integrity gaps worth a second OCR pass (not missing-document issues — the content likely exists in the source PDF, just didn't survive this conversion)
 
