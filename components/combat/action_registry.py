@@ -125,7 +125,7 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
         # of the five Surges. None means "the service picks a spell the caster
         # knows and can currently pay for" (SpellcastingService.default_spell),
         # cantrips before slots. `at_level` None means the cheapest legal slot.
-        "param_defaults": {"at_level": None},
+        "param_defaults": {"spell_name": None, "at_level": None},
         "cost_type": "actions",
         "cost": 1,
         "requires": "spellcasting",
@@ -217,6 +217,29 @@ if ROSHAR_ACTIONS_AVAILABLE:
     }
 
     ACTION_REGISTRY.update(ROSHAR_ACTION_ENTRIES)
+
+
+# ============================================================================
+# STANDARD 5e ACTIONS (Grapple, Shove, Help, Ready, Hide, Search, Disengage,
+# two-weapon fighting)
+#
+# Defined in components/combat/standard_actions.py as real `BaseAction`
+# subclasses. They cannot insert themselves — this module owns ACTION_REGISTRY —
+# so `register_standard_actions()` merges `STANDARD_ACTION_ENTRIES` in here, the
+# same shape as the ROSHAR_ACTION_ENTRIES merge above. The call is idempotent, so
+# importing standard_actions first (its own callers do) and reaching this line
+# later both leave exactly one copy of each entry.
+#
+# Guarded like the Roshar import: a failure to import the PHB actions must not
+# take the whole registry — and every action already registered above — down with
+# it.
+# ============================================================================
+try:
+    from components.combat.standard_actions import register_standard_actions
+
+    register_standard_actions()
+except ImportError:  # pragma: no cover - the module ships with the registry
+    pass
 
 
 # ============================================================================

@@ -256,42 +256,34 @@ class DnDEngineWrapper:
             from dnd.blocks.equipment import Weapon, WeaponSlot
             from dnd.core.events import Range, RangeType
 
-            # PROFICIENCY — WARNING: THIS IS CURRENTLY DOUBLE-COUNTED.
+            # PROFICIENCY is deliberately NOT written onto the weapon here — the
+            # engine already applies it to every attack roll, and writing it a
+            # second time double-counts it.
             #
-            # The original note here said dnd_engine applies proficiency_bonus to
-            # SKILLS only, on the grounds that actions.py never mentions it. That
-            # grep is accurate but the inference from it is WRONG: actions.py
-            # consumes proficiency indirectly. `Attack.apply` calls
-            # `source_entity.attack_bonus(...)`, and `Entity._get_attack_bonuses`
-            # returns `self.proficiency_bonus`, which `Entity.attack_bonus` folds
-            # in via `proficiency_bonus.combine_values(bonuses)`. The engine
-            # therefore ALREADY adds proficiency to every weapon attack roll.
+            # An earlier note claimed dnd_engine applies proficiency_bonus to
+            # SKILLS only (on the grounds that actions.py never names it) and so
+            # this block added proficiency to Weapon.attack_bonus to compensate.
+            # That inference is WRONG: actions.py consumes proficiency
+            # indirectly. `Attack.apply` calls `source_entity.attack_bonus(...)`,
+            # and `Entity._get_attack_bonuses` returns `self.proficiency_bonus`,
+            # which `Entity.attack_bonus` folds in via
+            # `proficiency_bonus.combine_values(bonuses)`. The entity's
+            # proficiency_bonus is seeded from CharacterManager in
+            # `_create_entity` (EntityConfig(proficiency_bonus=...)), so the roll
+            # already reads `d20 + ability modifier + proficiency`.
             #
-            # Because this block also writes proficiency onto Weapon.attack_bonus
-            # (and the engine adds weapon_bonus as well), proficiency lands TWICE.
-            # Measured, STR 16 (+3) with a longsword:
-            #     level  1: roll +7, RAW +5   level  9: roll +11, RAW +7
-            #     level  5: roll +9, RAW +6   level 17: roll +15, RAW +9
-            # The excess equals the proficiency bonus, so it grows with level.
+            # Writing proficiency here too made it land TWICE, and the excess
+            # grew with level. Measured, STR 16 (+3) with a longsword:
+            #     level  1: rolled +7, RAW +5   level  9: rolled +11, RAW +7
+            #     level  5: rolled +9, RAW +6   level 17: rolled +15, RAW +9
+            # This holds for monsters as well: their entity carries the
+            # CR/level-derived proficiency_bonus, so a statblock "to hit" is
+            # reproduced by ability + proficiency with no weapon summand.
             #
+            # Weapon.attack_bonus therefore carries only genuine weapon-specific
+            # bonuses (e.g. a +1 magic weapon); it is 0 for a mundane weapon.
             # Pinned by tests/combat/test_proficiency_on_attacks.py, which asserts
-            # the RAW total and fails both if proficiency is dropped AND while it
-            # is doubled. Setting base_value=0 below makes that file pass, but do
-            # not do so blindly: monsters generated from statblocks may rely on
-            # this path, so the fix belongs with a review of how NPC attack
-            # bonuses are authored. See docs/REBUILD_PLAN_V5.md.
-            #
-            # A PC is assumed proficient with their own carried weapon; monsters
-            # get the same treatment, which matches how 5e statblocks bake
-            # proficiency into their attack bonus.
-            proficiency = 0
-            character = self.character_manager.characters.get(char_id)
-            if character is not None:
-                try:
-                    proficiency = int(getattr(character, "proficiency_bonus", 0) or 0)
-                except (TypeError, ValueError):
-                    proficiency = 0
-
+            # the RAW total and fails both if proficiency is dropped AND doubled.
             weapon = Weapon(
                 name=weapon_name,
                 source_entity_uuid=entity.uuid,
@@ -300,10 +292,11 @@ class DnDEngineWrapper:
                 damage_type=getattr(DamageType, damage_type_name.upper()),
                 properties=[],
                 # A ModifiableValue, not a bare int: Weapon validates the type.
+                # 0 = no weapon-specific bonus; proficiency comes from the entity.
                 attack_bonus=ModifiableValue.create(
                     source_entity_uuid=entity.uuid,
-                    base_value=proficiency,
-                    value_name=f"{weapon_name} proficiency",
+                    base_value=0,
+                    value_name=f"{weapon_name} attack bonus",
                 ),
                 # `range` is required and rejects None.
                 #

@@ -456,11 +456,23 @@ class TestCharactersCanActuallyHit:
         assert wrapper.entities["Aggi"].equipment.weapon_main_hand.name == "Spear"
 
     def test_proficiency_reaches_the_attack_roll(self):
-        """The engine never applies it; the wrapper must."""
-        weapon = self._armed(["Spear"], 14, 3).entities["Aggi"].equipment.weapon_main_hand
-        assert weapon.attack_bonus.score == 3, (
-            "proficiency is missing from the attack bonus, so a proficient "
-            "character attacks at ability modifier alone")
+        """
+        Proficiency reaches the attack roll via the ENTITY, not the weapon.
+        dnd_engine already folds proficiency_bonus into Entity.attack_bonus(),
+        so equip_weapon() leaves a mundane weapon's attack_bonus at 0 — writing
+        proficiency onto the weapon too made it land twice. See
+        tests/combat/test_proficiency_on_attacks.py for the full RAW pin.
+        STR 14 (+2) and level-5 proficiency (+3) = +5.
+        """
+        from dnd.blocks.equipment import WeaponSlot
+        aggi = self._armed(["Spear"], 14, 3).entities["Aggi"]
+        weapon = aggi.equipment.weapon_main_hand
+        assert weapon.attack_bonus.score == 0, (
+            "a mundane weapon carries no attack bonus of its own; "
+            "proficiency comes from the entity, not the weapon")
+        assert aggi.attack_bonus(WeaponSlot.MAIN_HAND).normalized_score == 2 + 3, (
+            "proficiency must reach the attack roll exactly once "
+            "(STR +2 and proficiency +3 = +5)")
 
     def test_hit_rate_is_plausible_for_the_level(self):
         """
@@ -472,9 +484,15 @@ class TestCharactersCanActuallyHit:
         assert rate > 0.45, f"hit rate {rate:.0%} is too low for +5 vs AC 14"
 
     def test_the_unarmed_case_is_measurably_worse(self):
-        """Confirms the fix is what moved the number, not chance."""
-        armed = self._hit_rate(self._armed(["Spear"], 14, 3))
-        unarmed = self._hit_rate(self._armed([], 8, 2))
+        """
+        Confirms the fix is what moved the number, not chance. Armed is STR 14
+        (+2) + proficiency (+3) = +5; unarmed is STR 8 (-1) + proficiency (+3)
+        = +2 — a real ~15pp hit-rate gap. Uses 2000 trials so the 10pp floor
+        clears sampling noise (at 400 it straddled the boundary once the
+        proficiency double-count was removed and the armed rate dropped to RAW).
+        """
+        armed = self._hit_rate(self._armed(["Spear"], 14, 3), trials=2000)
+        unarmed = self._hit_rate(self._armed([], 8, 2), trials=2000)
         assert armed > unarmed + 0.10
 
     def test_the_shipped_characters_carry_weapons(self):

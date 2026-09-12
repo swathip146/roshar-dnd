@@ -195,9 +195,16 @@ class TestZeroHPIsDyingNotDefeat:
         so the encounter must continue.
         """
         session, manager, wrapper, state = _session(hero_hp=4)
-        wrapper.entities["foe_1"].action_economy.reset_all_costs()
-        session._execute_npc_turn("foe_1")
-        session._sync_hp_from_engine()
+        # A single RAW-correct swing can miss (foe is +7 vs AC 13), so drive real
+        # attacks until the record shows the hero downed. The mechanic under test
+        # is the end-condition check at 0 HP, not any individual attack roll —
+        # mirrors the robust _down_the_hero loop used below.
+        for _ in range(50):
+            if manager.characters["hero"].hit_points["current"] <= 0:
+                break
+            wrapper.entities["foe_1"].action_economy.reset_all_costs()
+            session._execute_npc_turn("foe_1")
+            session._sync_hp_from_engine()
 
         hero = manager.characters["hero"]
         assert hero.hit_points["current"] == 0, "test needs the hero downed"

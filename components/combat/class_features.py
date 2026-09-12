@@ -484,11 +484,23 @@ class ClassFeatureEngine:
         return ""
 
     def _spend_use(self, char_id: str, entry: Dict[str, Any]) -> bool:
-        """Debit a use and the action economy. CharacterManager owns the count."""
+        """
+        Debit a use, its spell-slot cost and the action economy.
+
+        CharacterManager owns the per-rest use count. A feature whose cost is a
+        spell slot (Divine Smite) must ALSO expend the slot here: `use()` promises
+        it spends the resource on use, and Divine Smite is `uses: unlimited`, so
+        without this its only cost is never paid and a paladin would smite for free
+        on every hit. `_blocked_reason` has already confirmed a slot is available,
+        and `spend_spell_slot_for` is a no-op returning True for a feature with no
+        slot cost, so this is safe for every other feature.
+        """
         from components.character_manager import spend_feature_use
 
         character = self._character(char_id)
         if character is None or not spend_feature_use(character, entry):
+            return False
+        if not self.spend_spell_slot_for(char_id, entry):
             return False
 
         cost_type = _COST_TYPE_BY_ACTIVATION.get(str(entry.get("activation")))

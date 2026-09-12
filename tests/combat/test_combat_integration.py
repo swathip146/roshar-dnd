@@ -446,19 +446,38 @@ def test_npc_combat_ai_decision(npc_combat_ai, character_manager):
 
 
 def test_combat_agent_error_handling(combat_agent, game_engine):
-    """Test combat agent handles errors gracefully"""
+    """Test combat agent handles errors gracefully.
+
+    A missing scenario_context is NOT an error: CombatAgent.run synthesizes a
+    minimal scenario and forces combat by design (see the fallback branch in
+    run()), so that path returns "combat_complete", not "error". The real
+    error-handling contract is that when a downstream subsystem fails -- e.g.
+    the LLM-backed initializer raises -- the agent catches it and returns a
+    graceful error response instead of letting the exception crash the turn.
+    """
     logger.info("=" * 60)
     logger.info("TEST: Combat Agent Error Handling")
     logger.info("=" * 60)
 
-    # Invalid DTO (missing scenario_context)
     dto = {
+        "scenario_context": {
+            "scene": "A fight breaks out.",
+            "gm_notes": "",
+            "choices": []
+        },
         "player_character_id": "aggi",
         "_game_engine_ref": game_engine
     }
 
-    logger.info("📋 Testing with invalid DTO (no scenario_context)...")
-    result = combat_agent.run(dto)
+    # Force a downstream failure: the initializer drives LLM-backed NPC stat
+    # generation, so a raise here stands in for the LLM/tool failing mid-setup.
+    logger.info("📋 Forcing initializer failure to exercise error handling...")
+    with patch.object(
+        combat_agent.initializer,
+        "initialize_combat",
+        side_effect=RuntimeError("simulated engine failure")
+    ):
+        result = combat_agent.run(dto)
 
     logger.info("📊 Verifying error handling:")
     assert result is not None, "Should return error response"

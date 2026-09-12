@@ -193,6 +193,7 @@ class TestCombatActionResolverFunctional:
             assert metadata["type"] in [
                 "dnd_action",
                 "dnd_condition",
+                "spell_action",
                 "roshar_action",
                 "roshar_equipment",
                 "roshar_condition"
