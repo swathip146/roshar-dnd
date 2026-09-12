@@ -261,6 +261,17 @@ class CombatSessionManager:
 
         # Combat ended
         self.logger.info(f"🏁 Combat loop ended after {loop_iteration} iterations")
+
+        # Clear all class feature effects when combat ends
+        try:
+            class_feat_engine = self.dnd_wrapper.class_feature_engine(
+                combat_state=self.combat_state
+            )
+            class_feat_engine.clear_all()
+            self.logger.debug("✨ Cleared all class feature effects")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Failed to clear class features: {e}")
+
         outcome = self._determine_outcome()
         self.logger.info(f"⚔️ Combat ended: {outcome}")
 
@@ -1672,6 +1683,16 @@ class CombatSessionManager:
                 char_state["actions_remaining"] = 1
                 char_state["bonus_actions_remaining"] = 1
                 char_state["reaction_available"] = True
+
+        # Tick class features at round start (durations, conditions, etc.)
+        try:
+            class_feat_engine = self.dnd_wrapper.class_feature_engine(
+                combat_state=self.combat_state
+            )
+            for char_id in self.combat_state["active_combatants"]:
+                class_feat_engine.tick_round(char_id)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Failed to tick class features: {e}")
 
         self.logger.info(f"🔄 Round {self.combat_state['round_number']} begins")
         print(f"\n{'='*60}")

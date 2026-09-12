@@ -372,6 +372,8 @@ class ClassFeatureEngine:
         # Attack events already consumed by an on-hit feature, keyed by lineage so
         # the same attack cannot fire Sneak Attack twice.
         self._seen_attacks: set = set()
+        # Track the last spell slot level spent (for Divine Smite scaling)
+        self._last_slot_spent: Optional[int] = None
 
     # ------------------------------------------------------------- discovery
 
@@ -1030,11 +1032,19 @@ class ClassFeatureEngine:
         if isinstance(value, int):
             return value
         level = int(getattr(character, "level", 1) or 1)
+
+        # Divine Smite scales with the slot level spent: 2d8 + 1d8 per level above 1st (max 5d8)
+        def smite_dice_count() -> int:
+            slot_level = self._last_slot_spent or 1
+            # Base 2d8 + 1d8 per level above 1st
+            dice = 2 + max(0, slot_level - 1)
+            return min(dice, 5)  # Cap at 5d8
+
         named = {
             "rage_damage": lambda: rage_damage_bonus(level),
             "sneak_attack_dice": lambda: sneak_attack_dice(level),
             "bardic_die": lambda: bardic_die(level),
-            "smite_dice": lambda: 2,       # 2d8 for a 1st-level slot
+            "smite_dice": smite_dice_count,
         }
         key = str(value or "")
         if key not in named:
@@ -1100,14 +1110,18 @@ class ClassFeatureEngine:
         CharacterManager already restores slots on a long rest.
         """
         if not (entry.get("cost") or {}).get("spell_slot"):
+            self._last_slot_spent = None
             return True
         character = self._character(char_id)
         level = self._lowest_spell_slot(character)
         if character is None or level is None:
+            self._last_slot_spent = None
             return False
         slots = character.spell_slots
         pool = slots[level] if level in slots else slots.get(str(level))
         pool["current"] = int(pool.get("current", 0)) - 1
+        # Store slot level for Divine Smite scaling
+        self._last_slot_spent = level
         logger.info(f"      🔮 {char_id} expends a level-{level} spell slot "
                     f"({pool['current']} left)")
         return True

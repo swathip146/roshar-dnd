@@ -584,14 +584,8 @@ class TestDivineSmite:
         assert "spell slot" in result.error
         logger.info(f"   ⛔ refused: {result.error}")
 
-    @pytest.mark.xfail(reason=(
-        "smite_dice is hardcoded to 2 in ClassFeatureEngine._resolve_amount, so "
-        "Divine Smite always deals 2d8 regardless of the slot spent. 5e scales it "
-        "to 2d8 + 1d8 per slot level above 1st (max 5d8). Not a contained fix: the "
-        "arming path has no slot-level parameter and the engine always spends the "
-        "lowest available slot."), strict=True)
     def test_scales_with_the_expended_slot_level(self):
-        logger.info("🧪 (xfail) Divine Smite should deal 3d8 from a 2nd-level slot")
+        logger.info("🧪 Divine Smite should deal 3d8 from a 2nd-level slot")
         manager, wrapper = _paladin_with_slots({2: {"current": 1, "maximum": 1}})
         eng = _engine(wrapper, manager, _states("p"))
         eng.use("p", "divine_smite")
