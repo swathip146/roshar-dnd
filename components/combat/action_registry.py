@@ -98,6 +98,38 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
         "requires": None,
         "params": []
     },
+
+    # ========================================================================
+    # 5e SPELLCASTING
+    #
+    # 319 SRD spells were indexed and NONE were castable: there was no `cast`
+    # action here at all, so neither the player menu nor the NPC AI could ever
+    # choose one, and nothing consumed `CharacterData.spell_slots` (grep found it
+    # read only for the analytics summary).
+    #
+    # `type` is "spell_action", not "dnd_action": there is no spell system in the
+    # vendored engine to delegate to (`import dnd.spells` fails, and `dnd.actions`
+    # exports only Attack and Move), and a `BaseAction` subclass could not reach
+    # the slot table — `_apply` sees only `Entity.get(uuid)`, while `spell_slots`
+    # lives on CharacterData. The resolver dispatches this type to
+    # components/combat/spellcasting.py.
+    # ========================================================================
+
+    "cast_spell": {
+        "type": "spell_action",
+        "action_class": None,
+        "description": "Cast a spell",
+        "params": ["target_entity_uuid", "spell_name", "at_level"],
+        # `spell_name` MUST have a supplier or `is_offerable()` filters the whole
+        # action out and casting stays unplayable — exactly what happened to four
+        # of the five Surges. None means "the service picks a spell the caster
+        # knows and can currently pay for" (SpellcastingService.default_spell),
+        # cantrips before slots. `at_level` None means the cheapest legal slot.
+        "param_defaults": {"at_level": None},
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": "spellcasting",
+    },
 }
 
 
@@ -323,6 +355,121 @@ def offerable_actions() -> Dict[str, Dict]:
     """The registry, minus actions nobody can currently supply parameters for."""
     return {name: meta for name, meta in ACTION_REGISTRY.items()
             if is_offerable(name)}
+
+
+def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
+    """
+    Why THIS actor cannot take this action right now — or None if it can.
+
+    `is_offerable()` is actor-independent: it only asks whether the resolver can
+    supply the parameters. It says yes to all four Surges, which is correct as far
+    as it goes and *badly wrong* as an action menu. A goblin has no Radiant Order,
+    no Surgebinding level and no Stormlight, so `roshar_actions._validate` cancels
+    every surge it declares — but the goblin was told it could Lash, Soulcast,
+    Illuminate and heal with Progression anyway.
+
+    Measured before this filter (see the probe in the sibling test): the NPC menu
+    for a plain goblin was
+        ['attack', 'dash', 'dodge', 'lashing', 'progression_healing',
+         'illumination', 'soulcast']
+    — four of seven entries unresolvable, i.e. **57% of the menu was a trap**. That
+    is the same failure mode `is_offerable` was written for: 15 of 28 NPC actions in
+    one live encounter went to actions the resolver refused, each burning a real LLM
+    call while the actor kept its action economy, so the turn loop spun until the
+    stall-breaker forced it.
+
+    The gates checked here mirror the ones the action classes enforce:
+      * `requires_order`          -> actor.radiant_order
+      * `min_surgebinding_level`  -> actor.surgebinding_level
+      * `stormlight_cost`         -> actor.stormlight_current
+      * `requires`                -> shardblade_summoned / surgebinding / spheres
+
+    `actor_state` may be a `CharacterData`, a dnd_engine `Entity` mirror, or a plain
+    dict — anything attribute- or key-addressable. Missing state reads as absent
+    (0 / None), which correctly *denies* a surge rather than silently allowing it:
+    the action classes' own `hasattr` guards skip when the attribute is missing, and
+    that leniency is exactly how "no Shardblade bonded" reached the menu.
+
+    Returns a human-readable reason so the caller can log or display it.
+    """
+    if action_type not in ACTION_REGISTRY:
+        return f"unknown action '{action_type}'"
+    if not is_offerable(action_type):
+        missing = ", ".join(required_caller_params(action_type))
+        return f"needs caller-supplied parameter(s): {missing}"
+
+    metadata = ACTION_REGISTRY[action_type]
+
+    def read(attr, default=None):
+        if actor_state is None:
+            return default
+        if isinstance(actor_state, dict):
+            value = actor_state.get(attr, default)
+        else:
+            value = getattr(actor_state, attr, default)
+        return default if value is None else value
+
+    required_orders = metadata.get("requires_order")
+    if required_orders:
+        order = read("radiant_order")
+        if order not in required_orders:
+            return (f"requires Radiant Order {'/'.join(required_orders)}, "
+                    f"actor is {order or 'not a Radiant'}")
+
+    min_level = metadata.get("min_surgebinding_level")
+    if min_level:
+        level = read("surgebinding_level", 0) or 0
+        if level < min_level:
+            return (f"requires Surgebinding level {min_level}, "
+                    f"actor has {level}")
+
+    cost = metadata.get("stormlight_cost")
+    if cost:
+        stormlight = read("stormlight_current", 0) or 0
+        if stormlight < cost:
+            return (f"requires {cost} Stormlight, actor has {stormlight}")
+
+    requires = metadata.get("requires")
+    if requires == "shardblade_summoned":
+        if not read("shardblade_summoned", False):
+            return "requires a summoned Shardblade"
+    elif requires == "surgebinding":
+        if (read("surgebinding_level", 0) or 0) <= 0:
+            return "requires Surgebinding"
+    elif requires == "stormlight_spheres":
+        if (read("stormlight_current", 0) or 0) <= 0:
+            return "requires Stormlight spheres"
+    elif requires == "spellcasting":
+        # Same trap as the Surges, one layer up: `cast_spell` is offerable for
+        # everyone (the resolver can supply every parameter), so without this a
+        # goblin would be told it can cast Fireball and the service would refuse
+        # it every single round. The gate lives in spellcasting.py so this module
+        # does not learn about class tables or slot dicts.
+        from components.combat.spellcasting import can_cast_any
+
+        allowed, reason = can_cast_any(actor_state)
+        if not allowed:
+            return f"cannot cast spells: {reason}"
+
+    return None
+
+
+def is_usable_by(action_type: str, actor_state: Any) -> bool:
+    """Whether THIS actor can legally take this action. See unusable_reason()."""
+    return unusable_reason(action_type, actor_state) is None
+
+
+def usable_actions(actor_state: Any) -> Dict[str, Dict]:
+    """
+    The action menu for ONE actor: offerable AND legal for them.
+
+    This is the function both menu builders should call —
+    `CombatSessionManager._get_available_actions` (player) and
+    `._build_npc_context` (NPC AI). `offerable_actions()` is the actor-independent
+    half and is not safe to offer directly.
+    """
+    return {name: meta for name, meta in ACTION_REGISTRY.items()
+            if is_usable_by(name, actor_state)}
 
 
 def get_actions_by_type(action_type: str) -> Dict[str, Dict]:

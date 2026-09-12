@@ -27,6 +27,8 @@ from typing import Any, Dict, List, Optional
 
 from config.logging_config import get_logger
 
+from components.combat.multiattack import multiattack_for_monster
+
 logger = get_logger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -152,6 +154,16 @@ class SRDRules:
                 "desc": action.get("desc", ""),
             })
 
+        # MULTIATTACK. The loop above skips every action without `attack_bonus`,
+        # and Multiattack has none — so it was dropped here, and 148 of the 334
+        # vendored monsters silently attacked ONCE per turn instead of two or
+        # three times. Since the CR HP/AC bands (npc_stat_generator) were tuned
+        # against measured time-to-kill, that made every difficulty calculation
+        # wrong in the party's favour. See components/combat/multiattack.py.
+        multiattack = multiattack_for_monster(entry)
+        attacks_per_turn = (multiattack["attacks_per_turn"]
+                            if multiattack else 1)
+
         speed = entry.get("speed") or {}
         walk = speed.get("walk", "30 ft.")
         walk_ft = int(re.sub(r"[^0-9]", "", str(walk)) or 30)
@@ -175,6 +187,12 @@ class SRDRules:
             },
             "speed": walk_ft,
             "attacks": attacks,
+            # How many attack ROLLS this creature's Attack action grants. Always
+            # >= 1; a monster with no Multiattack keeps the 5e default of one.
+            "attacks_per_turn": attacks_per_turn,
+            # The parse itself, so callers can see the named sequence and whether
+            # it was read from structured data, from prose, or fell back.
+            "multiattack": multiattack,
             "special_abilities": [a.get("name", "")
                                   for a in (entry.get("special_abilities") or [])],
             "source": "SRD 5e (OGL 1.0a)",

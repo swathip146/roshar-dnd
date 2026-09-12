@@ -194,8 +194,18 @@ class TacticalRules:
         5e: leaving an enemy's reach provokes an opportunity attack, using their
         REACTION — so each enemy gets at most one per round. Disengaging avoids it,
         which is why `Retreat out of reach` is a real decision rather than a free one.
+
+        The Disengage half of that sentence was aspirational until
+        `components/combat/standard_actions.py` existed: there was no Disengage action
+        at all, so the only way to break away was to eat the reaction attack. It is
+        checked FIRST here, because a disengaged mover provokes nobody regardless of
+        who is standing where.
         """
         if self.grid is None:
+            return []
+
+        if self._has_disengaged(mover):
+            logger.debug(f"   🏃 {mover} disengaged; no opportunity attacks provoked")
             return []
 
         states = self.combat_state.get("combatant_states") or {}
@@ -225,10 +235,44 @@ class TacticalRules:
         if state is not None:
             state["reaction_available"] = False
 
+    def _has_disengaged(self, char_id: str) -> bool:
+        """
+        Has this combatant taken the Disengage action?
+
+        The flag lives in `standard_actions` (keyed by engine entity uuid, which is what
+        the action itself has to hand) rather than in `combatant_states`, so a Disengage
+        resolved through `CombatActionResolver` — with no session manager in the loop —
+        still suppresses the attack. Imported lazily: `tactical_rules` is imported by
+        the grid tests, which must not require the whole action registry.
+        """
+        entity = self._entity(char_id)
+        if entity is None:
+            return False
+        try:
+            from components.combat.standard_actions import is_disengaged
+
+            return is_disengaged(entity.uuid)
+        except Exception as e:                          # pragma: no cover - import guard
+            logger.debug(f"   Could not read disengage state: {e}")
+            return False
+
     def reset_reactions(self) -> None:
-        """Reactions refresh at the start of each round, like the action economy."""
+        """
+        Reactions refresh at the start of each round, like the action economy.
+
+        Disengage lapses here too: 5e says it lasts "for the rest of your turn", so a
+        disengage that survived into the next round would make a combatant permanently
+        immune to opportunity attacks after one use.
+        """
         for state in (self.combat_state.get("combatant_states") or {}).values():
             state["reaction_available"] = True
+
+        try:
+            from components.combat.standard_actions import clear_disengage
+
+            clear_disengage()
+        except Exception as e:                          # pragma: no cover - import guard
+            logger.debug(f"   Could not clear disengage state: {e}")
 
     # ---------------------------------------------------------------------- dash
 
@@ -255,11 +299,23 @@ class TacticalRules:
         MUST run at the end of combat: these live on the entity, which outlives the
         encounter, so a character would otherwise keep +2 AC from cover they stood in
         during a fight three scenes ago.
+
+        Help's advantage modifier has the identical lifetime problem — it is applied to
+        `equipment.attack_bonus` and must come off — so `standard_actions`' own state is
+        dropped here too, rather than leaving a second thing for the caller to remember.
         """
         for char_id in list(self.effects.cover):
             self._remove_cover(char_id)
         for char_id in list(self.effects.flanking):
             self._remove_flanking(char_id)
+
+        try:
+            from components.combat.standard_actions import (
+                reset_standard_action_state)
+
+            reset_standard_action_state()
+        except Exception as e:                          # pragma: no cover - import guard
+            logger.debug(f"   Could not reset standard action state: {e}")
 
     def _entity(self, char_id: str):
         if self.wrapper is None:

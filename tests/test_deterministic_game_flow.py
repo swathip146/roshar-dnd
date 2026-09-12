@@ -238,6 +238,10 @@ class TestDiceNotation:
         error. A spell written with exploding dice would deal NO damage and nothing
         would report it — the same silent-zero shape as the `success`-always-True
         bug that took a whole session to find.
+
+        Deliberately accepts EITHER outcome — a loud refusal or a real roll — so
+        it stays valid as notation support grows. Since plan 0.11 swapped the
+        parser to avrae/d20, `4d6e6` now genuinely rolls; `garbage` still raises.
         """
         try:
             result = roller.damage_roll(expression)
@@ -248,18 +252,40 @@ class TestDiceNotation:
             f"{result['total_damage']} damage with rolls="
             f"{result['damage_rolls']}")
 
-    def test_a_partly_unparseable_expression_raises(self, roller):
+    def test_a_mixed_expression_keeps_all_of_its_dice(self, roller):
         """
         `1d6+2d6e6` used to return only the 1d6 — a two-part damage expression
-        quietly losing half its dice. A partly-understood expression is not usable.
+        quietly losing half its dice. It was then rejected outright, because a
+        partly-understood expression is not usable.
+
+        Plan 0.11 swapped the parser to avrae/d20, which understands exploding
+        notation, so the correct behaviour is now to roll ALL of it. The bug this
+        guards against is unchanged: dice going missing from a mixed expression.
         """
-        with pytest.raises(ValueError):
-            roller.damage_roll("1d6+2d6e6")
+        for _ in range(50):
+            result = roller.damage_roll("1d6+2d6e6")
+            assert len(result["damage_rolls"]) >= 3, (
+                f"lost dice from a mixed expression: {result['breakdown']}")
+
+    def test_exploding_notation_actually_explodes(self, roller):
+        """
+        Replaces an assertion that `4d6e6` must RAISE. That was correct while the
+        hand-rolled parser could not understand it, but the fix for plan 0.11 was
+        to stop hand-rolling: d20 supports it, so refusing it is no longer right.
+
+        Asserting it exceeds 24 proves the notation is honoured rather than
+        silently dropped — plain 4d6 caps at 24.
+        """
+        random.seed(20260911)
+        totals = [roller.damage_roll("4d6e6")["total_damage"] for _ in range(400)]
+        assert max(totals) > 24, (
+            f"4d6e6 never exceeded 24 in 400 rolls (max {max(totals)}) — "
+            f"exploding is being ignored")
 
     def test_the_error_names_what_it_could_not_parse(self, roller):
         """An error a caller cannot act on is barely better than a silent zero."""
-        with pytest.raises(ValueError, match="4d6e6"):
-            roller.damage_roll("4d6e6")
+        with pytest.raises(ValueError, match="garbage"):
+            roller.damage_roll("garbage")
 
     def test_supported_notation_is_unaffected(self, roller):
         """Both directions: the guard must not reject anything legal."""

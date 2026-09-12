@@ -382,9 +382,10 @@ class TestDamageRollParser:
     0.11 — the damage parser crashed on valid 5e notation and its audit trail
     lied. Silent wrong numbers are the worst failure mode for an adjudicator.
 
-    (Plan recommended avrae/d20; that install is blocked by the sandbox proxy,
-    so the parser was fixed in place. Contract unchanged, so d20 stays a
-    drop-in replacement later.)
+    Resolved by swapping the expression parser to avrae/d20, which was already
+    pinned in requirements.txt but never imported — that dead dependency WAS bug
+    0.11. The returned contract is unchanged, so these assertions still hold;
+    see tests/test_dice_d20_parser.py for the notation d20 added.
     """
 
     @pytest.fixture

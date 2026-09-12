@@ -221,8 +221,13 @@ def roll_dice(expression: str, reason: str = "") -> Dict[str, Any]:
     """
     Roll a dice expression and return the real total.
 
-    Supports standard notation: "2d6", "1d8+3", "4d6kh3" (keep highest 3),
-    "1d8-1", and damage-type annotations like "2d6[fire]".
+    Supports full standard notation (parsed by avrae/d20): "2d6", "1d8+3",
+    "4d6kh3" (keep highest 3), "2d20kl1" (keep lowest), "1d8-1", exploding
+    "4d6e6", reroll "4d6ro1"/"4d6rr1", min/max "4d6mi2"/"4d6ma5",
+    parentheses "(1d6+2)*2", and damage-type annotations like "2d6[fire]".
+
+    Malformed expressions are REJECTED with an error rather than returning 0 —
+    if you get an error back, fix the notation and roll again.
 
     Args:
         expression: Dice expression to roll

@@ -4,12 +4,13 @@ Comprehensive dice system with logging and advantage handling - From Original Pl
 """
 
 import random
-import re
 import time
 import uuid
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+import d20
 
 from config.logging_config import get_logger
 
@@ -181,140 +182,177 @@ class DiceRoller:
     def damage_roll(self, damage_dice: str, modifier: int = 0,
                    correlation_id: str = "") -> Dict[str, Any]:
         """
-        Parse and roll a damage expression.
+        Parse and roll a damage expression, using avrae/d20 as the grammar.
 
-        Supports: "2d6", "1d8+3", "1d8-1", "1d6 + 2" (spaces), "4d6kh3"
-        (keep highest), "4d6kl1" (keep lowest), bare constants ("5"), and
-        damage-type annotations ("2d6[fire]"). Multiple terms may be chained:
-        "1d8+1d6+3".
+        Supports everything d20's formal grammar does, which is a superset of what
+        the previous hand-rolled parser managed:
 
-        Plan 0.11 — the previous implementation was substantively broken:
+          * "2d6", "1d8+3", "1d8-1", "1d6 + 2" (spaces), bare constants ("5")
+          * keep/drop:      "4d6kh3", "2d20kl1", "4d6ph1" (drop highest)
+          * EXPLODING:      "4d6e6"      -- was a silent 0, then a ValueError
+          * REROLL:         "4d6ro1", "4d6rr1"
+          * min/max:        "4d6mi2", "4d6ma5"
+          * parentheses and multiplication: "(1d6+2)*2"
+          * damage-type annotations: "2d6[fire]"
+          * chained terms:  "1d8+1d6+3"
+
+        Plan 0.11 — history of this method, because the shape of the old bugs is
+        the reason the contract below is asserted so tightly:
+
           * "4d6kh3" raised ValueError: invalid literal for int(): '6kh3'
           * "1d6 + 2" (with spaces) raised ValueError: invalid literal: '+'
-          * the reported audit trail lied: "1d8-1" on a roll of 3 returned the
-            correct 2 but reported modifier=0 and printed "1d8-1 + 0 = 2"
-        Silent wrong numbers are the worst failure mode for an adjudicator, so
-        this now reports exactly what it rolled.
+          * "1d8-1" on a roll of 3 returned the correct 2 but reported
+            modifier=0 and printed "1d8-1 + 0 = 2" -- right answer, lying
+            audit trail
+          * "4d6e6"/"1d20r1" silently returned 0 damage with rolls=[] and no
+            error, so a spell written with exploding dice dealt NOTHING and
+            nothing reported it. That was later made a loud ValueError; now the
+            notation simply WORKS.
 
-        (The plan recommended swapping in avrae/d20, which handles all of this
-        plus exploding/reroll. That install is currently blocked by the sandbox
-        proxy — files.pythonhosted.org is not allowlisted — so the parser is
-        fixed in place. The returned contract is unchanged, so switching to d20
-        later remains a drop-in.)
+        `d20` was listed in requirements.txt but never imported -- the entire
+        point of plan 0.11. It is now actually used. It is also the reason the
+        unsupported-notation ValueError is gone for e/r notation: d20 handles it.
+        Genuinely malformed input ("garbage", "", "4d6!") still raises
+        ValueError, because a silent zero remains the worst possible answer for
+        an adjudicator.
+
+        The returned dict shape is UNCHANGED from the hand-rolled version --
+        `total_damage`, `damage_rolls`, `base_damage`, `dice_subtotal`,
+        `static_modifier`, `modifier`, `breakdown`, `correlation_id` -- because
+        `agents/dm_tools.roll_dice` and `combat/maneuver_executor._roll_total`
+        read those keys by name.
         """
         expr = (damage_dice or "").strip()
-        # Strip damage-type annotations, e.g. "2d6[fire]" -> "2d6"
-        expr_clean = re.sub(r"\[[^\]]*\]", "", expr)
-        # Drop all whitespace so "1d6 + 2" parses like "1d6+2"
-        expr_clean = re.sub(r"\s+", "", expr_clean)
-
-        dice_total = 0
-        static_total = 0
-        rolls: List[int] = []
-        kept_detail: List[str] = []
-        unparsed: List[str] = []
-
-        # Split into signed terms: 1d8, +1d6, -1, +3 ...
-        terms = re.findall(r"[+-]?[^+-]+", expr_clean) if expr_clean else []
-
-        for term in terms:
-            if not term:
-                continue
-            sign = -1 if term.startswith("-") else 1
-            body = term.lstrip("+-")
-            if not body:
-                continue
-
-            # NdM with optional keep-highest/keep-lowest: 4d6kh3, 2d20kl1
-            m = re.fullmatch(r"(\d*)d(\d+)(?:(kh|kl)(\d+))?", body, re.IGNORECASE)
-            if m:
-                count = int(m.group(1)) if m.group(1) else 1
-                die_type = int(m.group(2))
-                keep_mode = (m.group(3) or "").lower()
-                keep_n = int(m.group(4)) if m.group(4) else None
-
-                if count <= 0 or die_type <= 0:
-                    logger.warning(f"🎲 Ignoring invalid dice term '{term}' in '{expr}'")
-                    continue
-
-                dice_rolls = self.roll_multiple(die_type, count, correlation_id)
-                values = [r.result for r in dice_rolls]
-                rolls.extend(values)
-
-                if keep_mode and keep_n:
-                    ordered = sorted(values, reverse=(keep_mode == "kh"))
-                    kept = ordered[:keep_n]
-                    kept_detail.append(f"{body}={kept} of {values}")
-                else:
-                    kept = values
-
-                dice_total += sign * sum(kept)
-                continue
-
-            # Bare constant
-            if body.isdigit():
-                static_total += sign * int(body)
-                continue
-
-            logger.warning(f"🎲 Ignoring unparseable term '{term}' in '{expr}'")
-            unparsed.append(term)
-
-        # An expression NOTHING in it could be parsed is not a 0-damage roll — it
-        # is a bug in the caller or an unsupported notation, and returning 0
-        # silently is the worst possible answer.
-        #
-        # Measured 2026-09-10: `4d6e6` (exploding), `1d20r1` (reroll), `4d6!` and
-        # even the literal string "garbage" all returned total_damage 0 with
-        # rolls=[] and no error. A spell written with exploding dice would deal NO
-        # damage and nothing would report it — the same silent-zero shape as the
-        # `success`-always-True bug that took a whole session to find.
-        #
-        # Supported: NdM, keep-highest/lowest (kh/kl), signed constants, whitespace
-        # and [damage-type] annotations. NOT supported: exploding (e/!), reroll (r),
-        # and anything else d20 handles — see plan 0.11.
-        # Also raise when SOME terms parsed and others did not: `1d6+2d6e6`
-        # silently returned only the 1d6, so a two-part damage expression quietly
-        # lost half its dice. A partly-understood expression is not a usable one.
-        # An EMPTY expression is not zero damage either — `dm_tools.roll_damage`
-        # forwards whatever the LLM wrote, and "" or "0d6" reaching here means the
-        # model omitted the dice, not that the attack was harmless.
-        if not rolls and not static_total and not unparsed:
+        if not expr:
+            # An EMPTY expression is not zero damage. `dm_tools.roll_dice`
+            # forwards whatever the LLM wrote, so "" means the model OMITTED the
+            # dice, not that the attack was harmless.
             raise ValueError(
                 f"Empty or zero dice expression {damage_dice!r} — no dice to roll. "
                 f"A damage roll must specify dice (e.g. '1d8+3').")
 
-        if unparsed:
+        try:
+            result = d20.roll(expr)
+        except d20.RollError as exc:
+            # d20 refuses malformed input loudly; keep raising ValueError so the
+            # existing callers' `except Exception -> {"error": ...}` and the
+            # existing tests' `pytest.raises(ValueError)` still hold.
             raise ValueError(
-                f"Unparseable dice expression {damage_dice!r} "
-                f"(unrecognised: {unparsed}). Supported: NdM, kh/kl, +/- "
-                f"constants, [damage-type] annotations. Exploding and reroll "
-                f"notation are not supported — see plan 0.11.")
+                f"Unparseable dice expression {damage_dice!r} ({exc}). "
+                f"Supported: NdM, kh/kl/ph/pl, exploding (e), reroll (ro/rr), "
+                f"mi/ma, parentheses, +/- constants and [damage-type] "
+                f"annotations — see plan 0.11.") from exc
+
+        # Walk the AST to separate dice faces from static constants. `Dice.values`
+        # holds one `Die` per rolled die; `Die.values` holds one Literal per FACE,
+        # which is what makes exploding (extra faces) and dropped dice (kept=False
+        # but still a real face) both reportable. A dropped die's `.total` is 0,
+        # so the faces must come from `Die.values`, not `Die.total`.
+        faces: List[int] = []
+        dice_nodes: List[Any] = []
+        static_total = 0
+
+        def _collect(node: Any, sign: int = 1) -> None:
+            nonlocal static_total
+            if isinstance(node, d20.Dice):
+                # Every dice group is a `Dice` node, even bare "d6" (measured),
+                # so there is no standalone-`Die` case to handle here.
+                dice_nodes.append(node)
+                for die in node.values:
+                    # `Literal.number` (values[-1]), NOT `.total`. A DROPPED
+                    # literal — a die removed by kh/kl/p or replaced by a reroll —
+                    # reports `.total == 0` while keeping its real face in
+                    # `.values`. Measured: "4d6ro1" logged rolls=[5, 0, 4, 4, 4],
+                    # a face of 0 on a d6, which is physically impossible and
+                    # would have skewed the statistics log. `.number` also
+                    # correctly reflects mi/ma clamping.
+                    faces.extend(int(v.number) for v in die.values)
+                return
+            if isinstance(node, d20.Literal):
+                static_total += sign * int(node.total)
+                return
+            if isinstance(node, d20.BinOp):
+                left, right = node.children
+                _collect(left, sign)
+                # Only +/- keep the "static modifier" idea meaningful; for * / etc
+                # the constant is not an additive modifier, so it is not counted
+                # as one. `dice_subtotal + static_modifier == total_damage` is
+                # asserted by tests, so mixed-operator expressions are handled by
+                # deriving the subtotal from the real total instead (below).
+                _collect(right, sign * (-1 if node.op == "-" else 1))
+                return
+            for child in getattr(node, "children", []) or []:
+                _collect(child, sign)
+
+        _collect(result.expr)
+
+        # `0d6`/`0` are not "zero damage" either — same reasoning as the empty
+        # expression above. d20 happily evaluates "0d6" to 0 with no faces, so the
+        # refusal has to be explicit.
+        if not faces and not static_total:
+            raise ValueError(
+                f"Empty or zero dice expression {damage_dice!r} — no dice to roll. "
+                f"A damage roll must specify dice (e.g. '1d8+3').")
+
+        # `total_damage` is d20's real arithmetic — never re-derived, so operator
+        # precedence and parentheses stay correct.
+        raw_total = int(result.total)
+
+        # dice_subtotal is defined as "the total minus the additive constants", so
+        # the invariant dice_subtotal + static_modifier == pre-clamp total holds
+        # for every expression d20 can evaluate, including "(1d6+2)*2".
+        dice_subtotal = raw_total - static_total
+
+        # Preserve the audit trail: d20 rolls via the module-level `random`, so it
+        # honours random.seed() but does NOT populate raw_roll_log. Record the
+        # faces we extracted so get_roll_statistics()/clear_history() still see
+        # every die this roller was responsible for.
+        for face in faces:
+            self.raw_roll_log.append(DiceRoll(
+                die_type=self._die_size_for(face, dice_nodes),
+                result=face,
+                timestamp=time.time(),
+                roll_id=str(uuid.uuid4()),
+            ))
 
         # `modifier` is an ADDITIONAL caller-supplied bonus, distinct from any
         # constant embedded in the expression.
-        total_damage = dice_total + static_total + modifier
-        total_damage = max(0, total_damage)  # damage never heals
+        total_damage = max(0, raw_total + modifier)  # damage never heals
 
-        parts = [f"{expr}"]
-        if kept_detail:
-            parts.append(f"({'; '.join(kept_detail)})")
-        parts.append(f"rolls={rolls}")
+        parts = [expr, f"rolls={faces}"]
         if static_total:
             parts.append(f"static={static_total:+d}")
         if modifier:
             parts.append(f"modifier={modifier:+d}")
+        parts.append(f"[{result}]")
         breakdown = " ".join(parts) + f" = {total_damage}"
 
         return {
             "total_damage": total_damage,
-            "damage_rolls": rolls,
+            "damage_rolls": faces,
             "base_damage": damage_dice,
-            "dice_subtotal": dice_total,
+            "dice_subtotal": dice_subtotal,
             "static_modifier": static_total,
             "modifier": modifier,
             "breakdown": breakdown,
             "correlation_id": correlation_id,
         }
+
+    @staticmethod
+    def _die_size_for(face: int, dice_nodes: List[Any]) -> int:
+        """
+        Best-effort die size for the statistics log.
+
+        `get_roll_statistics` filters `raw_roll_log` on `die_type == 20`, so a d20
+        rolled through an expression must be recorded as a d20. When an expression
+        mixes sizes the first node whose size can contain the face is used; this
+        only affects statistics, never a damage total.
+        """
+        for node in dice_nodes:
+            size = getattr(node, "size", None)
+            if isinstance(size, int) and 1 <= face <= size:
+                return size
+        return 20 if face <= 20 else 100
     
     def percentile_roll(self, correlation_id: str = "") -> Dict[str, Any]:
         """Percentile (d100) roll"""
