@@ -1,5 +1,12 @@
 # Combat Mechanics Audit — Implemented vs Reachable
 
+> **SESSION UPDATE — 2026-09-12 (commits `5a0a764`, `eb15312`, `ceb2b04`):** Several "implement now" items are DONE & tested on `phase-0-fixes`:
+> - ✅ **Damage resistance/vulnerability/immunity** + **monster senses** (darkvision/blindsight/truesight) wired from stat blocks at entity creation, plus an HP-sync clamp (`eb15312`).
+> - ✅ **Standard 5e actions** (Grapple/Shove/Help/Disengage/Hide/Search/Ready/Two-weapon) registered + tested; **cast_spell offerability** fixed (`5a0a764`). *(2024-only Influence/Study/Utilize skipped per the "use the 2014 engine" guidance.)*
+> - ✅ **Class-feature runtime** partially wired (`ceb2b04`): round lifecycle (`tick_round`/`clear_all`) and on-hit **Sneak Attack** + **Divine Smite** (now slot-scaled 2d8+1d8/level, cap 5d8) fire in real combat. 🟡 **DEFERRED:** activated Rage/Second Wind/Action Surge as selectable turn actions (needs action-menu integration).
+> - ✅ **Grid `has_line_of_sight`** resolved — removed as dead code (`ceb2b04`).
+> - Combat suite went 71 failing → **~797 passing** (only the pre-existing RNG-flaky `test_npc_dnd_engine_sync`). Instant death, legendary/lair actions, surprise, AoE remain "future" per the original triage.
+
 Audited on branch `phase-0-fixes` (commit `ac4b680`, working tree clean). Every claim
 below was verified by running code or grepping for production callers just now, not by
 reading docstrings. See `docs/SESSION_HANDOFF_2026-09-11.md` for the parallel-agent
