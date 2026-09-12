@@ -140,6 +140,28 @@ turn. All 8 failures are in `TestCastSpellIsOfferable` and
 `TestOnlyCastersAreOfferedCastSpell` — i.e. exactly the offerability/menu layer, not the
 spell mechanics.
 
+> **CORRECTION (2026-09-12).** The bolded claim above is now **FALSE** — `cast_spell`
+> *has* since been registered in `ACTION_REGISTRY`. But it is **still unreachable**, for a
+> subtler reason, verified live:
+>
+> ```
+> params        : ['target_entity_uuid', 'spell_name', 'at_level']
+> param_defaults: {'at_level': None}
+> still required: ['spell_name']       <- nothing supplies this
+> is_offerable  : False
+> ```
+>
+> `param_defaults` covers `at_level` but omits `spell_name`, so
+> `required_caller_params('cast_spell')` returns `['spell_name']` and the offerability
+> filter excludes it from both the player menu (`combat_session_manager.py:790`) and the
+> NPC menu (`:1976`). This is the **identical bug class already fixed for four of five
+> Surges**, with the fix pattern documented in `action_registry.py`'s own comments — just
+> not applied to this entry.
+>
+> Net effect: all 319 SRD spells compile and resolve correctly, and **0 are castable in a
+> real session**. The fix is plausibly one dict key. See
+> `docs/mechanics/AUDIT_CHARACTER_AND_NONCOMBAT.md`.
+
 The agent's last visible action before being stopped: *"Mutation caught. Now mutate the
 slot spending and adjudication paths"* — it was doing mutation testing on its own work,
 which suggests the mechanics themselves were considered done and it was in a
