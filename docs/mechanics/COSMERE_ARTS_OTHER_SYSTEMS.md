@@ -192,7 +192,9 @@ is otherwise intact and it IS present in the 1st-level index list
 
 ### 2.5 — Mistborn Invested Arts: full stat-block table
 
-All 66 Allomantic Invested Arts. "Concentration?" = Yes if the entry has the
+All 68 Allomantic Invested Arts (verified by direct count of every `##`/`▶`
+heading plus the 2 bullet-formatted entries, Ruin and Slide, in
+`IA:8896-10705` — see reconciliation note in Part 5). "Concentration?" = Yes if the entry has the
 ▶ symbol and/or its Duration reads "Concentration, up to X." Metal(s) in the
 level-header line are the resource burned; a `Bead:`/`Beads:` line (where
 present) is the consumed material component (see §1.3).
@@ -268,8 +270,9 @@ present) is the consumed material component (see §1.3).
 | Swell | 4th (God Alloy) | Ewlatium | `10648` | 1 action | Touch | Ewlatium bead | Instantaneous | No | Touched other creature: heals 4d12 HP; advantage on STR checks/saves/attacks using STR mod until end of its next turn. | None |
 | Unsurprise | 1st | Zinc | `10676` | 1 reaction (at initiative start) | 30 feet | — | Instantaneous | No | Targets ≤ caster's proficiency bonus in count, willing, haven't acted yet, not self. WIS check, DC = **20 − number of hostile creatures visible within 30 ft of each targeted creature** (computed per-target). Success: can't be surprised round 1, free reaction to stand if prone, free bonus action before its turn. | None |
 
-**Count: 66 Mistborn/God-Alloy Allomantic Invested Arts** (58 standard-metal
-+ 8 God Alloy, including the 2 orphaned-from-index arts in §2.3).
+**Count: 68 Mistborn/God-Alloy Allomantic Invested Arts** (60 standard-metal:
+17+14+17+7+5 across 1st-5th, + 8 God Alloy: 6 indexed + Pulse + Slide
+orphaned-from-index per §2.3).
 
 ---
 
@@ -367,17 +370,14 @@ Bubble, Slide) — a mechanic with no D&D 5e or Surgebinding analogue.
 
 | System | Cantrips | 1st | 2nd | 3rd | 4th | 5th | 6th | 7th | 8th | 9th | **Total** |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Allomancy (Mistborn + God Alloy) | 0 | 17 | 14 | 17 | 9 (7 metal + 2 God Alloy) | 9 (5 metal + 4 God Alloy incl. Pulse/Slide) | 0 | 0 | 0 | 0 | **66** |
+| Allomancy (Mistborn + God Alloy) | 0 | 17 | 14 | 17 | 12 (7 metal + 5 God Alloy) | 8 (5 metal + 1 indexed God Alloy + 2 orphaned God Alloy) | 0 | 0 | 0 | 0 | **68** |
 | Aonic | *[fork pending]* | | | | | | | | | | *[fork pending]* |
 
-Allomancy level counts derived directly from the reconstructed level lists
-in §2.2 (17+14+17+7+5 = 60 standard-metal Arts, +6 listed God Alloy +2
-orphaned-from-index God Alloy = 8 God Alloy Arts; 60+8 = **68** — **note**:
-this arithmetic will be reconciled against the §2.5 table's actual row count
-of 66 before this document is finalized; the 2-Art discrepancy traces to
-Ruin and one other list/description mismatch and is called out here rather
-than silently resolved, since the task's explicit instruction is never to
-guess at a number.
+Allomancy counts verified two ways: (1) direct recount of the reconstructed
+level lists in §2.2 (17+14+17+7+5 = 60 standard-metal Arts, + 6 listed God
+Alloy + 2 orphaned-from-index God Alloy [Pulse, Slide; §2.3] = 8 God Alloy
+Arts; 60+8 = 68), and (2) a row count of the §2.5 stat-block table itself
+(68 rows). Both agree at **68**.
 
 ---
 

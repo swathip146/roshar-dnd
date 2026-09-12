@@ -85,9 +85,10 @@ Verified against `resources/rules/` and `parsed_data/` on 2026-09-12.
   **zero Rosharan creatures**. A Roshar campaign currently fights goblins.
 - **Invested Items Collection** blocks full Shardplate. Shardblades are covered by the
   Radiant's Handbook; Plate is not.
-- **Hoid's Guide** may be the last Bondsmith blocker — but check
-  `COSMERE_ARTS_SURGEBINDING_B.md` first, since the Invested Arts book may supply Bondsmith
-  arts (its surges are Tension + Adhesion) even if the Handbook omitted the class.
+- **Hoid's Guide** remains the Bondsmith blocker. **Verified 2026-09-12: "Bondsmith" appears
+  0 times in all 19,794 lines of the Invested Arts book.** Its canonical surges show up only
+  as other orders' arts (Tension → Stoneward, Adhesion → Windrunner), never attributed to
+  Bondsmith. So the project stays at **9 playable orders, not 10**, until that book arrives.
 
 ## Standard for this directory
 
@@ -96,3 +97,41 @@ without one as unverified — prior documents in this repo have been confidently
 (a subsystem declared "never started" was fully authored in JSON; one missing PHB condition
 was actually two). If you find an error here, correct it in place and date the correction,
 as `COSMERE_MECHANICS.md` now does.
+
+---
+
+## Schema constraint found while verifying the extractions (2026-09-12)
+
+An Invested Art's **level and surge depend on which order casts it**. This is not an
+edge case — **17 bylines** in the book carry split attributions. Examples, verbatim:
+
+```
+line 1876  9th-level Progression - Edgedancer, Truthwatcher
+         / 9th-level Transformation - Elsecaller, Lightweaver
+line 1926  2nd-level Illumination & Transformation - Lightweaver
+         / 2nd-level Transformation & Transportation - Elsecaller
+line 2676  1st-level Transformation - Lightweaver
+         / 1st-level Transportation - Elsecaller Inksurge, Willshaper Cognitive Power
+```
+
+**Consequences for whoever implements this:**
+
+1. An art **cannot** be stored with a single `level` field. It needs a per-order mapping,
+   e.g. `availability: [{order, surge, level}, ...]`. Since Investiture Point cost derives
+   from art level, a flat `level` would charge the wrong cost for at least one order.
+2. Ten bylines name **order-specific sub-powers** (`Elsecaller Inksurge`,
+   `Willshaper Cognitive Power`, and one `10th-Level Class Feature`). These are gates, not
+   flavour, and the schema must carry them.
+3. **The per-order index lists are not a reliable inventory.** *Detect Investiture*,
+   *Locate Object* and *Realmatic Door* appear under the **Lightweaver** index while their
+   bylines also grant them to Elsecaller and Willshaper. Enumerating from the index alone
+   undercounts some orders and overcounts others — extract from **bylines**, then reconcile
+   against the index rather than the reverse.
+
+### A verification note worth keeping
+
+Art headings often carry a `▶` concentration glyph, so `## <Art Name>` does **not** match
+them — `## ▶ Detect Investiture` does. A naive grep for headings silently misses ~286
+concentration arts. This tripped up my own spot-check of an agent's work: I concluded three
+arts were absent from the body when they were present at exactly the lines cited. Anyone
+scripting an extraction from this book must account for the glyph.
