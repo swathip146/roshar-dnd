@@ -8,9 +8,45 @@ version = "0.5.0"
 description = "AI Dungeon Master for D&D 5e in Brandon Sanderson's Cosmere (Roshar)"
 requires-python = ">=3.10"
 
-# Runtime dependencies live in requirements.txt, which install_dependencies.sh
-# and run_game.sh already use. This file exists for tooling config (plan 4:
-# pytest marks were unregistered, so `-m unit` silently matched nothing).
+# Canonical dependency list, managed with `uv` (replaces the conda/pip flow in
+# install_dependencies.sh — see README/CLAUDE.md for the `uv run` commands).
+# requirements.txt is kept in sync for anyone still on the conda path; this list
+# was transcribed from it 2026-09-11, so if you add a dependency, add it in BOTH
+# places until requirements.txt is retired.
+dependencies = [
+    "haystack-ai>=2.0.0,<3.0",         # Core Haystack pipeline framework. Capped below
+                                        # 3.0: verified 2026-09-11 that `>=2.0.0` alone
+                                        # resolves 3.1.1 (the conda env has 2.21.0), and
+                                        # 3.x moved SentenceTransformersTextEmbedder out
+                                        # of haystack.components.embedders entirely —
+                                        # ImportError, not a deprecation warning. The
+                                        # rest of this codebase is written against 2.x.
+    "qdrant-haystack>=4.0.0",          # Qdrant integration for Haystack
+    "google-genai>=0.1.0",             # Gemini SDK
+    "sentence-transformers>=2.2.0",    # Text embeddings (BGE models)
+    "qdrant-client>=1.7.0",            # Qdrant vector database client
+    "docling>=2.0.0",                  # PDF/document parsing and extraction
+    "docling-core>=2.0.0",             # Docling core data structures
+    "pyarrow>=10.0.0",                 # Apache Arrow for Parquet file handling
+    "pandas>=2.0.0",                   # DataFrame operations for table extraction
+    "pillow>=10.0.0",                  # Image loading and manipulation
+    "imagehash>=4.3.0",                # Perceptual hashing for image deduplication
+    "numpy>=1.24.0",                   # Array operations for image analysis
+    "pydantic>=2.0.0",                 # Data validation and settings management
+    "python-dotenv>=1.0.0",            # Load environment variables from .env
+    "pyyaml>=6.0",                     # YAML configuration parsing
+    "d20>=1.1.2",                      # Avrae dice parser (components/dice.py)
+    "langgraph>=1.0",                  # Durable turn loop (plan 3.5 / D4)
+    "langgraph-checkpoint-sqlite>=2.0", # Cross-process turn checkpoints
+    "langchain-google-genai>=4.0",     # Gemini driver for LangGraph
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-xdist>=3.0.0",             # Parallel test execution (-n 8 is the default)
+    "pytest-timeout>=2.0",             # Bounds hanging tests
+]
 
 [tool.pytest.ini_options]
 # Plan 4: `pytest tests/` used to abort with INTERNALERROR because three files

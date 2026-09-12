@@ -14,38 +14,47 @@ AI-powered Dungeon Master assistant for D&D 5e gameplay set in Brandon Sanderson
 
 ### Setup & Run
 ```bash
-# Initial setup (handles Conda/venv)
+# Initial setup — resolves/installs from pyproject.toml + uv.lock (needs `uv`:
+# https://docs.astral.sh/uv/getting-started/installation/)
 ./install_dependencies.sh
 
-# Run the game (recommended - sets env vars)
+# Run the game (recommended - loads .env, then `uv run python haystack_dnd_game.py`)
 ./run_game.sh
 
-# Direct Python execution
-python haystack_dnd_game.py
+# Direct execution, no activation step needed
+uv run python haystack_dnd_game.py
 ```
+
+Conda/venv still works if you don't want `uv`: `./install_dependencies_conda.sh` and
+`./run_game_conda.sh` are the prior scripts, unchanged, still reading
+`requirements.txt`. Keep both files in sync if you add a dependency until
+`requirements.txt` is retired.
 
 **Prerequisites**: Create `.env` file with `GEMINI_API_KEY=your_api_key_here`
 
 ### Testing
 ```bash
-# Run all tests
-pytest tests/
+# Run all tests (parallel by default, -n 8 — see pyproject.toml)
+uv run pytest tests/
 
 # Phase regression suites (the most informative; assert on observable state)
-pytest tests/test_phase0_regressions.py tests/test_phase2_regressions.py tests/test_phase3_regressions.py
+uv run pytest tests/test_phase0_regressions.py tests/test_phase2_regressions.py tests/test_phase3_regressions.py
 
 # Real-engine combat tests (no mocks)
-pytest tests/combat/test_real_engine_combat.py
+uv run pytest tests/combat/test_real_engine_combat.py
 
-# Specific test with verbose output
-pytest -vv tests/test_phase2_regressions.py::TestQuestProgression
+# Specific test with verbose output, single process (use -n0 for pdb or ordering bugs)
+uv run pytest -vv -n0 tests/test_phase2_regressions.py::TestQuestProgression
 ```
 
-**Latest test status**: 380 non-combat + 174 combat tests passing.
+**Latest test status**: 1034 non-combat + ~590 combat tests passing (see
+`docs/SESSION_HANDOFF_2026-09-11.md` for exact current numbers — several test files
+were mid-integration as of that date).
 
 Note: tests that make REAL LLM calls have no timeout and must be deselected in
 bulk runs — `test_gemini_*`, `test_llm_utils`, `test_tool_calling`,
-`test_game_*rounds`, `test_api_connection`. Combat also takes several minutes.
+`test_game_*rounds`, `test_api_connection`. Combat runs in ~15s in parallel (was
+several minutes sequentially).
 
 ### Document Indexing for RAG
 ```bash
