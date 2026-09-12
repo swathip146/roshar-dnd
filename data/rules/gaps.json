@@ -1,0 +1,61 @@
+{
+  "gaps": {
+    "rules lookup voidbringer": {
+      "situation": "rules lookup: Voidbringer",
+      "uses": 1,
+      "tiers": {
+        "judged": 1
+      },
+      "first_seen": 1788989508.5187662,
+      "rulings": [],
+      "promoted": false,
+      "last_seen": 1788989508.518767
+    },
+    "rules lookup perception": {
+      "situation": "rules lookup: Perception",
+      "uses": 1,
+      "tiers": {
+        "judged": 1
+      },
+      "first_seen": 1788989657.84075,
+      "rulings": [],
+      "promoted": false,
+      "last_seen": 1788989657.840756
+    },
+    "rules lookup fused": {
+      "situation": "rules lookup: Fused",
+      "uses": 1,
+      "tiers": {
+        "judged": 1
+      },
+      "first_seen": 1789002074.686131,
+      "rulings": [],
+      "promoted": false,
+      "last_seen": 1789002074.6861372
+    },
+    "rules lookup first ideal": {
+      "situation": "rules lookup: First Ideal",
+      "uses": 6,
+      "tiers": {
+        "narrative": 3,
+        "judged": 3
+      },
+      "first_seen": 1789081200.937946,
+      "rulings": [],
+      "promoted": false,
+      "last_seen": 1789158490.874889
+    },
+    "rules lookup lightweaving": {
+      "situation": "rules lookup: Lightweaving",
+      "uses": 2,
+      "tiers": {
+        "narrative": 1,
+        "judged": 1
+      },
+      "first_seen": 1789158442.028971,
+      "rulings": [],
+      "promoted": false,
+      "last_seen": 1789158442.0303721
+    }
+  }
+}

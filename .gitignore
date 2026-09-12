@@ -191,9 +191,9 @@ data/rules/external/dnd_engine/
 external/
 # Vendored SRD data is large; keep the vendoring script, not the payload
 # (regenerate with: python scripts/vendor_srd_data.py)
-data/rules/srd/*.json
-data/rules/gaps.json
-data/rules/rulings.json
+#data/rules/srd/*.json
+#data/rules/gaps.json
+#data/rules/rulings.json
 game_saves/turns.sqlite*
 
 # gateway / gateway-cli credentials — treated exactly like GEMINI_API_KEY.
