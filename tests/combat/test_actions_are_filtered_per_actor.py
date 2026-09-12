@@ -95,8 +95,13 @@ def _sheet(char_id, radiant_order=None, **over):
     if radiant_order:
         # Capacity matters: CharacterManager clamps stormlight_current to
         # stormlight_capacity, so setting current alone silently yields 0.
+        # Investiture Points fund the COSTED arts (Regrowth = 2 IP); cantrips are
+        # free and never touch this pool. Both are set so a Radiant can both cast
+        # a free cantrip and pay for a costed art. (No migration fires because
+        # stormlight_capacity > 0.)
         sheet.update({"radiant_order": radiant_order, "surgebinding_level": 3,
-                      "stormlight_capacity": 10, "stormlight_current": 10})
+                      "stormlight_capacity": 10, "stormlight_current": 10,
+                      "investiture_points": {"current": 10, "maximum": 10}})
     sheet.update(over)
     return sheet
 
@@ -210,8 +215,11 @@ class TestUsableActionsGatesOnActorState:
         ("Elsecaller", "soulcast"),
     ])
     def test_each_order_gets_its_own_surge(self, order, surge):
+        # Investiture Points are supplied so a COSTED art (progression_healing =
+        # Regrowth, 2 IP) is affordable; free cantrips ignore the pool.
         actor = {"radiant_order": order, "surgebinding_level": 3,
-                 "stormlight_current": 10}
+                 "stormlight_current": 10,
+                 "investiture_points": {"current": 10, "maximum": 10}}
         assert is_usable_by(surge, actor) is True, unusable_reason(surge, actor)
 
     def test_the_goblin_and_the_windrunner_get_different_menus(self):
@@ -230,27 +238,54 @@ class TestUsableActionsGatesOnActorState:
         assert is_usable_by("soulcast", novice) is False      # needs 2
         assert "Surgebinding level 2" in unusable_reason("soulcast", novice)
 
-    def test_stormlight_is_enforced_per_action_cost(self):
+    def test_investiture_is_enforced_per_art_cost(self):
         """
-        Also checked nowhere before. Lashing costs 1, Illumination 1, Progression 2,
-        Soulcast 3 — so a Radiant holding 2 spheres gets a partial menu, not all
-        or nothing.
+        The NEW economy (plan 2.9): cantrips are FREE and costed Invested Arts are
+        paid in Investiture Points via cosmere_rules.investiture_cost(). Regrowth
+        (progression_healing) is a 1st-level art = 2 IP, so a Radiant one point
+        short cannot cast it while a free cantrip stays available.
 
-        Updated: Elsecaller has Transformation + Transportation, not Illumination.
-        Testing with Lightweaver (who has both Illumination and Soulcast).
+        (The old model charged 1/1/2/3 Stormlight spheres for Lashing/Illumination/
+        Progression/Soulcast; those cantrips are now free — see
+        AUDIT_HARDCODED_SURGE_ACCURACY.md §3.)
         """
-        dim = {"radiant_order": "Lightweaver", "surgebinding_level": 3,
-               "stormlight_current": 2}
-        assert is_usable_by("illumination", dim) is True     # 1
-        assert is_usable_by("soulcast", dim) is False        # 3
-        assert "3 Stormlight" in unusable_reason("soulcast", dim)
+        # A free cantrip is available regardless of the resource pool.
+        rich = {"radiant_order": "Lightweaver", "surgebinding_level": 3,
+                "stormlight_current": 0,
+                "investiture_points": {"current": 0, "maximum": 0}}
+        assert is_usable_by("illumination", rich) is True    # free cantrip
 
-    def test_a_drained_radiant_gets_no_surges(self):
-        drained = {"radiant_order": "Windrunner", "surgebinding_level": 3,
-                   "stormlight_current": 0}
-        usable = set(usable_actions(drained))
+        # A costed art is gated exactly at its IP cost.
+        one_ip = {"radiant_order": "Edgedancer", "surgebinding_level": 3,
+                  "stormlight_current": 10,
+                  "investiture_points": {"current": 1, "maximum": 10}}
+        assert is_usable_by("progression_healing", one_ip) is False   # needs 2
+        assert "2 Investiture Points" in unusable_reason("progression_healing", one_ip)
+
+        two_ip = dict(one_ip, investiture_points={"current": 2, "maximum": 10})
+        assert is_usable_by("progression_healing", two_ip) is True
+
+    def test_a_drained_radiant_keeps_free_cantrips_but_loses_costed_arts(self):
+        """
+        Retargeted for the IP economy: draining a Radiant no longer removes its
+        FREE cantrips (a cantrip costs nothing), but an empty Investiture pool does
+        remove its COSTED arts. Both halves matter — over-filtering a free cantrip
+        would be as wrong as offering an unpayable art.
+        """
+        # Windrunner, fully drained: Lashing is a free cantrip and must remain.
+        drained_wr = {"radiant_order": "Windrunner", "surgebinding_level": 3,
+                      "stormlight_current": 0,
+                      "investiture_points": {"current": 0, "maximum": 0}}
+        usable = set(usable_actions(drained_wr))
         assert MUNDANE_ACTIONS <= usable
-        assert not (set(ALL_SURGES) & usable), usable
+        assert "lashing" in usable, "a free cantrip must survive being drained"
+
+        # Edgedancer with an empty IP pool: the costed Regrowth art is gated out.
+        drained_ed = {"radiant_order": "Edgedancer", "surgebinding_level": 3,
+                      "stormlight_current": 10,
+                      "investiture_points": {"current": 0, "maximum": 10}}
+        assert "progression_healing" not in set(usable_actions(drained_ed))
+        assert "Investiture" in unusable_reason("progression_healing", drained_ed)
 
     def test_shardblade_needs_a_summoned_blade(self):
         """
@@ -349,26 +384,33 @@ class TestBothMenuBuildersFilterPerActor:
         assert set(_npc_menu(session, "goblin")) != set(
             _npc_menu(session, "windrunner"))
 
-    def test_draining_stormlight_removes_the_surge_from_the_menu(self, table):
+    def test_draining_investiture_removes_the_costed_art_from_the_menu(self, table):
         """
-        Live state, not just the sheet. Written through `set_roshar_attr` because the
-        engine Entity is a pydantic model without extra="allow".
+        Live state, retargeted for the IP economy. Draining the Edgedancer's
+        Investiture Points removes the COSTED Regrowth art from both menus, while a
+        Windrunner's FREE Lashing cantrip survives having no Stormlight at all.
         """
-        session, _, wrapper, _ = table
-        assert "lashing" in _npc_menu(session, "windrunner")
+        session, _, wrapper, manager = table
+        assert "progression_healing" in _npc_menu(session, "edgedancer")
 
+        manager.characters["edgedancer"].investiture_points["current"] = 0
+        assert "progression_healing" not in _npc_menu(session, "edgedancer"), (
+            "an Edgedancer with no Investiture is still offered a costed art")
+        assert "progression_healing" not in _player_menu(session, "edgedancer")
+
+        # A free cantrip must NOT be removed for lack of Stormlight.
         assert wrapper.set_roshar_attr("windrunner", "stormlight_current", 0)
-        assert "lashing" not in _npc_menu(session, "windrunner"), (
-            "a Radiant with no Stormlight is still being offered a Surge")
-        assert "lashing" not in _player_menu(session, "windrunner")
+        assert "lashing" in _npc_menu(session, "windrunner")
+        assert "lashing" in _player_menu(session, "windrunner")
 
-    def test_partial_stormlight_leaves_the_cheap_surge(self, table):
-        """One sphere: Illumination (1) stays, Soulcast (3) goes."""
-        session, _, wrapper, _ = table
-        assert wrapper.set_roshar_attr("lightweaver", "stormlight_current", 1)
-        menu = _npc_menu(session, "lightweaver")
-        assert "illumination" in menu
-        assert "soulcast" not in menu
+    def test_partial_investiture_gates_the_costed_art(self, table):
+        """One IP short of Regrowth's 2-point cost: it leaves the menu; at 2 it returns."""
+        session, _, _, manager = table
+        manager.characters["edgedancer"].investiture_points["current"] = 1
+        assert "progression_healing" not in _npc_menu(session, "edgedancer")
+
+        manager.characters["edgedancer"].investiture_points["current"] = 2
+        assert "progression_healing" in _npc_menu(session, "edgedancer")
 
     @pytest.mark.parametrize("char_id", sorted(CAST))
     def test_no_menu_is_ever_empty(self, table, char_id):

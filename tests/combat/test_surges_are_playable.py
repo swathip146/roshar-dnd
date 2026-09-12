@@ -90,7 +90,10 @@ def _sheet(char_id, order=None, **over):
                       # Capacity matters: character_manager clamps
                       # stormlight_current to stormlight_capacity, so setting
                       # current without capacity silently yields 0.
-                      "stormlight_capacity": 10, "stormlight_current": 10})
+                      "stormlight_capacity": 10, "stormlight_current": 10,
+                      # Investiture Points fund the costed arts (Regrowth = 2 IP);
+                      # cantrips are free and ignore this pool.
+                      "investiture_points": {"current": 10, "maximum": 10}})
     sheet.update(over)
     return sheet
 
@@ -319,23 +322,31 @@ class TestSurgeGatesStillEnforce:
         result = _cast(resolver, "Windrunner", "progression_healing")
         assert result["success"] is False
 
-    def test_no_stormlight_means_no_surge(self, table):
+    def test_no_investiture_means_no_costed_art(self, table):
         """
-        Drained of Stormlight, a Radiant cannot surge.
+        Retargeted for the IP economy (plan 2.9). Draining the Investiture pool
+        refuses a COSTED art (Regrowth = 2 IP), while a FREE cantrip (Lashing) is
+        still usable with no Stormlight at all — cantrips cost nothing.
 
-        Set through `set_roshar_attr`, not `entity.stormlight_current = 0`: the
-        engine `Entity` is a pydantic model without `extra="allow"`, so direct
-        assignment raises `"Entity" object has no field "stormlight_current"`. The
-        wrapper mirrors these attributes into `__dict__` for reads and routes writes
-        through this helper so CharacterData stays the authority.
+        `set_roshar_attr` is used for the Stormlight write because the engine
+        `Entity` is a pydantic model without `extra="allow"`; IP lives on
+        CharacterData, so it is set there directly.
         """
         resolver, wrapper = table
-        assert wrapper.set_roshar_attr("Windrunner", "stormlight_current", 0)
+        manager = resolver.character_manager
 
-        result = _cast(resolver, "Windrunner", "lashing")
+        # Empty Investiture: the Edgedancer's Regrowth is refused.
+        manager.characters["Edgedancer"].investiture_points["current"] = 0
+        _hurt(wrapper, "Target", 20)
+        result = _cast(resolver, "Edgedancer", "progression_healing")
         assert result["success"] is False
-        assert "stormlight" in str(result.get("error", "")
-                                   or result.get("description", "")).lower()
+        message = str(result.get("error", "") or result.get("description", "")).lower()
+        assert "investiture" in message or "insufficient" in message, message
+
+        # A free cantrip stays usable even with zero Stormlight.
+        assert wrapper.set_roshar_attr("Windrunner", "stormlight_current", 0)
+        assert _cast(resolver, "Windrunner", "lashing")["success"] is True, (
+            "a free cantrip must remain usable when drained of Stormlight")
 
     def test_a_surge_costs_an_action(self, table):
         """
