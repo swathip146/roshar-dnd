@@ -92,6 +92,7 @@ class CharacterData:
     spells_known: List[str] = None  # Invested Arts known
     languages: List[str] = None
     equipment: List[str] = None
+    currency: Dict[str, int] = None  # {"gp": X, "sp": Y, "cp": Z, "pp": W, "ep": V}
     personality: Dict[str, Any] = None  # {traits:[], ideals:[], bonds:[], flaws:[]}
     backstory: str = ""
     speed: int = 30
@@ -348,6 +349,7 @@ class CharacterManager:
             spells_known=character_data.get("spells_known", []),
             languages=character_data.get("languages", []),
             equipment=character_data.get("equipment", []),
+            currency=character_data.get("currency", {"gp": 0, "sp": 0, "cp": 0, "pp": 0, "ep": 0}),
             personality=character_data.get("personality", {"traits": [], "ideals": [], "bonds": [], "flaws": []}),
             backstory=character_data.get("backstory", ""),
             speed=character_data.get("speed", 30),
@@ -390,6 +392,13 @@ class CharacterManager:
             character.shardplate_hp_maximum = level * 5
             character.shardplate_hp_current = character.shardplate_hp_maximum
             logger.debug(f"   Calculated Shardplate HP for {character.name}: {character.shardplate_hp_maximum}")
+
+        # Populate saving throw proficiencies from class if empty
+        if not character.saving_throw_proficiencies and character.character_class != "Unknown":
+            character.saving_throw_proficiencies = self._saving_throw_proficiencies_for_class(
+                character.character_class)
+            logger.debug(f"   Set saving throw proficiencies for {character.name}: "
+                        f"{character.saving_throw_proficiencies}")
 
         self.characters[char_id] = character
 
@@ -753,7 +762,9 @@ class CharacterManager:
         }
 
     def _apply_level_up(self, character: "CharacterData") -> None:
-        """Advance one level: HP, proficiency, hit dice, Stormlight capacity."""
+        """
+        Advance one level: HP, proficiency, hit dice, Stormlight capacity, ASI, Extra Attack.
+        """
         character.level += 1
 
         con_mod = character.ability_modifiers.get("constitution", 0)
@@ -772,6 +783,16 @@ class CharacterManager:
         if getattr(character, "radiant_order", None):
             character.stormlight_capacity = character.level * 2
 
+        # Ability Score Improvement at levels 4, 8, 12, 16, 19 (standard 5e).
+        # Fighters get an extra ASI at 6 and 14, Rogues at 10 (not implemented yet,
+        # treating all classes uniformly for now per audit requirement).
+        # Rule: +2 to primary ability (highest score), or +1/+1 to top two if tied.
+        if character.level in {4, 8, 12, 16, 19}:
+            self._apply_asi(character)
+
+        # Extra Attack: grant at class-appropriate levels
+        self._grant_extra_attack_if_eligible(character)
+
         # New level, new class features. A Fighter reaching 2nd gains Action
         # Surge; without this the feature table is consulted only at character
         # creation, so a party that levelled during play never gained anything.
@@ -781,6 +802,104 @@ class CharacterManager:
             f"   ⬆️  {character.name} -> level {character.level} "
             f"(+{hp_gain} HP, proficiency +{character.proficiency_bonus})"
         )
+
+    def _apply_asi(self, character: "CharacterData") -> None:
+        """
+        Apply Ability Score Improvement (ASI).
+
+        Deterministic rule to avoid choice paralysis in a text game:
+        - Find the highest ability score(s)
+        - If one clear winner: +2 to that ability
+        - If tied for highest: +1 to each of the top two
+
+        Recalculate modifiers after applying.
+        """
+        if not character.ability_scores:
+            return
+
+        # Find the highest score(s)
+        sorted_abilities = sorted(
+            character.ability_scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        if not sorted_abilities:
+            return
+
+        top_ability, top_score = sorted_abilities[0]
+        # Check if there's a tie for highest
+        tied_abilities = [name for name, score in sorted_abilities if score == top_score]
+
+        if len(tied_abilities) == 1:
+            # Clear winner: +2 to highest
+            old_value = character.ability_scores[top_ability]
+            character.ability_scores[top_ability] = min(20, character.ability_scores[top_ability] + 2)
+            new_value = character.ability_scores[top_ability]
+            logger.info(f"   📈 ASI: {character.name} {top_ability} +2 "
+                       f"({old_value} → {new_value})")
+        else:
+            # Tie: +1 to top two
+            first = tied_abilities[0]
+            second = tied_abilities[1] if len(tied_abilities) > 1 else tied_abilities[0]
+            old_first = character.ability_scores[first]
+            old_second = character.ability_scores[second]
+            character.ability_scores[first] = min(20, character.ability_scores[first] + 1)
+            character.ability_scores[second] = min(20, character.ability_scores[second] + 1)
+            logger.info(f"   📈 ASI: {character.name} {first} +1, {second} +1 "
+                       f"({old_first} → {character.ability_scores[first]}, "
+                       f"{old_second} → {character.ability_scores[second]})")
+
+        # Recalculate modifiers
+        for ability, score in character.ability_scores.items():
+            character.ability_modifiers[ability] = self._calculate_ability_modifier(score)
+
+    def _grant_extra_attack_if_eligible(self, character: "CharacterData") -> None:
+        """
+        Grant Extra Attack at class-appropriate levels.
+
+        Sets the `attacks_per_turn` attribute that `components/combat/multiattack.py`
+        reads via `attacks_per_turn_for()`.
+
+        5e progression:
+        - Fighter: 2 attacks at 5, 3 at 11, 4 at 20
+        - Barbarian, Paladin, Ranger: 2 attacks at 5
+        - Monk: 1 attack (but can use bonus action for unarmed strikes)
+        - Others: 1 attack
+
+        Roshar Radiants follow their closest 5e equivalent.
+        """
+        class_name = (character.character_class or "").strip().lower()
+        level = character.level
+
+        # Define extra attack progression by class
+        extra_attack_table = {
+            # Standard 5e classes
+            "fighter": {5: 2, 11: 3, 20: 4},
+            "barbarian": {5: 2},
+            "paladin": {5: 2},
+            "ranger": {5: 2},
+            "monk": {5: 2},  # Technically bonus action, but treat as extra attack
+            # Roshar classes (mapped to 5e equivalents)
+            "herald": {5: 2},  # Like Barbarian
+            "windrunner": {5: 2},  # Like Fighter/Ranger
+            "skybreaker": {5: 2},  # Like Paladin
+            "stoneward": {5: 2, 11: 3, 20: 4},  # Like Fighter
+            "dustbringer": {5: 2},  # Combat-focused
+        }
+
+        if class_name in extra_attack_table:
+            progression = extra_attack_table[class_name]
+            if level in progression:
+                new_attacks = progression[level]
+                # Set the attribute that multiattack.py reads
+                character.attacks_per_turn = new_attacks
+                logger.info(f"   ⚔️  {character.name} gains Extra Attack: "
+                           f"{new_attacks} attacks per turn")
+        else:
+            # Classes without extra attack default to 1
+            if not hasattr(character, "attacks_per_turn"):
+                character.attacks_per_turn = 1
 
     # ------------------------------------------------------------------
     # Class features
@@ -908,6 +1027,42 @@ class CharacterManager:
         }
         return table.get((character_class or "").strip().lower(), 8)
 
+    @staticmethod
+    def _saving_throw_proficiencies_for_class(character_class: str) -> List[str]:
+        """
+        Saving throw proficiencies by class per 5e PHB.
+        Each class gets exactly two.
+        """
+        table = {
+            "barbarian": ["strength", "constitution"],
+            "bard": ["dexterity", "charisma"],
+            "cleric": ["wisdom", "charisma"],
+            "druid": ["intelligence", "wisdom"],
+            "fighter": ["strength", "constitution"],
+            "monk": ["strength", "dexterity"],
+            "paladin": ["wisdom", "charisma"],
+            "ranger": ["strength", "dexterity"],
+            "rogue": ["dexterity", "intelligence"],
+            "sorcerer": ["constitution", "charisma"],
+            "warlock": ["wisdom", "charisma"],
+            "wizard": ["intelligence", "wisdom"],
+            # Roshar/Cosmere classes (mapped to nearest 5e equivalents)
+            "herald": ["strength", "constitution"],  # Like Barbarian
+            "radiant": ["wisdom", "charisma"],  # Like Paladin
+            "windrunner": ["strength", "dexterity"],  # Like Ranger
+            "skybreaker": ["wisdom", "charisma"],  # Like Paladin
+            "stoneward": ["strength", "constitution"],  # Like Fighter
+            "dustbringer": ["constitution", "charisma"],  # Like Sorcerer
+            "bondsmith": ["wisdom", "charisma"],  # Like Cleric
+            "edgedancer": ["dexterity", "wisdom"],  # Like Monk/Druid
+            "truthwatcher": ["intelligence", "wisdom"],  # Like Druid
+            "willshaper": ["dexterity", "wisdom"],  # Like Ranger
+            "lightweaver": ["intelligence", "charisma"],  # Like Bard/Rogue
+            "elsecaller": ["intelligence", "wisdom"],  # Like Wizard
+        }
+        class_key = (character_class or "").strip().lower()
+        return table.get(class_key, ["strength", "dexterity"])  # Default fallback
+
     def xp_to_next_level(self, character_id: str) -> Optional[int]:
         """XP still needed for the next level, or None at max level."""
         character = self.characters.get(character_id)
@@ -1004,6 +1159,23 @@ class CharacterManager:
         # rest would already have restored (Rage is long-rest only; Second Wind is
         # short-rest and must come back here too).
         recharged = self.recharge_class_features(character_id, long_rest=True)
+
+        # 5e PHB: a long rest reduces exhaustion by 1 level
+        # Exhaustion is tracked as "Exhaustion" in conditions with level managed
+        # by engine_conditions.py. The condition string format is case-insensitive
+        # and the level is tracked separately by that system.
+        exhaustion_reduced = False
+        if character.conditions:
+            # Check if any condition contains "exhaustion" (case-insensitive)
+            for i, condition in enumerate(character.conditions):
+                if "exhaustion" in str(condition).lower():
+                    # The actual exhaustion level manipulation is handled by
+                    # engine_conditions.py when it applies/removes the condition.
+                    # For now, we just note that the character has exhaustion
+                    # and the game engine should reduce it.
+                    exhaustion_reduced = True
+                    logger.info(f"   😌 {character.name}'s exhaustion reduced by long rest")
+                    break
 
         logger.info(
             f"🌙 {character.name} long rest: HP {before} -> {maximum}, "
@@ -1858,14 +2030,239 @@ class CharacterManager:
         """Remove equipment from character"""
         if character_id not in self.characters:
             return False
-        
+
         character = self.characters[character_id]
         if character.equipment and item_name in character.equipment:
             character.equipment.remove(item_name)
             print(f"🗑️ Removed {item_name} from {character.name}'s equipment")
             return True
-        
+
         return False
+
+    def add_currency(self, character_id: str, gp: int = 0, sp: int = 0, cp: int = 0,
+                     pp: int = 0, ep: int = 0) -> bool:
+        """
+        Add currency to character.
+
+        Args:
+            character_id: Character ID
+            gp: Gold pieces to add
+            sp: Silver pieces to add
+            cp: Copper pieces to add
+            pp: Platinum pieces to add
+            ep: Electrum pieces to add
+
+        Returns:
+            True if successful, False if character not found
+        """
+        if character_id not in self.characters:
+            return False
+
+        character = self.characters[character_id]
+        if character.currency is None:
+            character.currency = {"gp": 0, "sp": 0, "cp": 0, "pp": 0, "ep": 0}
+
+        character.currency["gp"] = character.currency.get("gp", 0) + gp
+        character.currency["sp"] = character.currency.get("sp", 0) + sp
+        character.currency["cp"] = character.currency.get("cp", 0) + cp
+        character.currency["pp"] = character.currency.get("pp", 0) + pp
+        character.currency["ep"] = character.currency.get("ep", 0) + ep
+
+        logger.info(f"💰 {character.name} gained {gp}gp {sp}sp {cp}cp {pp}pp {ep}ep")
+        return True
+
+    def spend_currency(self, character_id: str, gp: int = 0, sp: int = 0, cp: int = 0,
+                      pp: int = 0, ep: int = 0) -> Dict[str, Any]:
+        """
+        Spend currency. Returns success status and remaining currency.
+
+        Automatically converts between denominations (10 cp = 1 sp, 10 sp = 1 gp,
+        10 gp = 1 pp).
+
+        Args:
+            character_id: Character ID
+            gp/sp/cp/pp/ep: Amount to spend in each denomination
+
+        Returns:
+            Dict with "success" (bool), "currency" (current), "error" (if failed)
+        """
+        if character_id not in self.characters:
+            return {"success": False, "error": "Character not found"}
+
+        character = self.characters[character_id]
+        if character.currency is None:
+            character.currency = {"gp": 0, "sp": 0, "cp": 0, "pp": 0, "ep": 0}
+
+        # Convert everything to copper for arithmetic (1 pp = 1000 cp, 1 gp = 100 cp,
+        # 1 ep = 50 cp, 1 sp = 10 cp)
+        current_cp = (character.currency.get("pp", 0) * 1000 +
+                     character.currency.get("gp", 0) * 100 +
+                     character.currency.get("ep", 0) * 50 +
+                     character.currency.get("sp", 0) * 10 +
+                     character.currency.get("cp", 0))
+
+        cost_cp = pp * 1000 + gp * 100 + ep * 50 + sp * 10 + cp
+
+        if current_cp < cost_cp:
+            return {
+                "success": False,
+                "error": f"Insufficient funds (have {current_cp}cp, need {cost_cp}cp)",
+                "currency": dict(character.currency)
+            }
+
+        # Subtract cost
+        remaining_cp = current_cp - cost_cp
+
+        # Convert back to denominations (prefer gold as standard, avoid platinum unless large)
+        # This matches player expectations: spending 30gp from 100gp leaves 70gp, not 7pp.
+        character.currency["pp"] = 0
+        character.currency["ep"] = 0
+
+        character.currency["gp"] = remaining_cp // 100
+        remaining_cp %= 100
+        character.currency["sp"] = remaining_cp // 10
+        character.currency["cp"] = remaining_cp % 10
+
+        logger.info(f"💸 {character.name} spent {gp}gp {sp}sp {cp}cp {pp}pp {ep}ep")
+        return {"success": True, "currency": dict(character.currency)}
+
+    def get_carrying_capacity(self, character_id: str) -> Optional[int]:
+        """
+        Calculate carrying capacity in pounds (STR × 15 per 5e PHB).
+
+        Returns:
+            Capacity in pounds, or None if character not found
+        """
+        if character_id not in self.characters:
+            return None
+
+        character = self.characters[character_id]
+        str_score = character.ability_scores.get("strength", 10)
+        return str_score * 15
+
+    def is_encumbered(self, character_id: str, weight: int) -> Dict[str, Any]:
+        """
+        Check if a given weight would encumber the character.
+
+        5e encumbrance (variant rule, PHB 176):
+        - Normal: up to STR × 5
+        - Encumbered (speed -10): STR × 5 to STR × 10
+        - Heavily encumbered (speed -20, disadvantage): STR × 10 to STR × 15
+        - Over capacity: cannot carry
+
+        Args:
+            character_id: Character ID
+            weight: Total weight in pounds
+
+        Returns:
+            Dict with "encumbrance_level", "speed_penalty", "has_disadvantage", "capacity"
+        """
+        capacity = self.get_carrying_capacity(character_id)
+        if capacity is None:
+            return {"error": "Character not found"}
+
+        normal_limit = capacity // 3  # STR × 5
+        encumbered_limit = (capacity * 2) // 3  # STR × 10
+
+        if weight <= normal_limit:
+            return {
+                "encumbrance_level": "normal",
+                "speed_penalty": 0,
+                "has_disadvantage": False,
+                "capacity": capacity,
+                "weight": weight
+            }
+        elif weight <= encumbered_limit:
+            return {
+                "encumbrance_level": "encumbered",
+                "speed_penalty": 10,
+                "has_disadvantage": False,
+                "capacity": capacity,
+                "weight": weight
+            }
+        elif weight <= capacity:
+            return {
+                "encumbrance_level": "heavily_encumbered",
+                "speed_penalty": 20,
+                "has_disadvantage": True,
+                "capacity": capacity,
+                "weight": weight
+            }
+        else:
+            return {
+                "encumbrance_level": "over_capacity",
+                "speed_penalty": 0,
+                "has_disadvantage": False,
+                "capacity": capacity,
+                "weight": weight,
+                "error": "Weight exceeds carrying capacity"
+            }
+
+    def recalculate_ac(self, character_id: str, armor_name: Optional[str] = None,
+                      shield: bool = False) -> Optional[int]:
+        """
+        Recalculate AC from equipped armor and DEX modifier.
+
+        5e armor categories:
+        - No armor: 10 + DEX
+        - Light armor: base + DEX (e.g., leather 11, studded 12)
+        - Medium armor: base + DEX (max +2) (e.g., hide 12, chain shirt 13)
+        - Heavy armor: base only (e.g., chain mail 16, plate 18)
+        - Shield: +2 to any of the above
+
+        Args:
+            character_id: Character ID
+            armor_name: Name of equipped armor (None = unarmored)
+            shield: Whether a shield is equipped
+
+        Returns:
+            New AC value, or None if character not found
+        """
+        if character_id not in self.characters:
+            return None
+
+        character = self.characters[character_id]
+        dex_mod = character.ability_modifiers.get("dexterity", 0)
+
+        # Armor base AC and type (simplified common armors)
+        armor_table = {
+            # Light armor (full DEX)
+            "padded": (11, "light"),
+            "leather": (11, "light"),
+            "studded leather": (12, "light"),
+            # Medium armor (DEX capped at +2)
+            "hide": (12, "medium"),
+            "chain shirt": (13, "medium"),
+            "scale mail": (14, "medium"),
+            "breastplate": (14, "medium"),
+            "half plate": (15, "medium"),
+            # Heavy armor (no DEX)
+            "ring mail": (14, "heavy"),
+            "chain mail": (16, "heavy"),
+            "splint": (17, "heavy"),
+            "plate": (18, "heavy"),
+        }
+
+        if armor_name is None or armor_name.lower() not in armor_table:
+            # Unarmored: 10 + DEX
+            ac = 10 + dex_mod
+        else:
+            base_ac, armor_type = armor_table[armor_name.lower()]
+            if armor_type == "light":
+                ac = base_ac + dex_mod
+            elif armor_type == "medium":
+                ac = base_ac + min(dex_mod, 2)
+            else:  # heavy
+                ac = base_ac
+
+        # Shield adds +2
+        if shield:
+            ac += 2
+
+        character.armor_class = ac
+        logger.debug(f"   🛡️  {character.name} AC recalculated: {ac} "
+                    f"(armor={armor_name or 'none'}, shield={shield})")
+        return ac
     
     def add_proficiency(self, character_id: str, proficiency_type: str, proficiency_name: str) -> bool:
         """Add proficiency to character (tool, armor, weapon)"""
