@@ -35,7 +35,7 @@ Surgebinding (Chapter 1, owned by other agents): the shared casting framework,
 Chapter 2 (Allomancy), Chapter 3 (Aonic magic), and anything after Chapter 3.
 
 **This is a D&D 5e-based system.** It is not the standalone Brotherwise
-*Cosmere RPG* documented in `docs/mechanics/COSMERE_RPG_CORE.md` — do not
+*Cosmere RPG* documented in `docs/mechanics/cosmere_rpg_unused/COSMERE_RPG_CORE.md` — do not
 conflate the two. It uses **Investiture Points**, not spell slots.
 
 **Sources**:
@@ -441,7 +441,7 @@ the setting, and reachable in-fiction.**
   from this ruleset — it is a pregenerated character from the unrelated,
   standalone *Cosmere RPG* (Brotherwise) quick-start set
   (`parsed_data/sl019-agent-worldhopper/`), a different game system
-  entirely (see `docs/mechanics/COSMERE_RPG_SURGEBINDING.md`'s own
+  entirely (see `docs/mechanics/cosmere_rpg_unused/COSMERE_RPG_SURGEBINDING.md`'s own
   sourcing notes). It should not be used as evidence that this D&D-5e-based
   ruleset has a native cross-planet PC archetype; conflating the two would
   be a category error.

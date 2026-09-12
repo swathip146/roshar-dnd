@@ -40,7 +40,7 @@
 > throws) is the one this project implements, which remains the project's
 > decision — see `COSMERE_SYSTEMS_MAP.md` for why, and for how the unrelated
 > **Cosmere RPG** (Brotherwise Games' standalone Plotweaver system, covered by
-> `COSMERE_RPG_CORE.md` / `COSMERE_RPG_SURGEBINDING.md`) fits in.
+> `cosmere_rpg_unused/COSMERE_RPG_CORE.md` / `cosmere_rpg_unused/COSMERE_RPG_SURGEBINDING.md`) fits in.
 
 ---
 
