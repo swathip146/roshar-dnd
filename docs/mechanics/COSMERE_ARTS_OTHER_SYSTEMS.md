@@ -1,5 +1,35 @@
 # Cosmere Invested Arts — Allomancy, Aonic Magic, and the Shared Casting Framework
 
+> ## ⚠️ INCOMPLETE BY DECISION — 2026-09-12
+>
+> **The Aonic magic catalogue (Part 3.3) was deliberately left unfinished.** Extraction
+> was stopped on the project owner's instruction: Aonic magic is native to **Sel**, and
+> Allomancy to **Scadrial**. This is a **Roshar** game (`data/current_campaign/shards_of_honor.json`),
+> so neither system is in scope.
+>
+> What IS complete and worth reading:
+>
+> * **Part 1 — the shared casting framework.** The single most useful section here, and it
+>   applies directly to Surgebinding. Its key finding: the framework is **not in the Invested
+>   Arts book at all** — it lives in Chapter 10 of the *Radiant's Handbook* (`HB:13133-13241`).
+>   Includes the Investiture Point pool rules, the long-rest refill conditioned on Stormlight
+>   Replenishment, and a full decode of the `Components:` letters (**G** and **S**, plus an
+>   unlettered material/polestone category — there is no generic "M").
+> * **Part 1's polestone rules**, which matter for Roshar: a required sapphire-mark value met
+>   or exceeded by one polestone **cracks that whole polestone**, with no change given, and
+>   the cost is paid whether or not the Art succeeds — though an Art *interrupted before
+>   completion* leaves the polestone untouched.
+> * **Allomancy (Part 2)** — complete at 68 arts, verified two independent ways. Retained
+>   because it cost nothing to keep, not because it is needed.
+>
+> What is missing: **Part 3.3's Aonic art descriptions** (the placeholder is left in place
+> rather than deleted, so it is obvious) and the Aonic row of the Part 5 counts table. Part
+> 3.2's Aon reference list and the Appendix Aon table did land.
+>
+> Do not treat this document as a complete record of Chapter 3. If Aonic magic ever becomes
+> relevant — e.g. via a worldhopper character — re-run the extraction over `IA:10706-19790`.
+
+
 Catalogue of everything in *The Invested Arts of the Cosmere v2.0* **except**
 Surgebinding (Chapter 1, owned by other agents): the shared casting framework,
 Chapter 2 (Allomancy), Chapter 3 (Aonic magic), and anything after Chapter 3.
@@ -331,7 +361,8 @@ Acidic Stream, Alarm, Alter, Annihilate, Anti-Investiture Field, Aon Shield,
 Aongate, Aonskip, Aonic Soulcast, and the start of Aqueous Prison,
 `IA:11160-11553`), this is the complete Chapter 3 art catalogue.
 
-**[FORK OUTPUT PENDING — inserted below once the extraction agent returns]**
+**[NOT EXTRACTED — the agent was stopped here by decision; Aonic magic is out of
+scope for a Roshar game. See the notice at the top of this file.]**
 
 ---
 
@@ -371,7 +402,7 @@ Bubble, Slide) — a mechanic with no D&D 5e or Surgebinding analogue.
 | System | Cantrips | 1st | 2nd | 3rd | 4th | 5th | 6th | 7th | 8th | 9th | **Total** |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Allomancy (Mistborn + God Alloy) | 0 | 17 | 14 | 17 | 12 (7 metal + 5 God Alloy) | 8 (5 metal + 1 indexed God Alloy + 2 orphaned God Alloy) | 0 | 0 | 0 | 0 | **68** |
-| Aonic | *[fork pending]* | | | | | | | | | | *[fork pending]* |
+| Aonic | *not extracted — out of scope, see notice at top* | | | | | | | | | | *n/a* |
 
 Allomancy counts verified two ways: (1) direct recount of the reconstructed
 level lists in §2.2 (17+14+17+7+5 = 60 standard-metal Arts, + 6 listed God
