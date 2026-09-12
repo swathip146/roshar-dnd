@@ -35,23 +35,23 @@ types**, already running the 9 authored maneuvers and wired into combat.
 | `attack` node | ✅ | ✅ | `maneuver_executor.py:49` | | |
 | `roll` node | ✅ | ✅ | `maneuver_executor.py:49` | | |
 | `ieffect2` node (apply a condition) | ✅ | ✅ | `maneuver_executor.py:49` | Applies named 5e conditions through the engine, so they compose. | |
-| **Art data to execute** | ❌ | ❌ | `ls data/rules/stormlight/` → only `surgebinding.json`. No `invested_arts*.json` exists anywhere. | **The real blocker.** The interpreter is ready; there is nothing for it to run. The book states mechanics as PROSE, while the compiler needs `{casting_time, dc, damage_at_*}` fields. This is authoring work, not engineering. | |
+| **Art data to execute** | ❌ | ❌ | `ls data/rules/stormlight/` → only `surgebinding.json`. No `invested_arts*.json` exists anywhere. | **The real blocker.** The interpreter is ready; there is nothing for it to run. The book states mechanics as PROSE, while the compiler needs `{casting_time, dc, damage_at_*}` fields. This is authoring work, not engineering. |COMMENT: implement and wire now completely |
 
 ## 2. Missing node types, ranked by arts unblocked
 
 | Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | Comment |
 |---|---|---|---|---|---|
-| Area of effect (cone/sphere/cube/line) | ❌ | ❌ | Not in `KNOWN_NODES` (`maneuver_executor.py:49`). The grid already computes distance and FOV (`components/combat/tactical_grid.py`). | **Highest value.** Geometry data is already parsed and stored and simply never consulted. Unblocks the most arts of any single node. | |
-| Concentration | 🟡 | ❌ | The word appears in `roshar_actions.py`, `combat_action_resolver.py`, `spellcasting.py`, `spell_compiler.py` — but no break-on-damage hook. Book usage: 319 by word, **286 by its `▶` glyph**; the audit estimates ~43% of arts. | Nearly half the arts declare concentration and nothing tracks it. Needs a CON-save-on-damage trigger. | |
-| `heal` node | ❌ | ❌ | Not in `KNOWN_NODES`. `ProgressionHealing` heals via a hardcoded class instead. | Progression/Regrowth arts are a large family for Edgedancer and Truthwatcher. | |
-| Reaction triggers | ❌ | ❌ | Not in `KNOWN_NODES`. Maneuvers handle `reaction` as an action_type, not as a mid-roll hook. | Some arts insert a die after a roll but before the result (Guidance/Resistance shape). | |
-| Resistance as a real effect | ❌ | ❌ | Not in `KNOWN_NODES`. Engine supports it (`health.damage_reduction`) — see §5. | | |
-| `move` / `forced_move` / `teleport` | ❌ | ❌ | Not in `KNOWN_NODES` | Transportation arts (Elsecaller, Willshaper) need it. | |
-| `create_object` / `create_zone` (own HP/AC) | ❌ | ❌ | Not in `KNOWN_NODES` | Terrain and wall arts. | |
-| `summon` (CR budget + stat-block override) | ❌ | ❌ | Not in `KNOWN_NODES` | | |
-| `illusion` (with disbelieve sub-check) | ❌ | ❌ | Not in `KNOWN_NODES` | Lightweaver's signature; ~132 arts is the largest order list. | |
-| Check-vs-DC resolution (not a save) | ❌ | ❌ | Not in `KNOWN_NODES` | Dispel/Counter-Invest arts use an ability check vs a level-derived DC. | |
-| Stateful recurring-save wrapper | ❌ | ❌ | Not in `KNOWN_NODES` | Multi-turn ladders (3-success/3-fail) that a flat condition-apply cannot express. | |
+| Area of effect (cone/sphere/cube/line) | ❌ | ❌ | Not in `KNOWN_NODES` (`maneuver_executor.py:49`). The grid already computes distance and FOV (`components/combat/tactical_grid.py`). | **Highest value.** Geometry data is already parsed and stored and simply never consulted. Unblocks the most arts of any single node. |COMMENT: implement and wire now completely |
+| Concentration | 🟡 | ❌ | The word appears in `roshar_actions.py`, `combat_action_resolver.py`, `spellcasting.py`, `spell_compiler.py` — but no break-on-damage hook. Book usage: 319 by word, **286 by its `▶` glyph**; the audit estimates ~43% of arts. | Nearly half the arts declare concentration and nothing tracks it. Needs a CON-save-on-damage trigger. |COMMENT: implement and wire now completely |
+| `heal` node | ❌ | ❌ | Not in `KNOWN_NODES`. `ProgressionHealing` heals via a hardcoded class instead. | Progression/Regrowth arts are a large family for Edgedancer and Truthwatcher. |COMMENT: implement and wire now completely |
+| Reaction triggers | ❌ | ❌ | Not in `KNOWN_NODES`. Maneuvers handle `reaction` as an action_type, not as a mid-roll hook. | Some arts insert a die after a roll but before the result (Guidance/Resistance shape). |COMMENT: implement and wire now completely |
+| Resistance as a real effect | ❌ | ❌ | Not in `KNOWN_NODES`. Engine supports it (`health.damage_reduction`) — see §5. | |COMMENT: implement and wire now completely |
+| `move` / `forced_move` / `teleport` | ❌ | ❌ | Not in `KNOWN_NODES` | Transportation arts (Elsecaller, Willshaper) need it. |COMMENT: implement and wire now completely |
+| `create_object` / `create_zone` (own HP/AC) | ❌ | ❌ | Not in `KNOWN_NODES` | Terrain and wall arts. |COMMENT: implement and wire now completely |
+| `summon` (CR budget + stat-block override) | ❌ | ❌ | Not in `KNOWN_NODES` | |COMMENT: implement and wire now completely |
+| `illusion` (with disbelieve sub-check) | ❌ | ❌ | Not in `KNOWN_NODES` | Lightweaver's signature; ~132 arts is the largest order list. |COMMENT: implement and wire now completely |
+| Check-vs-DC resolution (not a save) | ❌ | ❌ | Not in `KNOWN_NODES` | Dispel/Counter-Invest arts use an ability check vs a level-derived DC. |COMMENT: implement and wire now completely |
+| Stateful recurring-save wrapper | ❌ | ❌ | Not in `KNOWN_NODES` | Multi-turn ladders (3-success/3-fail) that a flat condition-apply cannot express. |COMMENT: implement and wire now completely |
 
 ## 3. The compiler — could it compile arts as it does spells?
 
@@ -59,19 +59,19 @@ types**, already running the 9 authored maneuvers and wired into combat.
 |---|---|---|---|---|---|
 | Spell compiler | ✅ | ✅ | `components/combat/spell_compiler.py`; `SpellcastingService` has 5 external refs. Proven on 319 structurally similar SRD spells. | The pattern is right — arts share the shape (casting time, range, components, duration, concentration, save DC, scaling). | |
 | `cast_spell` action offerable | ✅ | ✅ | `uv run python -c "...is_offerable('cast_spell')"` → **True** (fixed 2026-09-11 by adding the missing `spell_name` default). | Was ❌/❌ the day before: `param_defaults` omitted `spell_name`, so all 319 spells were uncastable. **Do not repeat this when adding `cast_art`.** | |
-| `cast_art` action | ❌ | ❌ | No such key in `ACTION_REGISTRY` (verified by enumeration). | Needs registering, copying `cast_spell`'s entry — including its `param_defaults` lesson. | |
-| Art→JSON extraction pipeline | ❌ | ❌ | No script exists. Book is prose. | The gating task. Per D5, entries must be human-reviewed before they adjudicate. | |
+| `cast_art` action | ❌ | ❌ | No such key in `ACTION_REGISTRY` (verified by enumeration). | Needs registering, copying `cast_spell`'s entry — including its `param_defaults` lesson. |COMMENT: implement and wire now completely |
+| Art→JSON extraction pipeline | ❌ | ❌ | No script exists. Book is prose. | The gating task. Per D5, entries must be human-reviewed before they adjudicate. |COMMENT: implement and wire now completely |
 
 ## 4. Investiture Points economy — three ways to pay, one correct
 
 | Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | Comment |
 |---|---|---|---|---|---|
-| Lashing Dice pool | ✅ | ✅ | `components/combat/lashing_dice.py`; `LashingDicePool` has 4 external refs incl. `combat_session_manager._dice_pool()`. | Correct and wired — but Windrunner-only. | |
-| `investiture_cost()` cost table | ✅ | ❌ | `components/cosmere_rules.py:138`. **`grep -rn "investiture_cost" components/ agents/ core/ orchestrator/` excluding its own file → 0 hits.** | **Built, correct, and unreachable** — the tenth instance in this project. It holds the book-accurate `cost_by_art_level` table and nothing calls it. | |
-| Stormlight sphere cost on surges | ✅ | ✅ | `roshar_actions.py:91` `stormlight_cost: int = 1` | **WRONG, and live.** `surgebinding.json` records the same cantrips as `{'investiture_points': 0}`. A Windrunner is charged a sphere for a free cantrip. See `AUDIT_HARDCODED_SURGE_ACCURACY.md`. | |
-| Investiture Point ledger | ❌ | ❌ | No such class. `CharacterData.investiture_points` exists as a legacy field whose own comment says to use stormlight instead. | Needs a `SlotLedger` sibling reading `investiture_cost()`. | |
-| Long-rest refill gated on Stormlight intake | ❌ | ❌ | Rule is at `HB:13133-13141` (verified verbatim). No implementation. | Refill is conditioned on intaking level × 5 sapphire marks, exactly as HP is. | |
-| Polestone cracking / draining | ❌ | ❌ | Rule at `HB:13231-13241`. Nothing implements it. | Three distinct outcomes: crack (no change given), drain, or untouched if interrupted. Cost is paid even when the art FAILS. Nothing in 5e behaves this way. | |
+| Lashing Dice pool | ✅ | ✅ | `components/combat/lashing_dice.py`; `LashingDicePool` has 4 external refs incl. `combat_session_manager._dice_pool()`. | Correct and wired — but Windrunner-only. |COMMENT: implement and wire for all valid surges completely |
+| `investiture_cost()` cost table | ✅ | ❌ | `components/cosmere_rules.py:138`. **`grep -rn "investiture_cost" components/ agents/ core/ orchestrator/` excluding its own file → 0 hits.** | **Built, correct, and unreachable** — the tenth instance in this project. It holds the book-accurate `cost_by_art_level` table and nothing calls it. |COMMENT: implement and wire now completely |
+| Stormlight sphere cost on surges | ✅ | ✅ | `roshar_actions.py:91` `stormlight_cost: int = 1` | **WRONG, and live.** `surgebinding.json` records the same cantrips as `{'investiture_points': 0}`. A Windrunner is charged a sphere for a free cantrip. See `AUDIT_HARDCODED_SURGE_ACCURACY.md`. |COMMENT: update now correctly |
+| Investiture Point ledger | ❌ | ❌ | No such class. `CharacterData.investiture_points` exists as a legacy field whose own comment says to use stormlight instead. | Needs a `SlotLedger` sibling reading `investiture_cost()`. |COMMENT: implement and wire now completely |
+| Long-rest refill gated on Stormlight intake | ❌ | ❌ | Rule is at `HB:13133-13141` (verified verbatim). No implementation. | Refill is conditioned on intaking level × 5 sapphire marks, exactly as HP is. | COMMENT: implement and wire now completely|
+| Polestone cracking / draining | ❌ | ❌ | Rule at `HB:13231-13241`. Nothing implements it. | Three distinct outcomes: crack (no change given), drain, or untouched if interrupted. Cost is paid even when the art FAILS. Nothing in 5e behaves this way. | COMMENT: implement and wire now completely|
 
 ## 5. Supporting engine capabilities the arts need
 
@@ -79,11 +79,11 @@ types**, already running the 9 authored maneuvers and wired into combat.
 |---|---|---|---|---|---|
 | Saving throws | ✅ | ✅ | Engine `saving_throws.get_saving_throw`; used by the `save` node. Book uses saves 420×. | Ready. | |
 | Invested save DC formula | ✅ | 🟡 | `surgebinding.json` `invested_save_dc` = `8 + proficiency + Investiture ability modifier`; `cosmere_rules.invested_save_dc()` exists. | Formula present; confirm the art path uses it rather than a 5e spell DC. | |
-| Damage resistance / vulnerability / immunity | 🟡 | ❌ | Engine supports it fully (`health.damage_reduction`); SRD data carries it; nothing connects them. Flagged in `AUDIT_COMBAT.md` too. | Owner comment there: **implement and wire now**. Some arts grant resistance. | |
+| Damage resistance / vulnerability / immunity | 🟡 | ❌ | Engine supports it fully (`health.damage_reduction`); SRD data carries it; nothing connects them. Flagged in `AUDIT_COMBAT.md` too. | Owner comment there: **implement and wire now**. Some arts grant resistance. |COMMENT: implement and wire now completely |
 | Conditions (all 15 SRD) | ✅ | ✅ | `components/engine_conditions.py` added Petrified + Exhaustion; all 15 apply via `apply_condition()`. | `ieffect2` can name any of them. | |
-| Ideals / oaths | ✅ | ✅ | 49 refs to `advance_ideal`/`ideal_level` across components and agents. | Some arts gate on Ideal level. | |
-| The 10 `surges` entries in `surgebinding.json` | 🟡 | ❌ | All 10 have `automation: null`, `automation_status: "not_in_source"` — nulled *because the book was missing*. Nothing reads the key. | **Now authorable.** The blocker that caused the nulls is gone. 10 permanent blockers became 10 authoring tasks. | |
-| The ~118 order features | ✅ (data) | ❌ | Catalogued in `COSMERE_MECHANICS.md`; `surgebinding.json` has only 2 in `features`. Nothing reads them. | Mostly passive (resistances, AC formulas, ability bumps) — needs a features shape, not automation trees. | |
+| Ideals / oaths | ✅ | ✅ | 49 refs to `advance_ideal`/`ideal_level` across components and agents. | Some arts gate on Ideal level. |COMMENT: Update them if needed now completely |
+| The 10 `surges` entries in `surgebinding.json` | 🟡 | ❌ | All 10 have `automation: null`, `automation_status: "not_in_source"` — nulled *because the book was missing*. Nothing reads the key. | **Now authorable.** The blocker that caused the nulls is gone. 10 permanent blockers became 10 authoring tasks. |COMMENT: implement and wire now completely |
+| The ~118 order features | ✅ (data) | ❌ | Catalogued in `COSMERE_MECHANICS.md`; `surgebinding.json` has only 2 in `features`. Nothing reads them. | Mostly passive (resistances, AC formulas, ability bumps) — needs a features shape, not automation trees. |COMMENT: implement and wire now completely |
 
 ## 6. Coverage reality — arts are not evenly distributed
 
