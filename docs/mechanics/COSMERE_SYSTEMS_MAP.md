@@ -135,3 +135,49 @@ them — `## ▶ Detect Investiture` does. A naive grep for headings silently mi
 concentration arts. This tripped up my own spot-check of an agent's work: I concluded three
 arts were absent from the body when they were present at exactly the lines cited. Anyone
 scripting an extraction from this book must account for the glyph.
+
+---
+
+## Art coverage is wildly uneven by order (verified 2026-09-12)
+
+Counted from bylines across all 19,794 lines, then cross-checked against the chapter index:
+
+| Order | Cantrip bylines | Leveled bylines |
+|---|---|---|
+| Truthwatcher | 12 | **101** |
+| Lightweaver | — | ~132 rows |
+| Elsecaller | — | ~96 rows |
+| Edgedancer | 11 | **79** |
+| Willshaper | 2 | 3 |
+| Stoneward | 2 | **0** |
+| **Windrunner** | **2** | **0** |
+| **Skybreaker** | **2** | **0** |
+| **Dustbringer** | **2** | **0** |
+| Bondsmith | 0 | 0 |
+
+**Windrunner, Skybreaker and Dustbringer get two cantrips each and no leveled arts at all.**
+This is confirmed two independent ways: zero leveled bylines in the body, and the chapter
+index lists only a bare `Cantrips` line for each of them with no level sections, while
+Edgedancer's and Truthwatcher's indexes run through 1st Level and beyond.
+
+So this is the book's design, not a failed extraction.
+
+### What that means for implementation planning
+
+This inverts the "cheapest path to a playable Windrunner" advice in
+`AUDIT_INVESTED_ARTS_READINESS.md`. Windrunner cannot be made art-rich from this book —
+there are only two arts to author. A Windrunner's depth comes from a **different subsystem**:
+the ~26 Maneuvers and ~23 order features in the *Radiant's Handbook*, already catalogued in
+`COSMERE_MECHANICS.md`, of which 9 maneuvers are already authored, wired and passing tests.
+
+Two consequences:
+
+1. **Windrunner is closest to playable already**, but via Maneuvers + Lashing Dice, not via
+   Invested Arts. Finish that path rather than waiting on art authoring.
+2. **Truthwatcher, Lightweaver, Elsecaller and Edgedancer are where the Invested Arts work
+   pays off** — roughly 400 arts between them. They are also the orders with no Maneuver
+   equivalent, so arts are their *only* source of abilities. Those four orders are currently
+   the emptiest in the game and have the most available content.
+
+The two subsystems are complementary rather than redundant, which is consistent with the
+earlier finding that the Maneuver names appear nowhere in the Invested Arts book.
