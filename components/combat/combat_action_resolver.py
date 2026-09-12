@@ -307,6 +307,27 @@ class CombatActionResolver:
 
         # Execute via dnd_engine
         try:
+            # Check for on-hit class features BEFORE the attack (Sneak Attack, Divine Smite)
+            # These arm extra damage that will be included in the attack's damage rolls
+            if metadata.get("type") == "dnd_action" and "Attack" in action_class.__name__:
+                actor_id = action.get("actor", "")
+                target_id = action.get("target", "")
+                if actor_id and target_id:
+                    try:
+                        class_feat_engine = self.dnd_wrapper.class_feature_engine()
+                        features = class_feat_engine.on_hit_features(actor_id, target_id)
+                        for feature_entry in features:
+                            feature_id = feature_entry.get("id", "")
+                            if feature_id:
+                                result = class_feat_engine.use(actor_id, feature_id, target_id)
+                                if result.success:
+                                    self.logger.debug(
+                                        f"   ⚔️ Armed {feature_entry.get('name', feature_id)} "
+                                        f"for {actor_id}'s attack"
+                                    )
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Failed to arm on-hit features: {e}")
+
             # Instantiate and apply action
             action_instance = action_class(**kwargs)
             event = action_instance.apply()

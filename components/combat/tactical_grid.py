@@ -254,10 +254,6 @@ class TacticalGrid:
             logger.debug(f"   FOV failed for {char_id}: {e}")
             return set()
 
-    def has_line_of_sight(self, a: str, b: str) -> bool:
-        target = self.position_of(b)
-        return target is not None and target in self.visible_positions(a)
-
     def has_cover(self, char_id: str) -> bool:
         position = self.position_of(char_id)
         return position is not None and self.map.is_cover(position)
