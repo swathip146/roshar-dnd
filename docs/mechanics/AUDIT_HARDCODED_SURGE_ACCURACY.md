@@ -52,18 +52,18 @@ books), each with two surges.
 Computed from `data/rules/stormlight/surgebinding.json` and each entry's `surge_type` /
 `requires_order` in `ACTION_REGISTRY`, 2026-09-12:
 
-| Surge | Class | Orders holding this surge |
-|---|---|---|
+| Surge | Class | Orders holding this surge | |
+|---|---|---|---|
 | Gravitation | `lashing` | Windrunner, Skybreaker |
 | Progression | `progression_healing` | Edgedancer, Truthwatcher |
 | Illumination | `illumination` | Truthwatcher, Lightweaver |
 | Transformation | `soulcast` | Lightweaver, Elsecaller |
-| **Abrasion** | ❌ none | Edgedancer, Dustbringer |
-| **Adhesion** | ❌ none | Windrunner, Bondsmith |
-| **Cohesion** | ❌ none | Willshaper, Stoneward |
-| **Division** | ❌ none | Skybreaker, Dustbringer |
-| **Tension** | ❌ none | Stoneward, Bondsmith |
-| **Transportation** | ❌ none | Elsecaller, Willshaper |
+| **Abrasion** | ❌ none | Edgedancer, Dustbringer |COMMENT: implement and wire now completely
+| **Adhesion** | ❌ none | Windrunner, Bondsmith |COMMENT: implement and wire now completely
+| **Cohesion** | ❌ none | Willshaper, Stoneward |COMMENT: implement and wire now completely
+| **Division** | ❌ none | Skybreaker, Dustbringer |COMMENT: implement and wire now completely
+| **Tension** | ❌ none | Stoneward, Bondsmith |COMMENT: implement and wire now completely
+| **Transportation** | ❌ none | Elsecaller, Willshaper |COMMENT: implement and wire now completely
 
 **4 of 10 surges have an implementation. Six have none.**
 
@@ -116,10 +116,10 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 
 | Mechanic | Implemented? | Reachable? | Accuracy | Evidence | Gap/notes | Comment |
 |---|---|---|---|---|---|---|
-| Flat sphere cost per cast | ✅ | ✅ | ❌ | `roshar_actions.py:91` `stormlight_cost: int = 1` (also 2 and 3 in other classes) | The real economies are **Lashing Dice** (Windrunner) and **Investiture Points** (all other orders), both of which refresh on rest rather than depleting a currency 1:1 per cast. | |
-| Cantrips are free | ❌ | ❌ | ❌ | `surgebinding.json` records cantrip cost as `{'investiture_points': 0}`; the book agrees | **A player is charged a sphere for a free ability, right now.** Affects `Lashing`, `Illumination`, `Soulcast`. | |
-| Long-rest refill gated on Stormlight intake | ❌ | ❌ | ❌ | `HB:13133-13141`, verified verbatim | Refill requires intaking level × 5 sapphire marks, exactly as HP does. Not modelled. | |
-| Polestone crack/drain on material components | ❌ | ❌ | ❌ | `HB:13231-13241` | Three outcomes: crack (no change given), drain, or untouched if interrupted — and the cost is paid **even when the art fails**. | |
+| Flat sphere cost per cast | ✅ | ✅ | ❌ | `roshar_actions.py:91` `stormlight_cost: int = 1` (also 2 and 3 in other classes) | The real economies are **Lashing Dice** (Windrunner) and **Investiture Points** (all other orders), both of which refresh on rest rather than depleting a currency 1:1 per cast. | COMMENT: implement and wire now completely|
+| Cantrips are free | ❌ | ❌ | ❌ | `surgebinding.json` records cantrip cost as `{'investiture_points': 0}`; the book agrees | **A player is charged a sphere for a free ability, right now.** Affects `Lashing`, `Illumination`, `Soulcast`. |COMMENT: implement and wire now completely |
+| Long-rest refill gated on Stormlight intake | ❌ | ❌ | ❌ | `HB:13133-13141`, verified verbatim | Refill requires intaking level × 5 sapphire marks, exactly as HP does. Not modelled. |COMMENT: implement and wire now completely |
+| Polestone crack/drain on material components | ❌ | ❌ | ❌ | `HB:13231-13241` | Three outcomes: crack (no change given), drain, or untouched if interrupted — and the cost is paid **even when the art fails**. | COMMENT: implement and wire now completely|
 
 ## 4. Per-class field detail
 
@@ -127,13 +127,14 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
-| Resource cost | 1 Stormlight sphere | Lashing Dice, or 0 for the cantrip | ❌ | |
-| Duration | 10 rounds | Not stated as 10 rounds anywhere | ❌ | |
-| Save / DC | none | `Adhesion` cantrip sets a STR (Athletics) DC of `8 + proficiency bonus`, rising at levels 5/11/17 | ❌ | |
-| Damage | none | The maneuvers carry damage; the cantrip does not | ⚠️ | |
+| Resource cost | 1 Stormlight sphere | Lashing Dice, or 0 for the cantrip | ❌ |COMMENT: implement and wire now completely |
+| Duration | 10 rounds | Not stated as 10 rounds anywhere | ❌ |COMMENT: implement and wire now completely |
+| Save / DC | none | `Adhesion` cantrip sets a STR (Athletics) DC of `8 + proficiency bonus`, rising at levels 5/11/17 | ❌ | COMMENT: implement and wire now completely|
+| Damage | none | The maneuvers carry damage; the cantrip does not | ⚠️ | COMMENT: implement and wire now completely|
 | Order gate | Windrunner, Skybreaker | Correct — both have Gravitation | ✅ | |
 
 ### 4.2 `ShardbladeAttack` (`roshar_actions.py:225`)
+COMMENT: implement and wire now completely
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -144,6 +145,7 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 | Is it an Invested Art? | modelled as a surge | **No** — confirmed absent from the Invested Arts book; it is equipment | ❌ | |
 
 ### 4.3 `ProgressionHealing` (`roshar_actions.py:329`)
+COMMENT: implement and wire now completely
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -154,6 +156,7 @@ Every one of the five charges a flat "Stormlight sphere" cost. The book uses nei
 | Order gate | Edgedancer, Truthwatcher | Correct — both have Progression | ✅ | |
 
 ### 4.4 `Illumination` (`roshar_actions.py:495`)
+COMMENT: implement and wire now completely
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -165,6 +168,7 @@ The order gate is a correctness bug independent of the cost issue: a Lightweaver
 happens to be an Elsecaller can currently use an art their order does not possess.
 
 ### 4.5 `Soulcast` (`roshar_actions.py:590`)
+COMMENT: implement and wire now completely
 
 | Field | Code value | Book value | Accuracy | Comment |
 |---|---|---|---|---|
@@ -176,8 +180,8 @@ happens to be an Elsecaller can currently use an art their order does not posses
 
 | Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | Comment |
 |---|---|---|---|---|---|
-| `surges` automation trees | ❌ | ❌ | All 10 entries in `surgebinding.json` have `automation: null` and `automation_status: "not_in_source"` — verified by enumeration | Nulled **because the book was missing**. That reason no longer holds: every surge now has cited book text sufficient to author a real cantrip-tier tree, and 6 also have deep leveled-art lists. | |
-| Anything reads the `surges` key | ❌ | ❌ | `grep` for `['surges']` in components/agents → only `cosmere_rules.py:128`, which reads an order's surge *names*, not the entries | Authoring alone will not make them playable; a consumer is also needed. | |
+| `surges` automation trees | ❌ | ❌ | All 10 entries in `surgebinding.json` have `automation: null` and `automation_status: "not_in_source"` — verified by enumeration | Nulled **because the book was missing**. That reason no longer holds: every surge now has cited book text sufficient to author a real cantrip-tier tree, and 6 also have deep leveled-art lists. | COMMENT: implement and wire now completely |
+| Anything reads the `surges` key | ❌ | ❌ | `grep` for `['surges']` in components/agents → only `cosmere_rules.py:128`, which reads an order's surge *names*, not the entries | Authoring alone will not make them playable; a consumer is also needed. | COMMENT: implement and wire now completely|
 
 ## 6. Numbers the code invented
 
