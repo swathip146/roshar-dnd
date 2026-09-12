@@ -194,7 +194,9 @@ class TestCombatActionResolverFunctional:
         the resolver fall through to "Unknown action" at dispatch time rather than
         failing here. `spell_action` was added when 5e spellcasting landed — a
         genuinely new category, not a typo, since a spell is dispatched neither like
-        a dnd_action nor like a Roshar surge.
+        a dnd_action nor like a Roshar surge. `art_action` was added the same way
+        when Invested Arts (`cast_art`) landed — dispatched via compile_art +
+        InvestiturePointLedger, distinct from spells and surges.
         """
         for action_type, metadata in action_resolver.ACTION_REGISTRY.items():
             # Verify type is valid
@@ -202,6 +204,7 @@ class TestCombatActionResolverFunctional:
                 "dnd_action",
                 "dnd_condition",
                 "spell_action",
+                "art_action",
                 "roshar_action",
                 "roshar_equipment",
                 "roshar_condition"

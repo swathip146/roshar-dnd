@@ -138,6 +138,27 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost": 1,
         "requires": "spellcasting",
     },
+
+    # ========================================================================
+    # INVESTED ARTS (plan 2.9)
+    #
+    # Mirrors cast_spell but spends Investiture Points instead of spell slots.
+    # The art_name default is CRITICAL — without it, is_offerable() returns
+    # False and the action is filtered out of both menus (the exact bug that
+    # made cast_spell unplayable until 2026-09-11).
+    # ========================================================================
+
+    "cast_art": {
+        "type": "art_action",
+        "action_class": None,
+        "description": "Use an Invested Art",
+        "params": ["target_entity_uuid", "art_name"],
+        # art_name MUST have a default or the action is not offerable
+        "param_defaults": {"art_name": None},
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": "invested_arts",
+    },
 }
 
 
@@ -199,13 +220,15 @@ if ROSHAR_ACTIONS_AVAILABLE:
         "illumination": {
             "type": "roshar_action",
             "action_class": Illumination,
-            "description": "Weave light and sound into an illusion (Lightweaver)",
+            "description": "Weave light and sound into an illusion (Lightweaver/Truthwatcher)",
             "params": ["target_entity_uuid", "illusion_type"],
             "param_defaults": {"illusion_type": "figment"},
             "cost_type": "actions",
             "cost": 1,
             "stormlight_cost": 1,
-            "requires_order": ["Lightweaver", "Elsecaller"],
+            # Fix per AUDIT_HARDCODED_SURGE_ACCURACY.md §4.4: Illumination belongs to
+            # Lightweaver + Truthwatcher, not Lightweaver + Elsecaller
+            "requires_order": ["Lightweaver", "Truthwatcher"],
             "min_surgebinding_level": 1,
             "surge_type": "Illumination"
         },
@@ -481,6 +504,17 @@ def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
         allowed, reason = can_cast_any(actor_state)
         if not allowed:
             return f"cannot cast spells: {reason}"
+    elif requires == "invested_arts":
+        # Same pattern: `cast_art` is offerable for everyone (the resolver can
+        # supply every parameter), so without this a goblin would be offered
+        # cast_art and the resolver would refuse it every round. Only actors with
+        # Investiture Points can use arts.
+        ip_pool = read("investiture_points", {})
+        if not isinstance(ip_pool, dict):
+            return "no Investiture Points"
+        max_ip = int(ip_pool.get("maximum", 0) or 0)
+        if max_ip <= 0:
+            return "no Invested Arts capability"
 
     return None
 

@@ -235,8 +235,11 @@ class TestUsableActionsGatesOnActorState:
         Also checked nowhere before. Lashing costs 1, Illumination 1, Progression 2,
         Soulcast 3 — so a Radiant holding 2 spheres gets a partial menu, not all
         or nothing.
+
+        Updated: Elsecaller has Transformation + Transportation, not Illumination.
+        Testing with Lightweaver (who has both Illumination and Soulcast).
         """
-        dim = {"radiant_order": "Elsecaller", "surgebinding_level": 3,
+        dim = {"radiant_order": "Lightweaver", "surgebinding_level": 3,
                "stormlight_current": 2}
         assert is_usable_by("illumination", dim) is True     # 1
         assert is_usable_by("soulcast", dim) is False        # 3
