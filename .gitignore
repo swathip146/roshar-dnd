@@ -208,3 +208,8 @@ floodgate_token*
 .floodgate
 .floodgate*
 secrets/
+
+# Source rulebooks/campaign PDFs and images (149M, 191 files) — shared via Drive
+# instead of git so clones and pushes stay fast. Untracked 2026-09-11; still present
+# in this branch's history before that commit.
+resources/
