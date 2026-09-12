@@ -540,23 +540,29 @@ class TestAttacksResolve:
 
 class TestProficiencyReachesAttackRolls:
     """
-    A DELIBERATE, DOCUMENTED deviation from the vendored engine.
+    Proficiency must reach weapon attack rolls — applied EXACTLY ONCE.
 
-    `dnd_engine` applies `proficiency_bonus` to SKILLS ONLY — grep it: entity.py
-    declares the field, skills.py consumes it, actions.py never mentions it. That
-    is not RAW: a proficient character adds it to weapon attacks. So the wrapper
-    adds it to the weapon's attack bonus.
-
-    Asserted explicitly so the deviation is visible and cannot regress silently.
+    The vendored engine already folds `proficiency_bonus` into
+    `Entity.attack_bonus()` (via `_get_attack_bonuses` -> `combine_values`), so
+    the wrapper must NOT also write it onto the weapon or it double-counts. A
+    mundane weapon therefore carries attack_bonus 0; proficiency comes from the
+    entity. See tests/combat/test_proficiency_on_attacks.py for the full RAW pin.
     """
 
-    def test_the_weapon_carries_the_proficiency_bonus(self, arena):
+    def test_the_weapon_carries_no_proficiency_bonus(self, arena):
+        """A mundane weapon carries 0; proficiency reaches the roll via the entity."""
+        from dnd.blocks.equipment import WeaponSlot
         wrapper, _ = arena
-        weapon = wrapper.entities["hero"].equipment.weapon_main_hand
+        hero = wrapper.entities["hero"]
+        weapon = hero.equipment.weapon_main_hand
         assert weapon is not None, "fighting unarmed"
-        assert weapon.attack_bonus.score == 3, (
-            "proficiency is missing from the attack bonus, so a proficient "
-            "character attacks at ability modifier alone (~30% vs AC 14)")
+        assert weapon.attack_bonus.score == 0, (
+            "a mundane weapon carries no attack bonus of its own; "
+            "proficiency comes from the entity, not the weapon")
+        str_mod = hero.ability_scores.strength.modifier
+        prof = hero.proficiency_bonus.normalized_score
+        assert hero.attack_bonus(WeaponSlot.MAIN_HAND).normalized_score == str_mod + prof, (
+            "proficiency must reach the attack roll exactly once")
 
     def test_a_real_weapon_is_equipped(self, arena):
         wrapper, _ = arena

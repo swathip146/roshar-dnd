@@ -56,6 +56,23 @@ from components.dnd_engine_wrapper import DnDEngineWrapper
 
 ALL_SURGES = ("lashing", "progression_healing", "illumination", "soulcast")
 
+# The three actions any combatant can always take. Until standard_actions.py was
+# wired into ACTION_REGISTRY (handoff item 5) these were the WHOLE menu for a
+# non-Radiant, so several tests below asserted exact equality with this set. They now
+# co-exist with the eight universal PHB actions, so those tests assert the real INTENT
+# instead — the mundane baseline is present and NO surge leaks in.
+MUNDANE_ACTIONS = {"attack", "dash", "dodge"}
+
+# The PHB actions from components/combat/standard_actions.py. They are UNIVERSAL (any
+# creature may attempt them) and their per-action OUTCOME — a lost Grapple/Shove
+# contest, an empty Search, an absent off-hand weapon for two-weapon fighting — is a
+# valid result, exercised exhaustively in tests/combat/test_standard_actions.py. That
+# is a different thing from the surge-trap this file guards against (offering a goblin
+# a Lashing its own _validate can only cancel), so `_resolve_each` skips them: a random
+# contest loss must not read as a menu bug.
+STANDARD_ACTIONS = ("grapple", "shove", "help", "disengage", "hide", "search",
+                    "ready", "two_weapon_attack")
+
 # Who is in every fixture combat, and what they are.
 CAST = {
     # A plain monster: the actor that was being offered four Surges.
@@ -174,7 +191,8 @@ class TestUsableActionsGatesOnActorState:
     def test_a_goblin_still_gets_the_mundane_actions(self):
         """Filtering must not empty the menu — a goblin must still be able to hit."""
         usable = set(usable_actions(self.GOBLIN))
-        assert usable == {"attack", "dash", "dodge"}, usable
+        assert MUNDANE_ACTIONS <= usable, usable        # can still fight
+        assert not (set(ALL_SURGES) & usable), usable   # but no surges
 
     def test_a_windrunner_gets_lashing_and_not_the_others(self):
         usable = set(usable_actions(self.WINDRUNNER))
@@ -227,7 +245,9 @@ class TestUsableActionsGatesOnActorState:
     def test_a_drained_radiant_gets_no_surges(self):
         drained = {"radiant_order": "Windrunner", "surgebinding_level": 3,
                    "stormlight_current": 0}
-        assert set(usable_actions(drained)) == {"attack", "dash", "dodge"}
+        usable = set(usable_actions(drained))
+        assert MUNDANE_ACTIONS <= usable
+        assert not (set(ALL_SURGES) & usable), usable
 
     def test_shardblade_needs_a_summoned_blade(self):
         """
@@ -262,8 +282,10 @@ class TestUsableActionsGatesOnActorState:
         the check when the attribute is absent, so absent state read as permission.
         An actor with no Roshar state at all must get no surges.
         """
-        assert set(usable_actions({})) == {"attack", "dash", "dodge"}
-        assert set(usable_actions(None)) == {"attack", "dash", "dodge"}
+        for actor in ({}, None):
+            usable = set(usable_actions(actor))
+            assert MUNDANE_ACTIONS <= usable
+            assert not (set(ALL_SURGES) & usable), usable
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +409,14 @@ class TestEverythingOfferedActuallyResolves:
         target = "goblin" if actor != "goblin" else "windrunner"
         refusals = []
         for action_type in menu:
+            # A universal PHB action that fails a die roll (a lost Grapple/Shove
+            # contest, an empty Search) or an unmet per-action prerequisite (no
+            # off-hand weapon for two-weapon fighting) cancels its event — which is a
+            # valid OUTCOME, not the surge-trap this file exists to catch, and is
+            # verified in tests/combat/test_standard_actions.py. Skipping keeps this
+            # invariant focused on "no actor is offered a Surge it can never resolve".
+            if action_type in STANDARD_ACTIONS:
+                continue
             wrapper.entities[actor].action_economy.reset_all_costs()
             result = resolver.resolve_action({"actor": actor,
                                               "action_type": action_type,
