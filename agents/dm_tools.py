@@ -177,7 +177,7 @@ def _active_actor(actor: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 @tool
-def roll_skill_check(skill: str, dc: int, actor: str = "") -> Dict[str, Any]:
+def roll_skill_check(skill: str, dc: int, actor: str = "", required_tool: str = "") -> Dict[str, Any]:
     """
     Roll an ability or skill check and return the real result.
 
@@ -188,20 +188,32 @@ def roll_skill_check(skill: str, dc: int, actor: str = "") -> Dict[str, Any]:
         skill: The skill or ability, e.g. "stealth", "persuasion", "athletics"
         dc: Difficulty Class, 5 (trivial) to 25 (near-impossible)
         actor: Character id; defaults to the acting party member
+        required_tool: Optional tool required for this check (e.g., "thieves' tools").
+                      If set, proficiency bonus only applies if the character has
+                      this tool proficiency. Leave empty for normal skill checks.
 
     Returns:
-        success, selected_roll, roll_total, dc, character_modifier
+        success, selected_roll, roll_total, dc, character_modifier, and if a tool
+        was required: required_tool, has_required_tool, tool_proficiency_applied
     """
     try:
         engine = _need("game_engine")
         actor_id = _active_actor(actor)
-        result = engine.process_skill_check({
+
+        check_request = {
             "actor": actor_id,
             "skill": skill,
             "dc": int(dc),
             "context": {"source": "dm_tool"},
-        })
-        return {
+        }
+
+        # Add required_tool if provided
+        if required_tool:
+            check_request["required_tool"] = required_tool
+
+        result = engine.process_skill_check(check_request)
+
+        response = {
             "actor": actor_id,
             "skill": skill,
             "dc": result.get("dc", dc),
@@ -211,6 +223,14 @@ def roll_skill_check(skill: str, dc: int, actor: str = "") -> Dict[str, Any]:
             "success": bool(result.get("success")),
             "advantage_state": result.get("advantage_state", "normal"),
         }
+
+        # Include tool proficiency information if present
+        if "required_tool" in result:
+            response["required_tool"] = result["required_tool"]
+            response["has_required_tool"] = result["has_required_tool"]
+            response["tool_proficiency_applied"] = result["tool_proficiency_applied"]
+
+        return response
     except Exception as e:
         logger.warning(f"⚠️ roll_skill_check failed: {e}")
         return {"error": str(e), "success": False}

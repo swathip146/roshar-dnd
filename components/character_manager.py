@@ -544,10 +544,17 @@ class CharacterManager:
 
         return None
 
-    def get_skill_data(self, character_id: str, skill: str) -> Dict[str, Any]:
+    def get_skill_data(self, character_id: str, skill: str, required_tool: Optional[str] = None) -> Dict[str, Any]:
         """
         Get complete skill data for character - Step 2 of 7-step pipeline
         From Original Plan: "Character Manager → skill/ability mod, conditions"
+
+        Args:
+            character_id: Character identifier
+            skill: Skill name (e.g., "stealth", "sleight_of_hand")
+            required_tool: Optional tool required for this check (e.g., "thieves' tools").
+                          If set, proficiency bonus is only applied if the character
+                          has this tool proficiency.
         """
         if character_id not in self.characters:
             # Resolve by name or case-insensitive id before giving up: the DM
@@ -587,16 +594,29 @@ class CharacterManager:
         # Check proficiency
         is_proficient = character.skills.get(skill.lower(), False)
         expertise = skill.lower() in character.expertise_skills
-        
+
+        # Tool proficiency gate: if a tool is required, proficiency bonus is only
+        # applied if the character has that tool proficiency
+        has_required_tool = True
+        tool_proficiency_applied = False
+        if required_tool:
+            has_required_tool = self.has_tool_proficiency(character_id, required_tool)
+            if not has_required_tool:
+                logger.debug(f"🔧 {character_id} lacks tool proficiency: {required_tool}")
+
         # Calculate skill modifier
         skill_modifier = ability_modifier
-        
-        if is_proficient:
+
+        # Apply proficiency bonus only if:
+        # 1. Character is proficient in the skill, AND
+        # 2. Either no tool is required, OR the character has the required tool
+        if is_proficient and has_required_tool:
+            tool_proficiency_applied = True
             if expertise:
                 skill_modifier += character.proficiency_bonus * 2  # Double proficiency
             else:
                 skill_modifier += character.proficiency_bonus
-        
+
         # Check for other bonuses (features, magic items, etc.)
         other_bonuses = {}
         
@@ -606,23 +626,31 @@ class CharacterManager:
         
         total_other_bonus = sum(other_bonuses.values())
         total_modifier = skill_modifier + total_other_bonus
-        
-        return {
+
+        result = {
             "character_id": character_id,
             "skill": skill,
             "ability": ability.value,
             "ability_modifier": ability_modifier,
-            "proficiency_bonus": character.proficiency_bonus if is_proficient else 0,
+            "proficiency_bonus": character.proficiency_bonus if (is_proficient and has_required_tool) else 0,
             "is_proficient": is_proficient,
             "expertise": expertise,
             "other_bonuses": other_bonuses,
             "modifier": total_modifier,
             "conditions": character.conditions,
             "level": character.level,
-            "breakdown": self._build_skill_breakdown(skill, ability_modifier, 
-                                                   character.proficiency_bonus if is_proficient else 0,
+            "breakdown": self._build_skill_breakdown(skill, ability_modifier,
+                                                   character.proficiency_bonus if (is_proficient and has_required_tool) else 0,
                                                    expertise, other_bonuses)
         }
+
+        # Add tool proficiency information if a tool was required
+        if required_tool:
+            result["required_tool"] = required_tool
+            result["has_required_tool"] = has_required_tool
+            result["tool_proficiency_applied"] = tool_proficiency_applied
+
+        return result
     
     def get_ability_modifier(self, character_id: str, ability: str) -> int:
         """Get ability modifier for character"""
@@ -667,11 +695,39 @@ class CharacterManager:
             "breakdown": f"{ability_modifier} (ability) + {character.proficiency_bonus if is_proficient else 0} (prof) = {modifier}"
         }
     
+    def has_tool_proficiency(self, character_id: str, tool: str) -> bool:
+        """
+        Check if a character has proficiency with a specific tool.
+
+        Args:
+            character_id: Character identifier
+            tool: Tool name (case-insensitive), e.g., "thieves' tools", "disguise kit"
+
+        Returns:
+            True if the character has proficiency with the tool, False otherwise
+        """
+        if character_id not in self.characters:
+            # Resolve by name or case-insensitive id (same as get_skill_data)
+            resolved = self.resolve_character_id(character_id)
+            if resolved:
+                character_id = resolved
+
+        if character_id not in self.characters:
+            logger.debug(f"🔧 Character {character_id} not found for tool proficiency check")
+            return False
+
+        character = self.characters[character_id]
+        tool_profs = character.tool_proficiencies or []
+
+        # Case-insensitive comparison - normalize both tool name and stored proficiencies
+        tool_normalized = tool.lower().strip()
+        return any(prof.lower().strip() == tool_normalized for prof in tool_profs)
+
     def update_character_condition(self, character_id: str, condition: str, add: bool = True):
         """Add or remove character condition"""
         if character_id not in self.characters:
             return False
-        
+
         character = self.characters[character_id]
         
         if add and condition not in character.conditions:

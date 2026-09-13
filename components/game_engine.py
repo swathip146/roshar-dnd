@@ -196,14 +196,25 @@ class GameEngine:
     def process_skill_check(self, check_request: Dict[str, Any]) -> Dict[str, Any]:
         """
         7-step deterministic skill check pipeline - Exact from Original Plan
-        
+
         Step 1: Rules Enforcer → do we need a check? derive DC
-        Step 2: Character Manager → skill/ability mod, conditions  
+        Step 2: Character Manager → skill/ability mod, conditions
         Step 3: Policy Engine → advantage/disadvantage, house rules
         Step 4: Dice Roller → raw rolls (logged)
         Step 5: Rules Enforcer → compare vs DC, success/fail
         Step 6: Game Engine → apply state, log outcome
         Step 7: Decision Log → roll breakdown, DC provenance, advantage sources
+
+        Args:
+            check_request: Dict with keys:
+                - actor: character_id performing the check
+                - skill: skill name (e.g., "stealth", "sleight_of_hand")
+                - dc: optional explicit difficulty class
+                - required_tool: optional tool name (e.g., "thieves' tools").
+                                 If set, proficiency bonus only applies if the character
+                                 has this tool proficiency.
+                - context: additional context for the check
+                - correlation_id: optional ID for tracking
         """
         correlation_id = check_request.get("correlation_id", str(uuid.uuid4()))
         
@@ -242,8 +253,11 @@ class GameEngine:
                 logger.warning(f"⚠️ Ignoring non-numeric requested DC: {requested_dc!r}")
         
         # Step 2: Character Manager → skill/ability mod, conditions
+        # Pass through optional required_tool for tool proficiency gating
         char_data = self.character_manager.get_skill_data(
-            check_request["actor"], check_request.get("skill", "")
+            check_request["actor"],
+            check_request.get("skill", ""),
+            required_tool=check_request.get("required_tool")
         )
         
         # Step 3: Policy Engine → advantage/disadvantage, house rules  
@@ -307,6 +321,12 @@ class GameEngine:
             "skill": check_request.get("skill", ""),
             "timestamp": time.time()
         }
+
+        # Include tool proficiency information if a tool was required
+        if "required_tool" in char_data:
+            outcome["required_tool"] = char_data["required_tool"]
+            outcome["has_required_tool"] = char_data["has_required_tool"]
+            outcome["tool_proficiency_applied"] = char_data["tool_proficiency_applied"]
         
         self._apply_skill_check_outcome(check_request, outcome)
         
