@@ -912,7 +912,12 @@ class CombatSessionManager:
 
     def _categorize_action(self, action_type: str, metadata: Dict) -> str:
         """Determine which UI category an action belongs to."""
-        # Check if it's a bonus action
+        # Check cost_type from metadata directly (for class features and actions without action_class)
+        cost_type = metadata.get("cost_type")
+        if cost_type == "bonus_actions":
+            return "bonus_actions"
+
+        # Check if it's a bonus action via action_class
         action_class = metadata.get("action_class")
         if action_class and hasattr(action_class, "cost_type"):
             if action_class.cost_type == "bonus_actions":
@@ -922,6 +927,13 @@ class CombatSessionManager:
         if metadata.get("type") in ["dnd_condition", "roshar_condition"]:
             # Conditions like Dash, Dodge are utility
             return "utility"
+        elif metadata.get("type") == "class_feature":
+            # Class features (Rage, Second Wind, Action Surge)
+            # Rage and Second Wind are bonus actions, Action Surge is free
+            if action_type == "action_surge":
+                return "utility"
+            else:
+                return "bonus_actions"
         elif action_type in ["attack", "shardblade_attack", "lashing", "progression_healing"]:
             # Offensive/active actions
             return "standard_actions"

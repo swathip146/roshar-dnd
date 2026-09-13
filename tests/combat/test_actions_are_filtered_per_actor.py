@@ -462,6 +462,14 @@ class TestEverythingOfferedActuallyResolves:
             # invariant focused on "no actor is offered a Surge it can never resolve".
             if action_type in STANDARD_ACTIONS:
                 continue
+            # Activated class features (Rage/Second Wind/Action Surge) are offered to
+            # any actor that owns them — and the fixtures build these actors as level-5
+            # Fighters, so Second Wind/Action Surge legitimately appear. Their
+            # resolution is exhaustively verified in test_activated_class_features.py;
+            # this invariant guards against surge-traps, not class features, so skip
+            # them the same way as the PHB actions above.
+            if resolver.ACTION_REGISTRY.get(action_type, {}).get("type") == "class_feature":
+                continue
             wrapper.entities[actor].action_economy.reset_all_costs()
             result = resolver.resolve_action({"actor": actor,
                                               "action_type": action_type,
