@@ -700,17 +700,35 @@ def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
         if not isinstance(ip_pool, dict):
             return "no Investiture Points"
         max_ip = int(ip_pool.get("maximum", 0) or 0)
+        current_ip = int(ip_pool.get("current", 0) or 0)
         if max_ip <= 0:
             return "no Invested Arts capability"
-        # And there must be a CASTABLE art. `_cast_art` compiles and runs an art's
-        # `automation` tree; the only arts authored so far are cantrips that carry
-        # no automation (they defer to surgebinding.json prose), so cast_art would
-        # refuse every time — the same menu-trap the gates above exist to stop.
-        # Gate on a real automation tree so cast_art becomes offerable
-        # automatically once an executable art is authored.
+        # And there must be a CASTABLE, AFFORDABLE art for this order.
+        # `_cast_art` auto-selects the first art this order owns with automation
+        # that the actor can afford. Gate must match: offer cast_art IFF such an
+        # art exists.
+        order = read("radiant_order") or ""
+        if not order:
+            return "not a Radiant"
         from components.cosmere_rules import get_cosmere_rules
-        if not any(a.get("automation") for a in get_cosmere_rules().arts()):
-            return "no castable Invested Art available yet"
+        rules = get_cosmere_rules()
+        for art in rules.arts():
+            # Check if this order can use this art
+            art_orders = art.get("orders", [])
+            if not art_orders or order not in art_orders:
+                continue
+            # Check if it has automation
+            if not art.get("automation"):
+                continue
+            # Check affordability (cantrips are free, leveled arts cost IP)
+            art_level = int(art.get("art_level", 0) or 0)
+            if art_level > 0:
+                cost = rules.investiture_cost(art_level, order)
+                if cost > current_ip:
+                    continue
+            # Found an affordable, castable art for this order
+            return None  # Offerable
+        return "no affordable Invested Art for this order"
     elif requires == "surge":
         # `cast_surge` is offerable for everyone (the resolver supplies every
         # parameter), so — like cast_spell/cast_art — a per-actor gate is what

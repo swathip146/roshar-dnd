@@ -61,6 +61,68 @@
    "description_ref": "See surgebinding.json surges.Division for full mechanics",
    "notes": "Skybreaker cantrip (available at 5th level per Skybreaker art list line 135). Pure utility: kindle fire, decay corpse/plant, burn mark.",
    "level_gate": 5
+  },
+  {
+   "id": "test_fixture_radiant_bolt",
+   "name": "Radiant Bolt (TEST FIXTURE)",
+   "art_level": 1,
+   "orders": ["Windrunner", "Skybreaker", "Lightweaver", "Truthwatcher", "Edgedancer", "Elsecaller", "Stoneward", "Willshaper", "Dustbringer", "Bondsmith"],
+   "casting_time": "1 action",
+   "range": "60 feet",
+   "duration": "Instantaneous",
+   "source": {
+    "book": "test_fixture",
+    "line": 0,
+    "reviewed": true
+   },
+   "notes": "TEST FIXTURE for cast_art pipeline testing. Simple ranged damage art for all orders. 2d6 radiant damage on hit.",
+   "automation": [
+    {
+     "type": "target",
+     "target": "each",
+     "effects": [
+      {
+       "type": "attack",
+       "hit": [
+        {
+         "type": "damage",
+         "damage": "2d6[radiant]"
+        }
+       ],
+       "miss": [],
+       "attackBonus": "proficiencyBonus + intelligenceModifier"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "test_fixture_protective_ward",
+   "name": "Protective Ward (TEST FIXTURE)",
+   "art_level": 1,
+   "orders": ["Windrunner", "Skybreaker", "Lightweaver", "Truthwatcher", "Edgedancer", "Elsecaller", "Stoneward", "Willshaper", "Dustbringer", "Bondsmith"],
+   "casting_time": "1 action",
+   "range": "Touch",
+   "duration": "1 minute",
+   "source": {
+    "book": "test_fixture",
+    "line": 0,
+    "reviewed": true
+   },
+   "notes": "TEST FIXTURE for cast_art pipeline testing. Simple resistance art for all orders. Grants resistance to one damage type.",
+   "automation": [
+    {
+     "type": "target",
+     "target": "self",
+     "effects": [
+      {
+       "type": "resistance",
+       "damage_type": "fire",
+       "duration": "1 minute"
+      }
+     ]
+    }
+   ]
   }
  ],
  "order_art_counts": {

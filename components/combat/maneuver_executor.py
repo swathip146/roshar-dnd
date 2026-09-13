@@ -105,7 +105,8 @@ def _parse_damage_type_for_resistance(damage_type_str: str):
 KNOWN_NODES = frozenset({
     "target", "save", "damage", "attack", "roll", "ieffect2",
     "area_of_effect", "check", "resistance",
-    "utility", "forced_move", "choice"
+    "utility", "forced_move", "choice",
+    "illusion", "teleport", "summon", "create_object", "reaction"
 })
 
 # The only placeholder in the reviewed data.
@@ -803,6 +804,188 @@ class ManeuverExecutor:
         logger.info(f"      🔀 chose '{label}'")
         self._run_nodes(chosen.get("effects") or [], actor, list(targets or []),
                         result)
+
+    # ------------------------------------------------- Invested Arts nodes (arts-infra)
+
+    def _node_illusion(self, node, actor, targets, result) -> None:
+        """
+        Create an illusion that can be disbelieved with an Investigation check.
+
+        Records the illusion as an effect with the disbelief DC. Targets who interact
+        may make an Investigation check to disbelieve. The combat session decides when
+        and how to adjudicate disbelief attempts — this node records the DC and
+        description so the effect is inspectable.
+        """
+        description = str(node.get("description") or "an illusion")
+        dc = self._resolve_dc(node.get("dc", 10), actor)
+        duration = str(node.get("duration") or "1 minute")
+
+        # Record the illusion as an effect for session visibility
+        effect = {
+            "name": f"Illusion: {description}",
+            "target": actor,  # The caster creates the illusion
+            "duration": duration,
+            "effects": {
+                "illusion": description,
+                "disbelief_dc": dc
+            }
+        }
+        result.effects_applied.append(effect)
+        self._record_effect(actor, effect)
+        result.events.append({
+            "type": "illusion",
+            "caster": actor,
+            "description": description,
+            "dc": dc,
+            "duration": duration
+        })
+        logger.info(f"      🎭 {actor} creates illusion: {description} (DC {dc})")
+
+    def _node_teleport(self, node, actor, targets, result) -> None:
+        """
+        Teleport the actor or a target to a point/within a range.
+
+        Uses the grid/position API like _node_forced_move. Records the teleport as an
+        effect for the session to enact. If the wrapper supports position updates,
+        applies them; otherwise degrades gracefully with a clear recorded effect.
+        """
+        distance_ft = int(node.get("distance_ft", 0) or 0)
+        if distance_ft <= 0:
+            raise AutomationError("teleport node needs a positive distance_ft")
+
+        # Teleport can target self or others
+        for target in (targets or [actor]):
+            effect = {
+                "name": "Teleport",
+                "target": target,
+                "duration": "instant",
+                "effects": {
+                    "teleport_distance_ft": distance_ft,
+                    "description": f"Teleport up to {distance_ft} feet"
+                }
+            }
+            result.effects_applied.append(effect)
+            self._record_effect(target, effect)
+            result.events.append({
+                "type": "teleport",
+                "target": target,
+                "distance_ft": distance_ft
+            })
+            logger.info(f"      🌀 {target} teleports up to {distance_ft} ft")
+
+            # If the wrapper supports position updates, apply them
+            # (For now, just record the effect; actual position update would need
+            # destination coordinates which the current grid doesn't support)
+
+    def _node_summon(self, node, actor, targets, result) -> None:
+        """
+        Summon a temporary creature/ally into play.
+
+        Records the summon as a session-visible effect. If the wrapper supports
+        transient entities, spawns them; otherwise degrades gracefully with a clear
+        recorded effect. Does NOT silently no-op.
+        """
+        creature = str(node.get("creature") or "")
+        if not creature:
+            raise AutomationError("summon node has no `creature`")
+
+        duration = str(node.get("duration") or "1 minute")
+        count = int(node.get("count", 1) or 1)
+
+        effect = {
+            "name": f"Summon {creature}",
+            "target": actor,
+            "duration": duration,
+            "effects": {
+                "summon_creature": creature,
+                "summon_count": count,
+                "description": f"Summons {count} {creature} for {duration}"
+            }
+        }
+        result.effects_applied.append(effect)
+        self._record_effect(actor, effect)
+        result.events.append({
+            "type": "summon",
+            "caster": actor,
+            "creature": creature,
+            "count": count,
+            "duration": duration
+        })
+        logger.info(f"      👥 {actor} summons {count} {creature} for {duration}")
+
+        # NOTE: Full transient entity spawning would require wrapper support.
+        # For now, this records the summon clearly so tests can inspect it.
+        # The session can create NPCs if it implements summon handling.
+        logger.warning(f"      ⚠️  Summon recorded but not spawned (no transient entity API)")
+
+    def _node_create_object(self, node, actor, targets, result) -> None:
+        """
+        Create an object/substance (Soulcast-style).
+
+        Records the created object and any mechanical effect (e.g., cover, difficult
+        terrain). The session decides how to represent the object in the game world.
+        """
+        object_name = str(node.get("object") or "")
+        if not object_name:
+            raise AutomationError("create_object node has no `object`")
+
+        duration = str(node.get("duration") or "permanent")
+        description = str(node.get("description") or f"a {object_name}")
+
+        effect = {
+            "name": f"Create {object_name}",
+            "target": actor,
+            "duration": duration,
+            "effects": {
+                "created_object": object_name,
+                "description": description
+            }
+        }
+        result.effects_applied.append(effect)
+        self._record_effect(actor, effect)
+        result.events.append({
+            "type": "create_object",
+            "caster": actor,
+            "object": object_name,
+            "description": description,
+            "duration": duration
+        })
+        logger.info(f"      🔨 {actor} creates {object_name} ({duration})")
+
+        # If the object grants mechanical effects (cover, difficult terrain, etc.),
+        # they should be in additional effect nodes in the automation tree.
+
+    def _node_reaction(self, node, actor, targets, result) -> None:
+        """
+        Mark an art/effect as reaction-triggered.
+
+        This is a trigger classifier. Full reaction-economy integration is limited by
+        the combat loop (which doesn't model reaction interrupts yet), so this node
+        records the trigger condition clearly and notes the limitation.
+
+        The trigger is recorded in the result so the session can track what triggers
+        the reaction (e.g., "when an ally within 30 feet is hit").
+        """
+        trigger = str(node.get("trigger") or "")
+        if not trigger:
+            raise AutomationError("reaction node has no `trigger`")
+
+        result.events.append({
+            "type": "reaction",
+            "actor": actor,
+            "trigger": trigger,
+            "description": f"Reaction trigger: {trigger}"
+        })
+        logger.info(f"      ⚡ {actor} reaction: {trigger}")
+        logger.warning(f"      ⚠️  Reaction trigger recorded; full reaction economy "
+                      f"not yet integrated into combat loop")
+
+        # The effects that happen when the reaction triggers should be in the
+        # `effects` subtree, which the caller runs after this node.
+        # This node just marks it AS a reaction and records the trigger.
+        if "effects" in node:
+            self._run_nodes(node.get("effects") or [], actor, list(targets or []),
+                            result)
 
     # ------------------------------------------------------------------ teardown
 
