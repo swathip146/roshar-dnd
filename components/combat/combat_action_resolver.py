@@ -261,6 +261,49 @@ class CombatActionResolver:
                 "event": None,
             }
 
+    def _use_class_feature(self, action: Dict[str, Any],
+                           metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve activated class features (Rage, Second Wind, Action Surge).
+
+        Delegates to ClassFeatureEngine.use(), which:
+          - Checks if the actor has the feature and has uses remaining
+          - Spends the use and applies effects (heal, grant-action, melee-damage-bonus)
+          - Manages the lifecycle (tick_round, clear_all)
+        """
+        actor_id = action["actor"]
+        feature_id = metadata.get("feature_id")
+
+        if not feature_id:
+            return {
+                "success": False,
+                "attempted": False,
+                "error": "No feature_id in metadata",
+                "event": None,
+            }
+
+        # Get the ClassFeatureEngine from the wrapper
+        engine = self.dnd_wrapper.class_feature_engine(
+            combat_state=self.combat_state)
+
+        # Use the feature
+        result = engine.use(actor_id, feature_id)
+
+        # Convert FeatureResult to resolver format
+        return {
+            "success": result.success,
+            "attempted": True,  # Always attempted if we got this far
+            "error": result.error if not result.success else None,
+            "event": None,
+            "description": (
+                f"{result.actor} uses {result.feature}" if result.success
+                else f"{result.actor} cannot use {result.feature}: {result.error}"
+            ),
+            "healed": result.healed,
+            "events": result.events,
+            "uses_remaining": result.uses_remaining,
+        }
+
     def resolve_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Unified action resolution for D&D + Roshar.
@@ -371,6 +414,12 @@ class CombatActionResolver:
         elif metadata["type"] in ["dnd_condition", "roshar_condition"]:
             result = self._apply_condition(action, metadata)
             self._consume_action_cost(actor_id, metadata)
+            return result
+        elif metadata["type"] == "class_feature":
+            result = self._use_class_feature(action, metadata)
+            # Only charge the action economy if the feature was actually used
+            if result.get("success") or result.get("attempted"):
+                self._consume_action_cost(actor_id, metadata)
             return result
         else:
             return {

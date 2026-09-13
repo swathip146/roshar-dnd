@@ -205,6 +205,7 @@ class TestCombatActionResolverFunctional:
                 "dnd_condition",
                 "spell_action",
                 "art_action",
+                "class_feature",
                 "roshar_action",
                 "roshar_equipment",
                 "roshar_condition"
