@@ -63,66 +63,97 @@
    "level_gate": 5
   },
   {
-   "id": "test_fixture_radiant_bolt",
-   "name": "Radiant Bolt (TEST FIXTURE)",
-   "art_level": 1,
-   "orders": ["Windrunner", "Skybreaker", "Lightweaver", "Truthwatcher", "Edgedancer", "Elsecaller", "Stoneward", "Willshaper", "Dustbringer", "Bondsmith"],
+   "id": "abrade",
+   "name": "Abrade",
+   "art_level": 0,
+   "orders": ["Edgedancer"],
+   "surge": "Abrasion",
    "casting_time": "1 action",
    "range": "60 feet",
+   "components": ["S"],
    "duration": "Instantaneous",
    "source": {
-    "book": "test_fixture",
-    "line": 0,
+    "book": "invested_arts",
+    "line": 606,
     "reviewed": true
    },
-   "notes": "TEST FIXTURE for cast_art pipeline testing. Simple ranged damage art for all orders. 2d6 radiant damage on hit.",
-   "automation": [
-    {
-     "type": "target",
-     "target": "each",
-     "effects": [
-      {
-       "type": "attack",
-       "hit": [
-        {
-         "type": "damage",
-         "damage": "2d6[radiant]"
-        }
-       ],
-       "miss": [],
-       "attackBonus": "proficiencyBonus + intelligenceModifier"
-      }
-     ]
+   "quote": "You send Abrasion wildly, slicing through the air, toward a creature that you can see within range. The target must succeed on a Dexterity saving throw or take 1d8 axial damage.",
+   "desc": "You send Abrasion wildly, slicing through the air, toward a creature that you can see within range. The target must succeed on a Dexterity saving throw or take 1d8 axial damage. The target gains no benefit from one-quarter, half, or three-quarters cover for this saving throw. This Invested Art's damage increases by 1d8 when you reach 5th level (2d8), 11th level (3d8), and 17th level (4d8).",
+   "dc": {
+    "dc_type": "dex",
+    "dc_success": "none"
+   },
+   "damage": {
+    "damage_type": "axial",
+    "damage_at_character_level": {
+     "1": "1d8",
+     "5": "2d8",
+     "11": "3d8",
+     "17": "4d8"
     }
-   ]
+   }
   },
   {
-   "id": "test_fixture_protective_ward",
-   "name": "Protective Ward (TEST FIXTURE)",
+   "id": "abrasive_bolt",
+   "name": "Abrasive Bolt",
    "art_level": 1,
-   "orders": ["Windrunner", "Skybreaker", "Lightweaver", "Truthwatcher", "Edgedancer", "Elsecaller", "Stoneward", "Willshaper", "Dustbringer", "Bondsmith"],
+   "orders": ["Edgedancer"],
+   "surge": "Abrasion",
    "casting_time": "1 action",
-   "range": "Touch",
-   "duration": "1 minute",
+   "range": "120 feet",
+   "components": ["S"],
+   "duration": "1 round",
    "source": {
-    "book": "test_fixture",
-    "line": 0,
+    "book": "invested_arts",
+    "line": 630,
     "reviewed": true
    },
-   "notes": "TEST FIXTURE for cast_art pipeline testing. Simple resistance art for all orders. Grants resistance to one damage type.",
-   "automation": [
-    {
-     "type": "target",
-     "target": "self",
-     "effects": [
-      {
-       "type": "resistance",
-       "damage_type": "fire",
-       "duration": "1 minute"
-      }
-     ]
+   "quote": "You infuse the air with Abrasion and direct it toward a creature of your choice within range. Make a ranged Invested Art attack against the target. On a hit, the target takes 4d6 axial damage",
+   "desc": "You infuse the air with Abrasion and direct it toward a creature of your choice within range. Make a ranged Invested Art attack against the target. On a hit, the target takes 4d6 axial damage, and the next attack roll made against the target before the end of your next turn has advantage, due to the Surge increasing the friction of the target's body. At Higher Levels: When you cast this Invested Art at 2nd level or higher, the damage increases by 1d6 for each level above 1st.",
+   "attack_type": "ranged",
+   "damage": {
+    "damage_type": "axial",
+    "damage_at_slot_level": {
+     "1": "4d6",
+     "2": "5d6",
+     "3": "6d6",
+     "4": "7d6",
+     "5": "8d6",
+     "6": "9d6",
+     "7": "10d6",
+     "8": "11d6",
+     "9": "12d6"
     }
-   ]
+   }
+  },
+  {
+   "id": "regrowth",
+   "name": "Regrowth",
+   "art_level": 1,
+   "orders": ["Edgedancer", "Truthwatcher"],
+   "surge": "Progression",
+   "casting_time": "1 action",
+   "range": "Touch",
+   "components": ["S"],
+   "duration": "Instantaneous",
+   "source": {
+    "book": "invested_arts",
+    "line": 6751,
+    "reviewed": true
+   },
+   "quote": "A creature you touch recovers a number of hit points equal to 2d8 + your Investiture ability modifier. This Invested Art has no effect on splinters or entities.",
+   "desc": "A creature you touch recovers a number of hit points equal to 2d8 + your Investiture ability modifier. This Invested Art has no effect on splinters or entities. At Higher Levels: When you cast this Invested Art at 2nd level or higher, the healing increases by 2d8 for each level above 1st.",
+   "heal_at_slot_level": {
+    "1": "2d8 + MOD",
+    "2": "4d8 + MOD",
+    "3": "6d8 + MOD",
+    "4": "8d8 + MOD",
+    "5": "10d8 + MOD",
+    "6": "12d8 + MOD",
+    "7": "14d8 + MOD",
+    "8": "16d8 + MOD",
+    "9": "18d8 + MOD"
+   }
   }
  ],
  "order_art_counts": {

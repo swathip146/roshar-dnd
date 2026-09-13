@@ -100,8 +100,10 @@ def _parse_damage_type_for_resistance(damage_type_str: str):
 #                   Lash Enemy / Lash Ally maneuvers already record forced_move_ft.
 #   * choice      — "choose one of the following effects": most surge cantrips
 #                   offer 2-4 discrete effects and the caster picks one.
-# NOTE: 'heal' is in SpellEffectExecutor.SPELL_NODES, not here, to preserve
-# the test contract that spell nodes are additions to maneuver nodes.
+# NOTE: 'heal' and 'spell_attack' are NOT in KNOWN_NODES. They exist ONLY in
+# SpellEffectExecutor.SPELL_NODES. Invested Arts with those nodes are executed
+# through SpellEffectExecutor (which extends ManeuverExecutor and adds those nodes),
+# preserving the test contract that spell nodes are additions to maneuver nodes.
 KNOWN_NODES = frozenset({
     "target", "save", "damage", "attack", "roll", "ieffect2",
     "area_of_effect", "check", "resistance",
@@ -583,8 +585,9 @@ class ManeuverExecutor:
         return dealt
 
     # --------------------------------------------------------- new nodes (plan 2.9)
-    # NOTE: 'heal' is in SpellEffectExecutor, not here, to preserve the test
-    # contract that spell nodes are additions to maneuver nodes.
+    # area_of_effect, check, resistance (Invested Arts)
+    # utility, forced_move, choice (surge cantrips)
+    # illusion, teleport, summon, create_object, reaction (exotic arts)
 
     def _node_area_of_effect(self, node, actor, targets, result) -> None:
         """

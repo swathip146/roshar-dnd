@@ -212,7 +212,8 @@ class CombatActionResolver:
 
         # Compile the art
         art_level = int(art.get("art_level", 0) or 0)
-        compiled = compile_art(art, art_level=art_level)
+        caster_level = int(getattr(character, "level", 1) or 1)
+        compiled = compile_art(art, art_level=art_level, caster_level=caster_level)
 
         # Check if it needs adjudication
         if compiled.needs_adjudication:
@@ -235,27 +236,90 @@ class CombatActionResolver:
                 "event": None,
             }
 
-        # Execute the art through the maneuver executor
+        # Execute the art through SpellEffectExecutor (which extends ManeuverExecutor
+        # and adds heal/spell_attack nodes needed by Invested Arts)
         try:
+            from components.combat.spellcasting import (SpellEffectExecutor,
+                                                       SpellcastingStats)
             from components.combat.maneuver_executor import ManeuverExecutor
 
             target = action.get("target")
             targets = [target] if target else []
 
-            executor = ManeuverExecutor(
-                dnd_wrapper=self.dnd_wrapper,
-                cosmere_rules=rules,
-                combat_state=self.combat_state)
+            # Create executor: use SpellEffectExecutor if the art has heal or spell_attack
+            # nodes (including nested), otherwise use ManeuverExecutor for efficiency
+            def _has_spell_nodes(nodes):
+                """Recursively check for heal or spell_attack nodes."""
+                for node in nodes:
+                    if not isinstance(node, dict):
+                        continue
+                    if node.get("type") in ("heal", "spell_attack"):
+                        return True
+                    # Check nested effects
+                    for key in ("effects", "hit", "miss", "fail", "success"):
+                        nested = node.get(key)
+                        if nested and isinstance(nested, list) and _has_spell_nodes(nested):
+                            return True
+                return False
 
-            # Build the synthetic maneuver dict matching _cast_surge pattern
-            maneuver = {
-                "name": f"Art: {art_name}",
-                "automation": compiled.automation,
-                "cost": {}
-            }
-            exec_result = executor.execute(
-                maneuver, actor_id, targets,
-                choice=action.get("art_option"))
+            has_spell_nodes = _has_spell_nodes(compiled.automation)
+
+            if has_spell_nodes:
+                executor = SpellEffectExecutor(
+                    dnd_wrapper=self.dnd_wrapper,
+                    character_manager=self.character_manager,
+                    combat_state=self.combat_state)
+
+                # Create synthetic spellcasting stats using Investiture ability modifier
+                entity = self.dnd_wrapper.entities.get(actor_id)
+                if entity:
+                    # Use the same formula as ManeuverExecutor._investiture_modifier
+                    scores = entity.ability_scores
+                    order_data = rules.order(order) or {}
+                    spec = str(order_data.get("investiture_ability") or "")
+                    import re
+                    names = re.findall(r"strength|dexterity|constitution|intelligence|wisdom"
+                                      r"|charisma", spec.lower())
+                    if not names:
+                        names = ["strength", "dexterity"]
+                    investiture_mod = max(getattr(scores, n).modifier for n in names)
+                    proficiency = int(getattr(entity.proficiency_bonus, "score", 2) or 2)
+
+                    # Create synthetic SpellcastingStats for Invested Arts
+                    stats = SpellcastingStats(
+                        character_id=actor_id,
+                        character_class=order,
+                        ability=names[0],  # Arbitrary, just for record
+                        ability_modifier=investiture_mod,
+                        proficiency_bonus=proficiency,
+                        save_dc=8 + proficiency + investiture_mod,
+                        attack_bonus=proficiency + investiture_mod,
+                        level=caster_level)
+                else:
+                    # Fallback if entity not found
+                    stats = SpellcastingStats(
+                        character_id=actor_id, character_class=order,
+                        ability=None, ability_modifier=0, proficiency_bonus=2,
+                        save_dc=None, attack_bonus=None, level=caster_level)
+
+                # Execute through SpellEffectExecutor.cast() with stats bound
+                exec_result = executor.cast(compiled, actor_id, stats, targets)
+            else:
+                # No spell nodes, use ManeuverExecutor directly
+                executor = ManeuverExecutor(
+                    dnd_wrapper=self.dnd_wrapper,
+                    cosmere_rules=rules,
+                    combat_state=self.combat_state)
+
+                # Build the synthetic maneuver dict matching _cast_surge pattern
+                maneuver = {
+                    "name": f"Art: {art_name}",
+                    "automation": compiled.automation,
+                    "cost": {}
+                }
+                exec_result = executor.execute(
+                    maneuver, actor_id, targets,
+                    choice=action.get("art_option"))
 
             # Sync HP if there was a target
             if target:
