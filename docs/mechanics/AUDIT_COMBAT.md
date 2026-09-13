@@ -84,6 +84,8 @@ Separately verified clean: `tests/combat/test_real_engine_combat.py` (71 passed)
 
 ## Built but unreachable
 
+> **✅ RECONCILED — 2026-09-12:** This is the ORIGINAL `ac4b680` finding list, kept for the diagnosis. **Current status:** (1) `standard_actions` ✅ registered + 27 tests (`5a0a764`); (2) class-feature effects ✅ fire in combat + Rage/Second Wind/Action Surge selectable (`ceb2b04`, `0de1b62`); (3) `has_line_of_sight` ✅ removed as dead code (`ceb2b04`); (4) resistance/vulnerability/immunity ✅ wired (`eb15312`); (5) monster senses ✅ wired (`eb15312`); (6) legendary/lair actions and (7) instant death ⬜ still absent ("future" scope). See the per-row "Fixed in latest update?" column.
+
 The highest-value finding class. All verified by `grep -rn "<name>" --include="*.py" components/ agents/ core/ orchestrator/ | grep -v tests/` returning only the defining file, or by direct test-file absence.
 
 1. **`components/combat/standard_actions.py`** (1076 lines) — Grapple, Shove, Help, Disengage, Hide, Search, Ready, TwoWeaponAttack. `register_standard_actions()` (line 1037) has exactly one match repo-wide: its own definition. **Zero test files** (`find tests -iname "*standard_action*" -o -iname "*grapple*" -o -iname "*shove*"` → empty). This is the single largest chunk of dead combat code in the repo — 8 of the 11 PHB 2024 actions this audit was asked to check for.
