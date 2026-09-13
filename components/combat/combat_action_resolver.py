@@ -168,18 +168,38 @@ class CombatActionResolver:
             }
 
         order = getattr(character, "radiant_order", "")
+        rules = CosmereRules()
 
-        # If no art specified, refuse for now (auto-selection logic can be added later)
+        # Auto-select: first art this order owns with automation that's affordable
+        if not art_name:
+            for candidate_art in rules.arts():
+                # Check if this order can use this art
+                art_orders = candidate_art.get("orders", [])
+                if not art_orders or order not in art_orders:
+                    continue
+                # Check if it has a resolvable automation tree
+                if not candidate_art.get("automation"):
+                    continue
+                # Check if the actor can afford it
+                art_level = int(candidate_art.get("art_level", 0) or 0)
+                if art_level > 0:  # Non-cantrips cost IP
+                    # Check affordability without spending
+                    if not self.investiture_ledger.can_afford(actor_id,
+                        rules.investiture_cost(art_level, order)):
+                        continue
+                # Found an affordable, castable art
+                art_name = candidate_art.get("name")
+                break
         if not art_name:
             return {
                 "success": False,
                 "attempted": False,
-                "error": "No art specified",
+                "error": f"{order or 'This character'} has no castable Invested Art",
                 "event": None,
+                "description": f"{actor_id} has no art to use."
             }
 
         # Load the art from rules
-        rules = CosmereRules()
         art = rules.get_art(art_name)
         if art is None:
             self.logger.warning(f"   ❌ Art '{art_name}' not found in rules data")
@@ -191,7 +211,7 @@ class CombatActionResolver:
             }
 
         # Compile the art
-        art_level = int(art.get("level", 0) or 0)
+        art_level = int(art.get("art_level", 0) or 0)
         compiled = compile_art(art, art_level=art_level)
 
         # Check if it needs adjudication
@@ -224,14 +244,18 @@ class CombatActionResolver:
 
             executor = ManeuverExecutor(
                 dnd_wrapper=self.dnd_wrapper,
-                character_manager=self.character_manager,
+                cosmere_rules=rules,
                 combat_state=self.combat_state)
 
-            # Execute the automation tree
+            # Build the synthetic maneuver dict matching _cast_surge pattern
+            maneuver = {
+                "name": f"Art: {art_name}",
+                "automation": compiled.automation,
+                "cost": {}
+            }
             exec_result = executor.execute(
-                actor_id=actor_id,
-                automation=compiled.automation,
-                targets=targets)
+                maneuver, actor_id, targets,
+                choice=action.get("art_option"))
 
             # Sync HP if there was a target
             if target:
@@ -239,20 +263,29 @@ class CombatActionResolver:
                 if entity is not None:
                     self._sync_hp_to_combat_state(entity.uuid)
 
-            return {
-                "success": exec_result.get("success", False),
+            # Refund IP if the art was paid but produced no effect
+            if spend_result.spent and not exec_result.success:
+                self.investiture_ledger.restore(actor_id, spend_result.cost)
+                spend_result.spent = False
+
+            payload = {
+                "success": exec_result.success,
                 "attempted": True,
-                "event": None,
-                "description": exec_result.get("description", f"Cast {art_name}"),
+                "event": exec_result,
+                "description": exec_result.describe(),
                 "art_name": art_name,
                 "art_level": art_level,
-                "ip_spent": spend_result.cost,
-                "ip_remaining": spend_result.remaining,
+                "damage": exec_result.damage_dealt,
             }
+            if spend_result.spent:
+                payload["ip_spent"] = spend_result.cost
+                payload["ip_remaining"] = spend_result.remaining
+            return payload
 
         except Exception as e:
             # Refund the IP if execution failed
-            self.investiture_ledger.restore(actor_id, spend_result.cost)
+            if spend_result.spent:
+                self.investiture_ledger.restore(actor_id, spend_result.cost)
             self.logger.error(f"❌ Art execution failed: {e}", exc_info=True)
             return {
                 "success": False,
