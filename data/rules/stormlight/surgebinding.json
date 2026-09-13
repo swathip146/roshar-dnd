@@ -1265,9 +1265,54 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Full Lashing Surge. You create one of the following effects:",
-   "automation": null,
-   "automation_status": "needs_adjudication",
-   "adjudication_reason": "Cantrip offers 3 distinct effects (stabilize, difficult terrain, stick object). Choice mechanic not modeled. Individual effects are automatable (stabilize is simple, difficult terrain uses area_of_effect, stick uses check with scaling DC)."
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose an Adhesion effect",
+     "options": [
+      {
+       "id": "stabilize",
+       "label": "Stabilize a creature at 0 HP",
+       "default": true,
+       "effects": [
+        {
+         "type": "target",
+         "target": "chosen",
+         "effects": [
+          {
+           "type": "ieffect2",
+           "name": "Stabilized",
+           "description": "Spiritual Adhesion stabilizes a creature at 0 hit points; no effect on splinters or entities."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "difficult_terrain",
+       "label": "Coat a 5-by-5-foot space",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "A 5-by-5-foot unoccupied space becomes difficult terrain for 1 minute to any creature moving through it."
+        }
+       ]
+      },
+      {
+       "id": "stick_object",
+       "label": "Stick a Tiny object to a surface",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "A Tiny, non-Invested, non-aluminum object weighing 5 pounds or less is stuck for up to 1 minute; a creature frees it with a Strength (Athletics) check, DC 8 + your proficiency bonus (9 at 5th, 10 at 11th, 11 at 17th level)."
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "automation_status": "resolvable",
+   "adjudication_reason": "Choose-one cantrip authored with a choice node. Stabilize is a real mechanic (ieffect2 Stabilized); difficult terrain and the stuck object resolve as utility effects, with the book's scaling escape DC recorded verbatim in the narration."
   },
   "Gravitation": {
    "id": "gravitation",
@@ -1288,9 +1333,60 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Basic Lashing Surge. You can use Lashings to do one of the following:",
-   "automation": null,
-   "automation_status": "needs_adjudication",
-   "adjudication_reason": "Cantrip offers 4+ distinct effects with level-based scaling (Lash Tiny→Large object, Lash creatures with attack roll at 11th level, slow fall as reaction). Choice mechanic and scaling thresholds need modeling. Attack-roll effect is automatable once choice is resolved."
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose a Gravitation effect",
+     "options": [
+      {
+       "id": "lash_object",
+       "label": "Lash an unattended object",
+       "default": true,
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You Lash a Tiny (Small at 5th, Medium at 11th, Large at 17th level) non-Invested, non-aluminum object in a direction you choose; it travels 10 feet per round, too slow to deal damage."
+        }
+       ]
+      },
+      {
+       "id": "lash_creature",
+       "label": "Lash a creature (11th level)",
+       "effects": [
+        {
+         "type": "target",
+         "target": "chosen",
+         "effects": [
+          {
+           "type": "attack",
+           "hit": [
+            {
+             "type": "forced_move",
+             "distance_ft": 20,
+             "direction": "a direction you choose"
+            }
+           ],
+           "miss": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "slow_fall",
+       "label": "Slow a falling creature (reaction)",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You slow a falling creature's descent to 60 feet per round; it takes no damage from the fall."
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "automation_status": "resolvable",
+   "adjudication_reason": "Choose-one cantrip. The 11th-level creature-Lash is a real attack roll that forces movement on a hit (attack + forced_move, 20 ft, 30 ft at 17th); object-Lash and slow-fall resolve as utility. NOTE: the attack node uses the caster's weapon attack roll; the book specifies an Investiture-ability attack roll, so a dedicated Investiture-attack node would be the precise refinement."
   },
   "Division": {
    "id": "division",
@@ -1311,9 +1407,57 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Division Surge. You can use your action to kindle a fire, lighting a torch, kindling, or something else with abundant, exposed fuel. Instead, you can create one of the following effects using your bonus action:",
-   "automation": null,
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose a Division effect",
+     "options": [
+      {
+       "id": "kindle_fire",
+       "label": "Kindle a fire",
+       "default": true,
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You kindle a fire, lighting a torch, kindling, or something else with abundant, exposed fuel."
+        }
+       ]
+      },
+      {
+       "id": "decay_corpse",
+       "label": "Decay a corpse",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You touch the corpse of a creature and slowly decay the spot you touch."
+        }
+       ]
+      },
+      {
+       "id": "decay_plant",
+       "label": "Decay a Tiny plant",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You touch a Tiny plant and infuse it with Division, decaying it over the next minute."
+        }
+       ]
+      },
+      {
+       "id": "burn_mark",
+       "label": "Burn a mark",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You decay or burn a small mark into a non-living object."
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "automation_status": "utility_only",
-   "adjudication_reason": "All effects are pure utility/flavor (kindle fire, decay corpse spot, decay Tiny plant, burn mark). No combat mechanics to automate. Falls through to narrative adjudication."
+   "adjudication_reason": "All four Division cantrip effects are pure utility (kindle fire, decay a corpse spot, decay a Tiny plant, burn a mark); each resolves as a narrated utility effect. The cantrip has no combat mechanic (the damaging leveled Division Arts are a separate tier)."
   },
   "Abrasion": {
    "id": "abrasion",
@@ -1334,9 +1478,37 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Abrasion Surge. You create one of the following effects within range:",
-   "automation": null,
-   "automation_status": "needs_adjudication",
-   "adjudication_reason": "2 effects: (1) make object slippery with DC 8+prof DEX (Acrobatics) check to grab, (2) slide half movement with DC 14 DEX (Acrobatics) check or fall prone. Both use 'check' nodes but choice mechanic not modeled."
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose an Abrasion effect",
+     "options": [
+      {
+       "id": "slippery_object",
+       "label": "Make an object slippery",
+       "default": true,
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "An unattended small object becomes slippery for up to 1 minute; a creature grabs it with a Dexterity (Acrobatics) check, DC 8 + your proficiency bonus."
+        }
+       ]
+      },
+      {
+       "id": "slide",
+       "label": "Slide in a straight line",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You infuse your feet and slide in a straight line half your movement speed (rounded down to the nearest 5 feet). If your path is obstructed or difficult terrain, make a DC 14 Dexterity (Acrobatics) check or fall prone and stop."
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "automation_status": "utility_only",
+   "adjudication_reason": "Two effects, both resolvable as utility: the slippery object records the grab DC (8 + proficiency); the slide records the movement and the DC 14 obstruction check. The obstruction check is conditional on terrain the fixed two-row grid cannot represent, so it is narrated rather than auto-rolled (auto-rolling would misplay a clean slide as sometimes falling prone)."
   },
   "Progression": {
    "id": "progression",
@@ -1392,9 +1564,57 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Lightweaving Surge. You create one of the following effects within range:",
-   "automation": null,
-   "automation_status": "needs_illusion_nodes",
-   "adjudication_reason": "All 4 effects are illusions (sensory effect, change eye color, mark/glyph, voice change). Requires illusion node type not in executor. Can have 3 active at once."
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose an Illumination effect",
+     "options": [
+      {
+       "id": "sensory",
+       "label": "A small sensory effect",
+       "default": true,
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You Lightweave a harmless sensory effect within 30 feet for up to 1 minute: a small illusion, a faint sound, or a small light (5 feet of dim and 5 feet of bright light)."
+        }
+       ]
+      },
+      {
+       "id": "recolor_eyes",
+       "label": "Recolor a creature's eyes",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You Lightweave a creature's eyes to change color for 1 minute; the target immediately knows it is being cast on them."
+        }
+       ]
+      },
+      {
+       "id": "mark_glyph",
+       "label": "A color, mark, or glyph",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You Lightweave a color, small mark, or glyph on an object or surface for 1 hour."
+        }
+       ]
+      },
+      {
+       "id": "voice_change",
+       "label": "Disguise a voice",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You Lightweave a different voice on yourself or a touched creature for 1 hour. To mimic a known voice, a listener who knows it may make an Intelligence (Investigation) check against your Invested save DC to notice it is false."
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "automation_status": "utility_illusion",
+   "adjudication_reason": "The four cantrip effects are minor sensory illusions with no combat mechanic; each resolves as a utility effect (voice-change records the Investigation-contest DC). Full illusion-with-disbelief and the 'up to three active at once' bookkeeping are a Lightweaving subsystem not built here, but the cantrip itself is resolvable."
   },
   "Transformation": {
    "id": "transformation",
@@ -1415,9 +1635,57 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Soulcasting Surge. You create one of the following effects within range:",
-   "automation": null,
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose a Transformation effect",
+     "options": [
+      {
+       "id": "clean_soil",
+       "label": "Clean or soil an object",
+       "default": true,
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You instantly Soulcast a small object no larger than 1 cubic foot to clean or soil it."
+        }
+       ]
+      },
+      {
+       "id": "chill_warm",
+       "label": "Chill or warm material",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You chill or warm up to 1 cubic foot of nonliving material for 1 hour."
+        }
+       ]
+      },
+      {
+       "id": "flicker_flames",
+       "label": "Flicker, brighten, or dim flames",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You cause flames within range to flicker, brighten, or dim."
+        }
+       ]
+      },
+      {
+       "id": "bead_manifest",
+       "label": "Manifest a bead (Cognitive Realm)",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "While in the Cognitive Realm, you touch a bead to know its item and, fed roughly 1 sapphire mark of Stormlight per cubic foot, manifest it as the Physical object for 1 minute per mark spent."
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "automation_status": "utility_and_realm_mechanics",
-   "adjudication_reason": "Effects: clean/soil object, temperature change, flicker flames (all utility), plus Cognitive Realm bead manifestation (complex resource + duration tracking). No combat automation needed."
+   "adjudication_reason": "The three physical effects resolve as utility; the Cognitive-Realm bead manifestation resolves as utility but its Stormlight-fed duration tracking needs a Realm/resource subsystem not built here. The cantrip has no combat mechanic (the CON-save-based 5th-level Soulcast Art is a separate tier)."
   },
   "Transportation": {
    "id": "transportation",
@@ -1438,9 +1706,14 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Elsecalling Surge. When you use it, you can see partially into the Cognitive Realm (or the Physical Realm if you're already in the Cognitive Realm) to see around you in a 10-foot radius.",
-   "automation": null,
-   "automation_status": "realm_vision_mechanic",
-   "adjudication_reason": "Grants cross-realm vision (Physical ↔ Cognitive) in 10ft radius, hazily seeing terrain only. Requires realm-travel/vision node type not in executor."
+   "automation": [
+    {
+     "type": "utility",
+     "narration": "You see partially into the Cognitive Realm (or the Physical Realm, if already in the Cognitive) in a 10-foot radius — the ground and basic surroundings only, very hazily. You cannot see creatures, plants, splinters, or Investiture."
+    }
+   ],
+   "automation_status": "utility_only",
+   "adjudication_reason": "Single-effect cantrip: cross-realm vision in a 10-foot radius. It resolves as a utility effect (the DM narrates what is glimpsed). No combat mechanic; full Realm travel is a separate subsystem."
   },
   "Cohesion": {
    "id": "cohesion",
@@ -1461,9 +1734,47 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Surge of Strong Axial Interconnection. Using your bonus action, you can create one of the following effects on non-Invested stone or rock that you can touch:",
-   "automation": null,
-   "automation_status": "needs_adjudication",
-   "adjudication_reason": "4 effects with variable casting times (bonus action for Tiny, 1 action for Small, 1 min for Medium, 10 min for Large stone shaping). Difficult terrain toggle (5ft square, 1 min duration) is automatable with area_of_effect. Stone shaping is utility/narrative."
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose a Cohesion effect",
+     "options": [
+      {
+       "id": "shape_stone",
+       "label": "Reshape stone",
+       "default": true,
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You form a Tiny or smaller chunk of non-Invested stone into a different shape (larger stone takes more time: 1 action for Small, 1 minute for Medium, 10 minutes for Large; the GM may require an Investiture ability check or Stormlight)."
+        }
+       ]
+      },
+      {
+       "id": "imprint",
+       "label": "Imprint glyphs or images",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You cause imprints to appear on stone — glyphs, words, images, or patterns — that last 10 minutes, then revert."
+        }
+       ]
+      },
+      {
+       "id": "difficult_terrain",
+       "label": "Toggle difficult terrain",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You make a 5-foot square of ground stone become difficult terrain, or make difficult stone become normal terrain, for 1 minute, then it reverts."
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "automation_status": "utility_only",
+   "adjudication_reason": "Stone-shaping and imprints resolve as utility. The 5-foot difficult-terrain toggle is a real mechanic, but the fixed two-row grid has no per-square terrain to flip, so it resolves as a narrated utility effect rather than an invented grid change."
   },
   "Tension": {
    "id": "tension",
@@ -1484,9 +1795,68 @@
     "reviewed": true
    },
    "quote": "This Invested Art is a minor Surge of Soft Axial Interconnection. You create one of the following effects on a non-Invested object or piece of clothing you can touch:",
-   "automation": null,
-   "automation_status": "needs_adjudication",
-   "adjudication_reason": "3 effects: (1) stiffen object into 1d6 improvised weapon, (2) stiffen fabric into +1 AC improvised shield, (3) stiffen clothing for +2 AC / -10 ft speed. AC modification is automatable with ieffect2 but choice + conditional eligibility (no armor worn) needs modeling."
+   "automation": [
+    {
+     "type": "choice",
+     "prompt": "Choose a Tension effect",
+     "options": [
+      {
+       "id": "stiffen_clothing",
+       "label": "Stiffen a creature's clothing (+2 AC, -10 ft)",
+       "default": true,
+       "effects": [
+        {
+         "type": "target",
+         "target": "chosen",
+         "effects": [
+          {
+           "type": "ieffect2",
+           "name": "Tension Armor",
+           "effects": {
+            "ac_bonus": 2,
+            "speed_reduction_ft": 10
+           },
+           "duration": "1 minute"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "improvised_shield",
+       "label": "Stiffen fabric into a small shield (+1 AC)",
+       "effects": [
+        {
+         "type": "target",
+         "target": "chosen",
+         "effects": [
+          {
+           "type": "ieffect2",
+           "name": "Tension Shield",
+           "effects": {
+            "ac_bonus": 1
+           },
+           "duration": "1 minute"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "improvised_weapon",
+       "label": "Stiffen an object into a 1d6 weapon",
+       "effects": [
+        {
+         "type": "utility",
+         "narration": "You stiffen an object for up to 1 minute into an improvised weapon that deals 1d6 non-Invested bludgeoning damage; a wielder proficient with a similar weapon may add their proficiency bonus (GM's call)."
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "automation_status": "resolvable",
+   "adjudication_reason": "Choose-one cantrip. Stiffen-clothing (+2 AC, -10 ft speed; target must not be wearing armor, no stacking) and improvised-shield (+1 AC) are real mechanics recorded as ieffect2 inline effects for the session to apply; the 1d6 improvised weapon resolves as utility (it creates an object the wielder later attacks with)."
   }
  }
 }

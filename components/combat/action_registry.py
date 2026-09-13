@@ -161,6 +161,36 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 
     # ========================================================================
+    # SURGES (surge-complete) — data-driven, every Radiant order's cantrips
+    #
+    # Mirrors cast_spell/cast_art but reads the `surges` bucket of
+    # surgebinding.json and executes each surge's authored `automation` tree via
+    # ManeuverExecutor. This is what makes the SIX previously-unreachable surges
+    # (Abrasion, Adhesion, Cohesion, Division, Tension, Transportation) playable
+    # AND, since it covers all ten, the second surge of every order that only had
+    # one bespoke action (Windrunner/Skybreaker/Edgedancer/Elsecaller).
+    #
+    # `surge_name` MUST have a default or is_offerable() filters cast_surge out of
+    # both menus (the exact trap that made cast_spell/cast_art unplayable). None
+    # means "_cast_surge picks a surge this order owns and can resolve".
+    # ========================================================================
+
+    "cast_surge": {
+        "type": "surge_action",
+        "action_class": None,
+        "description": "Use a Surge (Radiant order cantrip)",
+        "params": ["target_entity_uuid", "surge_name"],
+        "param_defaults": {"surge_name": None},
+        "cost_type": "actions",
+        "cost": 1,
+        # Gated in unusable_reason(): the actor's Order must OWN a surge that has a
+        # resolvable automation tree. Cantrips are free; a costed tier (if a surge
+        # ever carries investiture_points > 0) is paid through InvestiturePointLedger
+        # inside _cast_surge, mirroring cast_art.
+        "requires": "surge",
+    },
+
+    # ========================================================================
     # ACTIVATED CLASS FEATURES (plan 2.10: Rage, Second Wind, Action Surge)
     #
     # These are ACTIVATED features (chosen on a turn), not passive/on-hit.
@@ -681,6 +711,26 @@ def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
         from components.cosmere_rules import get_cosmere_rules
         if not any(a.get("automation") for a in get_cosmere_rules().arts()):
             return "no castable Invested Art available yet"
+    elif requires == "surge":
+        # `cast_surge` is offerable for everyone (the resolver supplies every
+        # parameter), so — like cast_spell/cast_art — a per-actor gate is what
+        # keeps a goblin from being told it can Surge. The actor's Radiant Order
+        # must OWN at least one surge that has a resolvable automation tree.
+        # This becomes offerable automatically as surges are authored, and denies
+        # a non-Radiant (no order) or an order whose surges are still null.
+        order = read("radiant_order") or ""
+        if not order:
+            return "not a Radiant"
+        from components.cosmere_rules import get_cosmere_rules
+
+        rules = get_cosmere_rules()
+        owned = {s.lower() for s in rules.surges_for_order(order)}
+        if not owned:
+            return f"{order} has no Surges"
+        castable = [s for s in rules.surges()
+                    if str(s.get("name", "")).lower() in owned and s.get("automation")]
+        if not castable:
+            return "no resolvable Surge available yet"
     elif requires == "class_feature":
         # Activated class features (Rage, Second Wind, Action Surge): only offer
         # them to actors who HAVE the feature AND have uses remaining. A Fighter

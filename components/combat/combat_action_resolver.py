@@ -261,6 +261,140 @@ class CombatActionResolver:
                 "event": None,
             }
 
+    def _cast_surge(self, action: Dict[str, Any],
+                    metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve `cast_surge` through CosmereRules + ManeuverExecutor (surge-complete).
+
+        Mirrors `_cast_art` but reads the `surges` bucket of surgebinding.json and
+        executes each surge's authored cantrip `automation` tree. This is the one
+        path that makes every playable order's BOTH surges usable — the six that
+        never had an action (Abrasion/Adhesion/Cohesion/Division/Tension/
+        Transportation) and the second surge of the orders that had only one
+        bespoke action.
+
+        `surge_name` comes from the caller if given, otherwise from param_defaults
+        (None) — "pick a surge this order owns and can resolve". An optional
+        `surge_option` picks which branch of a choose-one cantrip runs.
+
+        Cantrips are FREE; a costed tier (a surge carrying investiture_points > 0)
+        is paid through InvestiturePointLedger and refunded if the cast is refused
+        or produces no effect — the same contract as `_cast_art`.
+        """
+        from components.combat.maneuver_executor import ManeuverExecutor
+        from components.cosmere_rules import get_cosmere_rules
+
+        defaults = param_defaults(action["action_type"])
+        surge_name = action.get("surge_name", defaults.get("surge_name"))
+        actor_id = action["actor"]
+
+        character = self.character_manager.characters.get(actor_id)
+        if character is None:
+            return {"success": False, "attempted": False,
+                    "error": f"Unknown character {actor_id}", "event": None}
+
+        order = getattr(character, "radiant_order", "") or ""
+        rules = get_cosmere_rules()
+        owned = {s.lower() for s in rules.surges_for_order(order)}
+
+        # Auto-select: first surge this order owns that has a resolvable tree.
+        if not surge_name:
+            for name in rules.surges_for_order(order):
+                surge = rules.get_surge(name)
+                if surge and surge.get("automation"):
+                    surge_name = name
+                    break
+        if not surge_name:
+            return {"success": False, "attempted": False,
+                    "error": f"{order or 'This character'} has no resolvable Surge",
+                    "event": None,
+                    "description": f"{actor_id} has no Surge to use."}
+
+        surge = rules.get_surge(surge_name)
+        if surge is None:
+            self.logger.warning(f"   ❌ Surge '{surge_name}' not found in rules data")
+            return {"success": False, "attempted": False,
+                    "error": f"Unknown Surge: {surge_name}", "event": None}
+
+        # Gate: the actor's Order must OWN this surge.
+        if str(surge_name).lower() not in owned:
+            reason = (f"{order or 'A non-Radiant'} does not have the Surge of "
+                      f"{surge_name}")
+            self.logger.info(f"   ⛔ {reason}")
+            return {"success": False, "attempted": False, "refused": True,
+                    "event": None, "error": reason,
+                    "description": f"{actor_id} cannot use {surge_name}: {reason}"}
+
+        tree = surge.get("automation")
+        if not tree:
+            reason = f"{surge_name} needs adjudication (no automation tree)"
+            self.logger.info(f"   ⚖️  {reason}")
+            return {"success": False, "attempted": False, "event": None,
+                    "error": reason, "description": reason}
+
+        # Cost: cantrips are free. A costed tier pays through the ledger and is
+        # refunded if the cast does not take effect.
+        ip_cost = int((surge.get("cost") or {}).get("investiture_points", 0) or 0)
+        art_level = int(surge.get("art_level", 0) or 0)
+        spend = None
+        if ip_cost > 0 or art_level > 0:
+            spend = self.investiture_ledger.spend(actor_id, art_level, order)
+            if not spend.spent:
+                self.logger.info(f"   ⛔ Cannot use {surge_name}: {spend.reason}")
+                return {"success": False, "attempted": False, "refused": True,
+                        "event": None, "error": spend.reason,
+                        "description": (f"{actor_id} cannot use {surge_name}: "
+                                        f"{spend.reason}")}
+
+        try:
+            target = action.get("target")
+            targets = [target] if target else []
+            executor = ManeuverExecutor(
+                dnd_wrapper=self.dnd_wrapper,
+                cosmere_rules=rules,
+                combat_state=self.combat_state)
+
+            # No `orders` key on the synthetic maneuver: the order gate above is
+            # authoritative (it reads CharacterData), so the executor should not
+            # re-gate off the entity mirror, which may not mirror radiant_order.
+            maneuver = {"name": f"Surge of {surge_name}", "automation": tree,
+                        "cost": {}}
+            exec_result = executor.execute(maneuver, actor_id, targets,
+                                           choice=action.get("surge_option"))
+
+            if target:
+                entity = self.dnd_wrapper.entities.get(target)
+                if entity is not None:
+                    self._sync_hp_to_combat_state(entity.uuid)
+
+            # Refund a costed tier that did not take effect.
+            if spend is not None and spend.spent and not exec_result.success:
+                self.investiture_ledger.restore(actor_id, spend.cost)
+                spend = None
+
+            # `event` is the ManeuverResult itself — a real, non-None object with
+            # no `canceled` attribute — so a resolved surge is not mistaken for a
+            # refusal by consumers that key off `event`/`event.canceled`.
+            payload = {
+                "success": exec_result.success,
+                "attempted": True,
+                "event": exec_result,
+                "description": exec_result.describe(),
+                "surge_name": surge_name,
+                "damage": exec_result.damage_dealt,
+            }
+            if spend is not None and spend.spent:
+                payload["ip_spent"] = spend.cost
+                payload["ip_remaining"] = spend.remaining
+            return payload
+
+        except Exception as e:
+            if spend is not None and spend.spent:
+                self.investiture_ledger.restore(actor_id, spend.cost)
+            self.logger.error(f"❌ Surge execution failed: {e}", exc_info=True)
+            return {"success": False, "attempted": False, "event": None,
+                    "error": str(e)}
+
     def _use_class_feature(self, action: Dict[str, Any],
                            metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -475,6 +609,13 @@ class CombatActionResolver:
         elif metadata["type"] == "art_action":
             result = self._cast_art(action, metadata)
             # Same attempted-before-charging logic as spell_action
+            if result.get("success") or result.get("attempted"):
+                self._consume_action_cost(actor_id, metadata)
+            return result
+        elif metadata["type"] == "surge_action":
+            result = self._cast_surge(action, metadata)
+            # Same attempted-before-charging logic: a refused surge (wrong order,
+            # empty pool, needs adjudication) must not eat the actor's turn.
             if result.get("success") or result.get("attempted"):
                 self._consume_action_cost(actor_id, metadata)
             return result

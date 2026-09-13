@@ -49,11 +49,21 @@ logger = get_logger(__name__)
 #
 # ORIGINAL 6: target, save, damage, attack, roll, ieffect2
 # INVESTED ARTS ADDITIONS (plan 2.9): area_of_effect, check, resistance
+# SURGE CANTRIP ADDITIONS (surge-complete): utility, forced_move, choice
+#   * utility     — a cantrip effect with no combat mechanic (kindle a fire,
+#                   recolor eyes, reshape stone). SUCCEEDS and returns narration,
+#                   which is what makes such a cantrip resolvable, not adjudicated.
+#   * forced_move — push/pull a target a fixed distance (a Gravitation creature
+#                   Lash, an Abrasion slide), RECORDED like the reviewed
+#                   Lash Enemy / Lash Ally maneuvers already record forced_move_ft.
+#   * choice      — "choose one of the following effects": most surge cantrips
+#                   offer 2-4 discrete effects and the caster picks one.
 # NOTE: 'heal' is in SpellEffectExecutor.SPELL_NODES, not here, to preserve
 # the test contract that spell nodes are additions to maneuver nodes.
 KNOWN_NODES = frozenset({
     "target", "save", "damage", "attack", "roll", "ieffect2",
-    "area_of_effect", "check", "resistance"
+    "area_of_effect", "check", "resistance",
+    "utility", "forced_move", "choice"
 })
 
 # The only placeholder in the reviewed data.
@@ -87,6 +97,10 @@ class ManeuverResult:
     effects_applied: List[Dict[str, Any]] = field(default_factory=list)
     rolls: Dict[str, int] = field(default_factory=dict)
     dice_spent: int = 0
+    # Narrations from `utility` nodes — cantrip effects with no combat mechanic
+    # (kindle a fire, recolor eyes, see into the Cognitive Realm). Recording them
+    # is what makes such a cantrip RESOLVABLE instead of falling to adjudication.
+    narrations: List[str] = field(default_factory=list)
 
     def describe(self) -> str:
         """One line for the combat log."""
@@ -101,6 +115,8 @@ class ManeuverResult:
             parts.append(", ".join(e["name"] for e in self.effects_applied))
         for name, value in self.rolls.items():
             parts.append(f"{name} +{value}")
+        if self.narrations:
+            parts.extend(n for n in self.narrations if n)
         return f"{self.actor} uses {self.maneuver}" + (
             f" ({'; '.join(parts)})" if parts else "")
 
@@ -121,6 +137,8 @@ class ManeuverExecutor:
         self.rules = cosmere_rules
         self.combat_state = combat_state or {}
         self.concentration = concentration
+        # Which option a `choice` node should run for the current execute() call.
+        self._selected_choice: Any = None
 
         if dice_roller is None:
             from components.dice import DiceRoller
@@ -151,13 +169,20 @@ class ManeuverExecutor:
                 if self._affordable(actor, m)]
 
     def execute(self, maneuver: Dict[str, Any], actor: str,
-                targets: Optional[Sequence[str]] = None) -> ManeuverResult:
+                targets: Optional[Sequence[str]] = None,
+                choice: Optional[Any] = None) -> ManeuverResult:
         """
         Run one maneuver.
 
         `targets` is who the actor chose; a `target` node uses them. Spends the
         resource FIRST and refunds nothing on a miss — 5e expends the die on use.
+
+        `choice` selects which branch of a `choice` node runs (by option id/label,
+        or an int index). None uses the option flagged `default`, else the first —
+        so a surge that offers "one of the following effects" always resolves.
         """
+        # Reset per-call so a reused executor never carries a stale selection.
+        self._selected_choice = choice
         name = maneuver.get("name", "maneuver")
         result = ManeuverResult(maneuver=name, actor=actor)
 
@@ -635,3 +660,80 @@ class ManeuverExecutor:
             result.events.append({"type": "resistance", "target": target,
                                   "damage_type": damage_type, "duration": duration})
             logger.info(f"      🛡️  {target} gains resistance to {damage_type} ({duration})")
+
+    # ------------------------------------------------- surge cantrip nodes (surge-complete)
+
+    def _node_utility(self, node, actor, targets, result) -> None:
+        """
+        A cantrip effect with no combat mechanic — kindle a fire, recolor eyes,
+        reshape stone, see hazily into the Cognitive Realm.
+
+        It SUCCEEDS and records a narration string. That is the whole point: a
+        purely narrative surge effect is RESOLVABLE (it happens, the DM narrates
+        it), not `needs_adjudication`. No dice, no target math, no invented rules.
+        """
+        narration = str(node.get("narration") or node.get("description") or "")
+        result.narrations.append(narration)
+        result.events.append({"type": "utility", "narration": narration,
+                              "targets": list(targets or [])})
+        logger.info(f"      ✨ {narration}" if narration else "      ✨ utility effect")
+
+    def _node_forced_move(self, node, actor, targets, result) -> None:
+        """
+        Move a target a fixed distance (a Gravitation creature-Lash on a hit, an
+        Abrasion slide of the caster's own body).
+
+        The distance and direction are RECORDED as an event and an applied effect
+        for the session to enact — exactly the convention the reviewed Lash Enemy
+        and Lash Ally maneuvers already use for `forced_move_ft`. The combat grid
+        is a fixed two-row line (see combat_action_resolver on `move`), so
+        physically relocating an entity here would invent map positions that do
+        not exist; recording the movement is the honest, composable outcome.
+        """
+        distance = int(node.get("distance_ft", 0) or 0)
+        if distance <= 0:
+            raise AutomationError("forced_move node needs a positive distance_ft")
+        direction = str(node.get("direction") or "a direction the caster chooses")
+
+        for target in (targets or [actor]):
+            effect = {"name": "Forced Movement", "target": target,
+                      "duration": "instant",
+                      "effects": {"forced_move_ft": distance, "direction": direction}}
+            result.effects_applied.append(effect)
+            self._record_effect(target, effect)
+            result.events.append({"type": "forced_move", "target": target,
+                                  "distance_ft": distance, "direction": direction})
+            logger.info(f"      💨 {target} is Lashed {distance} ft ({direction})")
+
+    def _node_choice(self, node, actor, targets, result) -> None:
+        """
+        "Choose one of the following effects."
+
+        Most surge cantrips list 2-4 discrete effects and the caster picks one.
+        The selection comes from `execute(..., choice=<id>)`; with none supplied,
+        the option flagged `"default": true` runs, else the first. The chosen
+        option's `effects` subtree is then executed like any other node list, so a
+        choice can wrap a mechanical branch (attack + forced_move) or a utility one.
+        """
+        options = node.get("options") or []
+        if not options:
+            raise AutomationError("choice node has no options")
+
+        sel = self._selected_choice
+        chosen = None
+        if sel is not None:
+            for opt in options:
+                if str(opt.get("id")) == str(sel) or str(opt.get("label")) == str(sel):
+                    chosen = opt
+                    break
+            if chosen is None and isinstance(sel, int) and 0 <= sel < len(options):
+                chosen = options[sel]
+        if chosen is None:
+            chosen = next((o for o in options if o.get("default")), options[0])
+
+        label = chosen.get("id") or chosen.get("label") or "option"
+        result.events.append({"type": "choice", "selected": chosen.get("id"),
+                              "label": chosen.get("label", "")})
+        logger.info(f"      🔀 chose '{label}'")
+        self._run_nodes(chosen.get("effects") or [], actor, list(targets or []),
+                        result)
