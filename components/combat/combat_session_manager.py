@@ -172,6 +172,21 @@ class CombatSessionManager:
         # Display combat start
         self._display_combat_start()
 
+        # Apply always-on (passive) class features ONCE at combat start — AC/speed/
+        # ability bonuses, resistances, and advantage sources hold for the whole
+        # encounter and are stripped by clear_all() at combat end. Done here (not in
+        # per-sync entity mirroring, which runs repeatedly and would stack them).
+        try:
+            passive_engine = self.dnd_wrapper.class_feature_engine(
+                combat_state=self.combat_state)
+            for char_id in self.combat_state["active_combatants"]:
+                applied = passive_engine.apply_passives(char_id)
+                if applied:
+                    self.logger.debug(f"   🛡️  {char_id} passives applied: "
+                                      f"{', '.join(applied)}")
+        except Exception as e:
+            self.logger.debug(f"   Passive class features skipped: {e}")
+
         # Main combat loop
         loop_iteration = 0
         stall_breaks = 0
