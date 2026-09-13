@@ -68,6 +68,12 @@ class CharacterData:
     stormlight_current: int = 0  # Current spheres held
     stormlight_capacity: int = 0  # Max spheres = Radiant Level × 2
 
+    # Sapphire marks tracking (HB:12343-12382 Stormlight Replenishment)
+    # Knights Radiant must "dun" level × 5 sapphire marks to benefit from long rest.
+    # Tracks total marks in all spheres (infused + dun) and how many are currently dun.
+    sapphire_marks_total: int = 0      # Total marks across all spheres owned
+    sapphire_marks_dun: int = 0        # How many of those marks are currently dun (used)
+
     # Shardblade tracking (Combat Plan v4.0 requirement)
     has_shardblade: bool = False
     shardblade_summoned: bool = False
@@ -368,6 +374,10 @@ class CharacterManager:
             damage_vulnerabilities=character_data.get("damage_vulnerabilities", []),
             damage_immunities=character_data.get("damage_immunities", []),
             senses=character_data.get("senses", {}),
+
+            # Sapphire marks tracking (HB:12343-12382)
+            sapphire_marks_total=character_data.get("sapphire_marks_total", 0),
+            sapphire_marks_dun=character_data.get("sapphire_marks_dun", 0),
         )
 
         # Auto-migrate investiture_points to stormlight if needed (backward compatibility)
@@ -381,6 +391,17 @@ class CharacterManager:
             character.stormlight_capacity = level * 2
             character.stormlight_current = min(character.stormlight_current, character.stormlight_capacity)
             logger.debug(f"   Calculated stormlight capacity for {character.name}: {character.stormlight_capacity}")
+
+        # Initialize sapphire marks for Radiants if not explicitly set (HB:12343-12382)
+        # Give Radiants enough infused marks for at least 10 long rests (level × 5 per rest)
+        # This ensures backward compatibility with existing tests and provides a sensible default
+        if (character.radiant_order
+            and "sapphire_marks_total" not in character_data
+            and character.sapphire_marks_total == 0):
+            default_marks = level * 5 * 10  # 10 long rests worth
+            character.sapphire_marks_total = default_marks
+            character.sapphire_marks_dun = 0
+            logger.debug(f"   Initialized sapphire marks for {character.name}: {default_marks}sm (infused)")
 
         # Set surgebinding_level from ideal_level if not explicitly set
         if character.surgebinding_level == 0 and character.ideal_level > 0:
@@ -1183,11 +1204,72 @@ class CharacterManager:
         """
         Take a long rest: full HP, half hit dice back, spell slots and
         Stormlight restored, death saves cleared (plan 2.5).
+
+        Per HB:12343-12382 (Stormlight Replenishment), Knights Radiant must intake
+        level × 5 sapphire marks of Stormlight to benefit from a long rest. Without
+        sufficient infused marks, they DON'T replenish any abilities (all-or-nothing).
         """
         character = self.characters.get(character_id)
         if character is None:
             return {"error": f"Unknown character {character_id}"}
 
+        # Per HB:12352, characters only need to dun spheres if they have something to
+        # replenish. Check if character needs any recovery.
+        # Note: hit_dice_remaining=None means never spent, treat as full (= level)
+        hit_dice_current = character.hit_dice_remaining if character.hit_dice_remaining is not None else character.level
+        needs_recovery = (
+            character.hit_points.get("current", 0) < character.hit_points.get("maximum", 0)
+            or hit_dice_current < character.level
+            or any(
+                slots.get("current", 0) < slots.get("maximum", 0)
+                for slots in (character.spell_slots or {}).values()
+                if isinstance(slots, dict)
+            )
+            or (getattr(character, "stormlight_current", 0) < getattr(character, "stormlight_capacity", 0))
+        )
+
+        # Stormlight intake gate (HB:12343-12382): Knights Radiant must intake
+        # level × 5 sapphire marks to benefit from long rest. Non-Radiants rest normally.
+        is_radiant = bool(getattr(character, "radiant_order", None))
+
+        if is_radiant and needs_recovery:
+            from components.cosmere_rules import CosmereRules
+            rules = CosmereRules()
+            required_marks = rules.stormlight_for_long_rest(character.level)
+
+            # Initialize marks if not set
+            if character.sapphire_marks_total is None:
+                character.sapphire_marks_total = 0
+            if character.sapphire_marks_dun is None:
+                character.sapphire_marks_dun = 0
+
+            infused_marks = character.sapphire_marks_total - character.sapphire_marks_dun
+
+            if infused_marks < required_marks:
+                # HB:12369-12372: insufficient Stormlight means NO replenishment at all
+                logger.warning(
+                    f"⚠️ {character.name} (Radiant) cannot benefit from long rest: needs {required_marks}sm "
+                    f"but only has {infused_marks}sm infused. No abilities replenished."
+                )
+                return {
+                    "error": "insufficient_stormlight",
+                    "required_marks": required_marks,
+                    "infused_marks": infused_marks,
+                    "hit_points": dict(character.hit_points),
+                    "hit_dice_remaining": character.hit_dice_remaining or character.level,
+                    "stormlight_current": getattr(character, "stormlight_current", 0),
+                }
+
+            # Dun the required marks
+            result = self.dun_sapphire_marks(character_id, required_marks)
+            if not result["success"]:
+                logger.error(f"❌ Failed to dun marks for {character.name}: {result.get('error')}")
+                return {
+                    "error": result.get("error"),
+                    "hit_points": dict(character.hit_points),
+                }
+
+        # Now proceed with full replenishment
         maximum = character.hit_points.get("maximum", 0)
         before = character.hit_points.get("current", 0)
         character.hit_points["current"] = maximum
@@ -1208,6 +1290,17 @@ class CharacterManager:
         # Roshar: a night with spheres refills Stormlight
         if getattr(character, "stormlight_capacity", 0):
             character.stormlight_current = character.stormlight_capacity
+
+        # Investiture Points back to full (via InvestiturePointLedger) - only for Radiants
+        if is_radiant:
+            try:
+                from components.combat.investiture_ledger import InvestiturePointLedger
+                from components.cosmere_rules import CosmereRules
+                rules = CosmereRules()
+                ledger = InvestiturePointLedger(self, rules)
+                ledger.refresh_on_long_rest(character_id)
+            except Exception as e:
+                logger.warning(f"⚠️ Could not refresh Investiture Points for {character.name}: {e}")
 
         self._reset_death_saves(character)
 
@@ -2181,6 +2274,96 @@ class CharacterManager:
 
         logger.info(f"💸 {character.name} spent {gp}gp {sp}sp {cp}cp {pp}pp {ep}ep")
         return {"success": True, "currency": dict(character.currency)}
+
+    def add_sapphire_marks(self, character_id: str, infused: int = 0, dun: int = 0) -> Dict[str, Any]:
+        """
+        Add sapphire marks to a character's sphere collection.
+
+        Args:
+            character_id: Character ID
+            infused: Infused sapphire marks to add
+            dun: Dun (empty) sapphire marks to add
+
+        Returns:
+            Dict with "success" (bool), "total" (total marks), "infused" (infused marks),
+            "dun" (dun marks), "error" (if failed)
+        """
+        if character_id not in self.characters:
+            return {"success": False, "error": "Character not found"}
+
+        character = self.characters[character_id]
+
+        # Initialize if not set
+        if character.sapphire_marks_total is None:
+            character.sapphire_marks_total = 0
+        if character.sapphire_marks_dun is None:
+            character.sapphire_marks_dun = 0
+
+        # Add marks
+        character.sapphire_marks_total += (infused + dun)
+        character.sapphire_marks_dun += dun
+
+        infused_count = character.sapphire_marks_total - character.sapphire_marks_dun
+        logger.info(f"💎 {character.name} gained {infused}sm infused, {dun}sm dun "
+                   f"(total: {character.sapphire_marks_total}sm, "
+                   f"infused: {infused_count}sm, dun: {character.sapphire_marks_dun}sm)")
+
+        return {
+            "success": True,
+            "total": character.sapphire_marks_total,
+            "infused": infused_count,
+            "dun": character.sapphire_marks_dun
+        }
+
+    def dun_sapphire_marks(self, character_id: str, amount: int) -> Dict[str, Any]:
+        """
+        Dun (consume Stormlight from) sapphire marks, typically for long rest replenishment.
+
+        Per HB:12343-12382, characters must dun level × 5 sapphire marks at the end of a
+        long rest to recover abilities. This converts infused marks to dun marks.
+
+        Args:
+            character_id: Character ID
+            amount: Number of sapphire marks to dun
+
+        Returns:
+            Dict with "success" (bool), "infused" (remaining infused marks),
+            "dun" (total dun marks), "error" (if insufficient)
+        """
+        if character_id not in self.characters:
+            return {"success": False, "error": "Character not found"}
+
+        character = self.characters[character_id]
+
+        # Initialize if not set
+        if character.sapphire_marks_total is None:
+            character.sapphire_marks_total = 0
+        if character.sapphire_marks_dun is None:
+            character.sapphire_marks_dun = 0
+
+        # Calculate current infused marks
+        infused_count = character.sapphire_marks_total - character.sapphire_marks_dun
+
+        if infused_count < amount:
+            return {
+                "success": False,
+                "error": f"Insufficient infused marks (have {infused_count}sm, need {amount}sm)",
+                "infused": infused_count,
+                "dun": character.sapphire_marks_dun
+            }
+
+        # Dun the marks (convert infused to dun)
+        character.sapphire_marks_dun += amount
+        new_infused = character.sapphire_marks_total - character.sapphire_marks_dun
+
+        logger.info(f"💎 {character.name} dunned {amount}sm "
+                   f"(infused: {new_infused}sm, dun: {character.sapphire_marks_dun}sm)")
+
+        return {
+            "success": True,
+            "infused": new_infused,
+            "dun": character.sapphire_marks_dun
+        }
 
     def get_carrying_capacity(self, character_id: str) -> Optional[int]:
         """
