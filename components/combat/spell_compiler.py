@@ -154,6 +154,66 @@ def _pick_character_row(table: Dict[str, Any],
     return _pick_slot_row(table, int(caster_level))
 
 
+def _derive_automation_from_fields(entry: Dict[str, Any], slot: int,
+                                   caster_level: Optional[int],
+                                   compiled: CompiledSpell) -> bool:
+    """
+    Derive automation tree from structured fields (heal, damage, dc, attack_type, AoE).
+
+    Shared by compile_spell and compile_art. Returns True if automation was derived,
+    False if the entry needs adjudication. Modifies `compiled` in place.
+    """
+    effects: List[Dict[str, Any]] = []
+
+    heal_expression = _heal_expression(entry, slot)
+    if heal_expression:
+        effects.append({"type": "heal", "heal": heal_expression})
+
+    damage_node = _damage_node(entry, slot, caster_level, compiled)
+    if damage_node is not None:
+        effects.append(damage_node)
+    elif entry.get("damage") and not heal_expression:
+        # There IS a damage block but no row we can honestly read. Do not fall
+        # through to "no effect"; say why.
+        compiled.needs_adjudication = True
+        compiled.reason = compiled.reason or (
+            f"{compiled.name} has a damage table this caster's level cannot index")
+        return False
+
+    if not effects:
+        compiled.needs_adjudication = True
+        compiled.reason = (
+            f"{compiled.name} has no structured damage, healing or attack data — "
+            f"its effect is described only in prose")
+        logger.info(f"   📜 {compiled.name}: needs adjudication ({compiled.reason})")
+        return False
+
+    tree = _wrap_in_save_or_attack(effects, entry, compiled)
+
+    # Wrap in area_of_effect if present, otherwise use target:chosen
+    if compiled.area_of_effect:
+        aoe = compiled.area_of_effect
+        shape = str(aoe.get("type", "sphere")).lower()
+        size = int(aoe.get("size", 0) or 0)
+        if size > 0:
+            # AoE node takes the chosen target as center and expands to all
+            # entities within range, running effects on each
+            compiled.automation = [{"type": "target", "target": "chosen",
+                                    "effects": [{"type": "area_of_effect",
+                                                "shape": shape, "size": size,
+                                                "effects": tree}]}]
+            logger.debug(f"   📜 compiled {compiled.describe()} with {shape} "
+                        f"AoE ({size}ft)")
+        else:
+            compiled.automation = [{"type": "target", "target": "chosen",
+                                    "effects": tree}]
+    else:
+        compiled.automation = [{"type": "target", "target": "chosen",
+                                "effects": tree}]
+
+    return True
+
+
 def compile_spell(spell: Dict[str, Any], slot_level: Optional[int] = None,
                   caster_level: Optional[int] = None) -> CompiledSpell:
     """
@@ -183,55 +243,10 @@ def compile_spell(spell: Dict[str, Any], slot_level: Optional[int] = None,
         description=" ".join(spell.get("desc") or []),
     )
 
-    effects: List[Dict[str, Any]] = []
+    # Derive automation from structured fields
+    if _derive_automation_from_fields(spell, slot, caster_level, compiled):
+        logger.debug(f"   📜 compiled {compiled.describe()}")
 
-    heal_expression = _heal_expression(spell, slot)
-    if heal_expression:
-        effects.append({"type": "heal", "heal": heal_expression})
-
-    damage_node = _damage_node(spell, slot, caster_level, compiled)
-    if damage_node is not None:
-        effects.append(damage_node)
-    elif spell.get("damage") and not heal_expression:
-        # There IS a damage block but no row we can honestly read. Do not fall
-        # through to "no effect"; say why.
-        compiled.needs_adjudication = True
-        compiled.reason = compiled.reason or (
-            f"{name} has a damage table this caster's level cannot index")
-        return compiled
-
-    if not effects:
-        compiled.needs_adjudication = True
-        compiled.reason = (
-            f"{name} has no structured damage, healing or attack data in the SRD — "
-            f"its effect is described only in prose")
-        logger.info(f"   📜 {name}: needs adjudication ({compiled.reason})")
-        return compiled
-
-    tree = _wrap_in_save_or_attack(effects, spell, compiled)
-
-    # Wrap in area_of_effect if the spell has one, otherwise use target:chosen
-    if compiled.area_of_effect:
-        aoe = compiled.area_of_effect
-        shape = str(aoe.get("type", "sphere")).lower()
-        size = int(aoe.get("size", 0) or 0)
-        if size > 0:
-            # AoE node takes the chosen target as center and expands to all
-            # entities within range, running effects on each
-            compiled.automation = [{"type": "target", "target": "chosen",
-                                    "effects": [{"type": "area_of_effect",
-                                                "shape": shape, "size": size,
-                                                "effects": tree}]}]
-            logger.debug(f"   📜 compiled {compiled.describe()} with {shape} "
-                        f"AoE ({size}ft)")
-        else:
-            compiled.automation = [{"type": "target", "target": "chosen",
-                                    "effects": tree}]
-    else:
-        compiled.automation = [{"type": "target", "target": "chosen",
-                                "effects": tree}]
-
-    logger.debug(f"   📜 compiled {compiled.describe()}")
     return compiled
 
 
@@ -325,20 +340,22 @@ def _wrap_in_save_or_attack(effects: List[Dict[str, Any]],
 # Invested Arts compilation (plan 2.9)
 # ---------------------------------------------------------------------------
 
-def compile_art(art: Dict[str, Any], art_level: int = 0) -> CompiledSpell:
+def compile_art(art: Dict[str, Any], art_level: int = 0,
+                caster_level: Optional[int] = None) -> CompiledSpell:
     """
     Compile an Invested Art entry into an automation tree (plan 2.9).
 
     Invested Arts share the spell schema: `casting_time`, `range`, `duration`,
-    `concentration`, `dc`, `damage`, `automation`. If the art already has an
-    `automation` tree, it is used directly (the same reuse the spell compiler
-    applies to manually-authored maneuvers). Otherwise, compilation derives
-    nodes from structured fields exactly as `compile_spell()` does.
+    `concentration`, `dc`, `damage`, `heal_at_slot_level`, `attack_type`,
+    `area_of_effect`, `automation`. If the art already has an `automation` tree,
+    it is used directly. Otherwise, compilation derives nodes from structured
+    fields exactly as `compile_spell()` does — making field-based authoring
+    scalable for the ~300 real arts.
 
     Returns `CompiledSpell` (the name is generic — it holds any compiled effect).
     """
     name = str(art.get("name") or "")
-    level = int(art.get("level", art_level) or 0)
+    level = int(art.get("art_level", art_level) or 0)
 
     compiled = CompiledSpell(
         name=name,
@@ -351,19 +368,22 @@ def compile_art(art: Dict[str, Any], art_level: int = 0) -> CompiledSpell:
         ritual=bool(art.get("ritual")),
         casting_time=str(art.get("casting_time") or "1 action"),
         area_of_effect=art.get("area_of_effect"),
+        attack_type=str(art.get("attack_type") or ""),
+        slot_level=level,  # For arts, slot_level == art_level
         description=str(art.get("desc") or ""))
 
     # If the art has a hand-authored automation tree, use it directly
+    # (for exotic effects: illusion, teleport, summon, create_object, etc.)
     if art.get("automation"):
         compiled.automation = art["automation"]
         logger.debug(f"   ✨ {name}: using authored automation tree")
         return compiled
 
-    # Otherwise, derive nodes from structured fields (same as spell compilation)
-    # For now, mark arts without automation as needing adjudication
-    # (the authoring agent will fill these in)
-    compiled.needs_adjudication = True
-    compiled.reason = (
-        f"{name} has no automation tree — awaiting authoring")
-    logger.info(f"   ✨ {name}: needs adjudication ({compiled.reason})")
+    # Otherwise, derive automation from structured fields (damage, heal, dc, etc.)
+    if _derive_automation_from_fields(art, level, caster_level, compiled):
+        logger.debug(f"   ✨ compiled {compiled.describe()}")
+    else:
+        # Truly prose-only arts that have no structured fields fall here
+        logger.info(f"   ✨ {name}: needs adjudication ({compiled.reason})")
+
     return compiled

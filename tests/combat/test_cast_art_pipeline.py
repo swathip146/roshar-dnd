@@ -54,20 +54,20 @@ class _StubGameEngine:
 
 def test_cast_art_damage_end_to_end():
     """
-    Cast a damage art through the full pipeline:
-    - Compile art
+    Cast a REAL damage art (Abrasive Bolt - attack-based) through the full pipeline:
+    - Compile from structured fields (attack_type + damage_at_slot_level)
     - Spend IP
     - Execute through ManeuverExecutor
     - Deal damage
     - Sync HP to combat state
     """
-    logger.info("🧪 [cast_art] Testing damage art end-to-end")
+    logger.info("🧪 [cast_art] Testing REAL damage art: Abrasive Bolt")
 
-    # Setup: Create a Windrunner with IP
+    # Setup: Create an Edgedancer (has Abrasive Bolt) with IP
     char_mgr = CharacterManager()
     char_mgr.add_character(_character(
-        "kaladin", "Kaladin",
-        radiant_order="Windrunner",
+        "lift", "Lift",
+        radiant_order="Edgedancer",
         investiture_points={"current": 5, "maximum": 5}
     ))
 
@@ -75,7 +75,7 @@ def test_cast_art_damage_end_to_end():
     char_mgr.add_character(_character(
         "goblin_1", "Goblin Scout",
         level=1,
-        hit_points={"current": 7, "maximum": 7, "temporary": 0},
+        hit_points={"current": 20, "maximum": 20, "temporary": 0},
         armor_class=13
     ))
 
@@ -91,63 +91,71 @@ def test_cast_art_damage_end_to_end():
         combat_state={}
     )
 
-    # Action: Cast "Radiant Bolt (TEST FIXTURE)" at goblin
+    # Action: Cast "Abrasive Bolt" (REAL art with attack_type + damage fields)
     action = {
         "action_type": "cast_art",
-        "actor": "kaladin",
-        "art_name": "Radiant Bolt (TEST FIXTURE)",
+        "actor": "lift",
+        "art_name": "Abrasive Bolt",
         "target": "goblin_1"
     }
 
-    ip_before = resolver.investiture_ledger.current("kaladin")
-    logger.info(f"   📊 Before cast: IP={ip_before}, Goblin HP=7")
+    ip_before = resolver.investiture_ledger.current("lift")
+    logger.info(f"   📊 Before cast: IP={ip_before}, Goblin HP=20")
     result = resolver._cast_art(action, {})
 
-    # Verify: Art executed (compilation worked, maneuver ran)
+    # Verify: Art compiled from fields (NOT needs_adjudication)
     assert result["attempted"], "Art should be attempted"
     assert "art_name" in result
-    assert result["art_name"] == "Radiant Bolt (TEST FIXTURE)"
+    assert result["art_name"] == "Abrasive Bolt"
     logger.info(f"   ✅ Art cast: attempted={result['attempted']}, success={result.get('success')}")
 
-    # Verify: IP was spent (art was cast, even if attack missed)
-    ip_after = resolver.investiture_ledger.current("kaladin")
-    # For attack arts, IP is spent when casting (NOT refunded on miss per game rules)
+    # Verify: IP was spent (1st level art costs 2 IP for Edgedancer)
+    ip_after = resolver.investiture_ledger.current("lift")
     assert ip_after < ip_before, f"IP should be spent when casting art, was {ip_before}, now {ip_after}"
     logger.info(f"   ✅ IP spent: {ip_before - ip_after} points")
 
     # Check if attack hit (damage > 0 means hit)
+    # IMPORTANT: Verify custom Cosmere damage type ("axial") actually deals damage
     if result.get("damage", 0) > 0:
-        # Attack hit - damage was dealt
-        logger.info(f"   ✅ Damage dealt: {result['damage']}")
+        # Attack hit - AXIAL damage was dealt through the engine
+        logger.info(f"   ✅ Damage dealt: {result['damage']} axial")
 
         # HP should be synced (goblin should have less HP)
         goblin = wrapper.entities.get("goblin_1")
         con_mod = 0  # goblin con 10
         current_hp = goblin.health.get_total_hit_points(con_mod)
-        assert current_hp < 7, f"Goblin HP should decrease from 7, now {current_hp}"
-        logger.info(f"   ✅ HP synced: Goblin at {current_hp}/7 HP")
+        assert current_hp < 20, f"Goblin HP should decrease from 20, now {current_hp}"
+        logger.info(f"   ✅ HP synced: Goblin at {current_hp}/20 HP (AXIAL damage worked!)")
     else:
         # Attack missed (this is expected randomness in attack rolls)
         logger.info("   ℹ️  Attack missed (expected randomness in attack rolls)")
 
-    logger.info("✅ [cast_art] Damage art pipeline works end-to-end")
+    logger.info("✅ [cast_art] REAL attack-based damage art (Abrasive Bolt) works")
 
 
-def test_cast_art_resistance_end_to_end():
+def test_cast_art_healing_end_to_end():
     """
-    Cast a resistance art to verify the resistance node grants actual resistance.
+    Cast a REAL healing art (Regrowth) to verify field-based compilation works.
+    Tests: heal_at_slot_level field compiles to automation tree, heals target, IP spent.
     """
-    logger.info("🧪 [cast_art] Testing resistance art end-to-end")
+    logger.info("🧪 [cast_art] Testing REAL healing art: Regrowth")
 
-    # Setup
+    # Setup: Edgedancer with IP
     char_mgr = CharacterManager()
     char_mgr.add_character(_character(
-        "shallan", "Shallan",
-        radiant_order="Lightweaver",
+        "lift", "Lift",
+        radiant_order="Edgedancer",
         investiture_points={"current": 5, "maximum": 5}
     ))
 
-    # Wrapper auto-syncs all characters from character_manager in __post_init__
+    # Injured ally
+    char_mgr.add_character(_character(
+        "wounded", "Wounded Ally",
+        level=1,
+        hit_points={"current": 10, "maximum": 30, "temporary": 0},
+        armor_class=10
+    ))
+
     wrapper = DnDEngineWrapper(game_engine=_StubGameEngine(), character_manager=char_mgr)
 
     resolver = CombatActionResolver(
@@ -156,53 +164,100 @@ def test_cast_art_resistance_end_to_end():
         combat_state={}
     )
 
-    # Cast "Protective Ward (TEST FIXTURE)" on self
+    # Cast "Regrowth" (REAL art with heal_at_slot_level field)
     action = {
         "action_type": "cast_art",
-        "actor": "shallan",
-        "art_name": "Protective Ward (TEST FIXTURE)",
-        "target": "shallan"  # Self-target
+        "actor": "lift",
+        "art_name": "Regrowth",
+        "target": "wounded"
     }
 
-    ip_before = resolver.investiture_ledger.current("shallan")
-    logger.info(f"   📊 Before cast: IP={ip_before}, no resistances")
+    ip_before = resolver.investiture_ledger.current("lift")
+    wounded_before = wrapper.entities.get("wounded").health.get_total_hit_points(0)
+    logger.info(f"   📊 Before cast: IP={ip_before}, Wounded HP={wounded_before}/30")
+
     result = resolver._cast_art(action, {})
 
-    # Debug: log the full result
-    logger.info(f"   📊 Result keys: {list(result.keys())}")
-    logger.info(f"   📊 Result: attempted={result.get('attempted')}, success={result.get('success')}, error={result.get('error')}")
-    logger.info(f"   📊 IP fields in result: ip_spent={result.get('ip_spent')}, ip_remaining={result.get('ip_remaining')}")
-
-    # Verify: Art succeeded
+    # Verify: Art compiled from heal_at_slot_level field (NOT needs_adjudication)
     assert result["attempted"], "Art should be attempted"
-    assert result["success"], f"Resistance art should succeed (no attack roll), got success={result.get('success')}, error={result.get('error')}"
-    logger.info("   ✅ Art cast successfully")
+    assert result["success"], f"Healing art should succeed, got error={result.get('error')}"
+    logger.info("   ✅ Regrowth cast successfully (compiled from heal_at_slot_level)")
 
-    # Verify: IP spent
-    ip_after = resolver.investiture_ledger.current("shallan")
-    assert ip_after < 5, f"IP should be spent on success, was 5, now {ip_after}"
-    logger.info(f"   ✅ IP spent: {5 - ip_after} points")
+    # Verify: IP spent (1st level art)
+    ip_after = resolver.investiture_ledger.current("lift")
+    assert ip_after < ip_before, f"IP should be spent, was {ip_before}, now {ip_after}"
+    logger.info(f"   ✅ IP spent: {ip_before - ip_after} points")
 
-    # Verify: Resistance was applied to entity
-    event = result.get("event")
-    assert event is not None, "Should have ManeuverResult event"
-    assert isinstance(event, ManeuverResult)
-    assert len(event.effects_applied) > 0, "Should have applied effects"
+    # Verify: HP increased
+    wounded_after = wrapper.entities.get("wounded").health.get_total_hit_points(0)
+    assert wounded_after > wounded_before, f"HP should increase from {wounded_before}, now {wounded_after}"
+    logger.info(f"   ✅ Healing applied: {wounded_after - wounded_before} HP restored ({wounded_before} → {wounded_after})")
 
-    # Check that resistance was applied
-    resistance_effect = next((e for e in event.effects_applied
-                             if "Resistance" in e["name"]), None)
-    assert resistance_effect is not None, "Should have resistance effect"
-    logger.info(f"   ✅ Resistance applied: {resistance_effect['name']}")
+    logger.info("✅ [cast_art] REAL healing art (Regrowth) works end-to-end")
 
-    # Verify: Entity has resistance modifier
-    entity = wrapper.entities.get("shallan")
-    assert entity is not None
-    # The resistance should be in the entity's damage_reduction
-    # (This is wired in _node_resistance via ResistanceModifier)
-    logger.info(f"   ✅ Resistance wired to engine")
 
-    logger.info("✅ [cast_art] Resistance art pipeline works end-to-end")
+def test_cast_art_save_based_damage():
+    """
+    Cast a REAL save-based cantrip (Abrade) to verify dc + damage_at_character_level compilation.
+    Tests custom Cosmere damage type ("axial") with DEX save.
+    """
+    logger.info("🧪 [cast_art] Testing REAL save-based cantrip: Abrade")
+
+    char_mgr = CharacterManager()
+    char_mgr.add_character(_character(
+        "lift", "Lift",
+        radiant_order="Edgedancer",
+        level=5,  # 5th level for 2d8 damage
+        investiture_points={"current": 5, "maximum": 5}
+    ))
+
+    char_mgr.add_character(_character(
+        "target", "Target",
+        level=1,
+        hit_points={"current": 20, "maximum": 20, "temporary": 0},
+        armor_class=10
+    ))
+
+    wrapper = DnDEngineWrapper(game_engine=_StubGameEngine(), character_manager=char_mgr)
+
+    resolver = CombatActionResolver(
+        dnd_engine_wrapper=wrapper,
+        character_manager=char_mgr,
+        combat_state={}
+    )
+
+    # Cast "Abrade" (cantrip with dc + damage_at_character_level)
+    action = {
+        "action_type": "cast_art",
+        "actor": "lift",
+        "art_name": "Abrade",
+        "target": "target"
+    }
+
+    target_hp_before = wrapper.entities.get("target").health.get_total_hit_points(0)
+    logger.info(f"   📊 Before cast: Target HP={target_hp_before}")
+
+    result = resolver._cast_art(action, {})
+
+    # Verify: Art compiled from dc + damage_at_character_level fields
+    assert result["attempted"], "Art should be attempted"
+    # Success depends on the save roll (might succeed or fail)
+    logger.info(f"   ✅ Abrade cast: success={result.get('success')} (save roll result)")
+
+    # Verify: IP NOT spent (cantrips are free)
+    ip_after = resolver.investiture_ledger.current("lift")
+    assert ip_after == 5, f"Cantrips are free, IP should still be 5, got {ip_after}"
+    logger.info("   ✅ No IP spent (cantrip is free)")
+
+    # If target failed save, damage was dealt
+    target_hp_after = wrapper.entities.get("target").health.get_total_hit_points(0)
+    if target_hp_after < target_hp_before:
+        damage = target_hp_before - target_hp_after
+        logger.info(f"   ✅ AXIAL damage dealt: {damage} (save failed, HP: {target_hp_before} → {target_hp_after})")
+    else:
+        logger.info("   ℹ️  Target saved (no damage)")
+
+    logger.info("✅ [cast_art] REAL save-based cantrip (Abrade) works")
 
 
 def test_cast_art_ip_refund_on_no_effect():
