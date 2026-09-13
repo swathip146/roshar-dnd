@@ -199,6 +199,32 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
         "requires": "class_feature",
         "feature_id": "action_surge",
     },
+
+    # ========================================================================
+    # EQUIPMENT ACTIONS (plan 2.11: mid-combat equip)
+    #
+    # Equipment synced to entities ONCE at combat start (DnDEngineWrapper
+    # __post_init__ -> equip_from_character_data). A weapon acquired or
+    # swapped mid-fight had no effect until the next encounter. This action
+    # re-equips on the LIVE entity so subsequent attacks use the new weapon.
+    # ========================================================================
+
+    "equip_weapon": {
+        "type": "equipment_action",
+        "action_class": None,
+        "description": "Draw/switch weapon",
+        "params": ["weapon_name"],
+        # None means "pick the first unequipped weapon from inventory". The
+        # action needs a default or it is not offerable (the same trap that
+        # made cast_spell unplayable).
+        "param_defaults": {"weapon_name": None},
+        # 5e PHB p.190: drawing/stowing a weapon is a FREE object interaction
+        # once per turn. A second one costs an action. Modeled as free (no
+        # cost_type/cost keys) for simplicity, following action_surge's pattern;
+        # the one-per-turn limit is not enforced yet. This ensures switching
+        # weapons does not eat your attack action.
+        "requires": "has_weapon",
+    },
 }
 
 
@@ -635,6 +661,42 @@ def unusable_reason(action_type: str, actor_state: Any) -> "str | None":
         # feature_uses_left) calculates remaining = maximum - spent.
         # Here we just do a rough check - the real gating happens in use().
         # Skip the check for now and let ClassFeatureEngine.use() handle it.
+    elif requires == "has_weapon":
+        # Equipment actions (equip_weapon): only offer when the actor has at least
+        # one weapon in inventory that could be equipped. Without this, every
+        # combatant would be offered "equip_weapon" even if they have no weapons
+        # at all, or only the one already equipped.
+        #
+        # This checks the equipment list for ANY recognized weapon name. The
+        # currently equipped weapon is tracked on the entity (weapon_main_hand),
+        # not in CharacterData, so we can't perfectly gate "has a DIFFERENT weapon"
+        # here — but the action itself will be a no-op if you try to equip what's
+        # already equipped, so offering it is harmless. The critical gate is "has
+        # A weapon at all".
+        equipment = read("equipment", [])
+        if not isinstance(equipment, list) or not equipment:
+            return "no equipment"
+
+        # Check if any item in equipment looks like a weapon. Common weapon keywords
+        # from DnDEngineWrapper._WEAPON_STATS. This is deliberately permissive: a
+        # false positive (offering equip_weapon for "sword-shaped key") is harmless
+        # since the action will gracefully fail, while a false negative (not offering
+        # it when there IS a weapon) would make the feature unreachable.
+        _WEAPON_KEYWORDS = frozenset({
+            "sword", "blade", "axe", "hammer", "mace", "staff", "spear",
+            "bow", "crossbow", "dagger", "knife", "club", "quarterstaff",
+            "javelin", "sickle", "flail", "glaive", "halberd", "maul",
+            "morningstar", "rapier", "scimitar", "trident", "warhammer",
+            "whip", "sling", "dart", "blowgun", "shardblade", "sidesword",
+            "grandbow"
+        })
+        has_any_weapon = any(
+            any(kw in item.lower() for kw in _WEAPON_KEYWORDS)
+            for item in equipment
+            if isinstance(item, str)
+        )
+        if not has_any_weapon:
+            return "no weapons in inventory"
 
     return None
 
