@@ -304,6 +304,73 @@ class CombatActionResolver:
             "uses_remaining": result.uses_remaining,
         }
 
+    def _equip_weapon(self, action: Dict[str, Any],
+                      metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve equip_weapon: re-equip a weapon on the live entity mid-combat.
+
+        Equipment syncs to entities only ONCE at combat start (via
+        __post_init__ -> equip_from_character_data), so a weapon acquired or
+        switched mid-fight had no effect until the next encounter. This action
+        calls DnDEngineWrapper.equip_weapon() on the LIVE entity, so subsequent
+        attacks use the new weapon's stats (damage, reach, type).
+
+        Args:
+            action: {"actor": char_id, "weapon_name": str | None, ...}
+            metadata: Registry entry (contains param_defaults)
+
+        Returns:
+            Standard resolver result dict with success/error/description
+        """
+        actor_id = action["actor"]
+        defaults = param_defaults(action["action_type"])
+        weapon_name = action.get("weapon_name", defaults.get("weapon_name"))
+
+        # If no weapon specified, pick the first equippable one from inventory
+        if not weapon_name:
+            character = self.character_manager.characters.get(actor_id)
+            if character is None:
+                return {
+                    "success": False,
+                    "attempted": False,
+                    "error": f"Unknown character {actor_id}",
+                    "event": None,
+                }
+
+            equipment = getattr(character, "equipment", None) or []
+            # Find the first item that is recognized as a weapon
+            for item in equipment:
+                if isinstance(item, str) and self.dnd_wrapper._weapon_stats_for(item):
+                    weapon_name = item
+                    break
+
+            if not weapon_name:
+                return {
+                    "success": False,
+                    "attempted": False,
+                    "error": "No weapon found in inventory",
+                    "event": None,
+                }
+
+        # Equip the weapon on the live entity
+        success = self.dnd_wrapper.equip_weapon(actor_id, weapon_name)
+
+        if success:
+            return {
+                "success": True,
+                "attempted": True,
+                "event": None,
+                "description": f"{actor_id} equips {weapon_name}",
+                "weapon_name": weapon_name,
+            }
+        else:
+            return {
+                "success": False,
+                "attempted": False,
+                "error": f"Failed to equip {weapon_name}",
+                "event": None,
+            }
+
     def resolve_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
         Unified action resolution for D&D + Roshar.
@@ -420,6 +487,13 @@ class CombatActionResolver:
             # Only charge the action economy if the feature was actually used
             if result.get("success") or result.get("attempted"):
                 self._consume_action_cost(actor_id, metadata)
+            return result
+        elif metadata["type"] == "equipment_action":
+            result = self._equip_weapon(action, metadata)
+            # Equipping is a free object interaction (5e PHB p.190), so no action
+            # economy is consumed. The cost_type/cost in the registry are both None.
+            # If we later enforce "one free interaction per turn", the gating would
+            # go in unusable_reason(), not here.
             return result
         else:
             return {

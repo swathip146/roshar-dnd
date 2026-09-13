@@ -470,6 +470,13 @@ class TestEverythingOfferedActuallyResolves:
             # them the same way as the PHB actions above.
             if resolver.ACTION_REGISTRY.get(action_type, {}).get("type") == "class_feature":
                 continue
+            # Equipment actions (equip_weapon) are offered to any actor with weapons
+            # in inventory; they return event=None (not an engine event like Attack/Lash),
+            # so would be flagged as "refused" here. Their resolution is verified in
+            # test_mid_combat_reequip.py; this invariant guards against surge-traps,
+            # not equipment actions.
+            if resolver.ACTION_REGISTRY.get(action_type, {}).get("type") == "equipment_action":
+                continue
             wrapper.entities[actor].action_economy.reset_all_costs()
             result = resolver.resolve_action({"actor": actor,
                                               "action_type": action_type,
