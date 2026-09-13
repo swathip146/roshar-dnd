@@ -200,6 +200,66 @@ ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
         "feature_id": "action_surge",
     },
 
+    # Additional activated class features (all 12 base classes, plan class-coverage).
+    # Same shape as rage/second_wind/action_surge: `requires: "class_feature"` gates
+    # on the actor OWNING the feature (has-feature check below), ClassFeatureEngine
+    # then enforces class/level/uses at execution. Passive/on-hit features are
+    # data-only in class_features.json (granted + tracked) and need no entry here.
+
+    "lay_on_hands": {
+        "type": "class_feature",
+        "action_class": None,
+        "description": "Restore hit points from your healing pool (Paladin)",
+        "params": [],
+        "cost_type": "bonus_actions",
+        "cost": 1,
+        "requires": "class_feature",
+        "feature_id": "lay_on_hands",
+    },
+
+    "reckless_attack": {
+        "type": "class_feature",
+        "action_class": None,
+        "description": "Attack recklessly for advantage on Strength attacks (Barbarian)",
+        "params": [],
+        # Declared as part of your first attack — free, like action_surge.
+        "requires": "class_feature",
+        "feature_id": "reckless_attack",
+    },
+
+    "steady_aim": {
+        "type": "class_feature",
+        "action_class": None,
+        "description": "Give yourself advantage on your next attack (Rogue)",
+        "params": [],
+        "cost_type": "bonus_actions",
+        "cost": 1,
+        "requires": "class_feature",
+        "feature_id": "steady_aim",
+    },
+
+    "innate_sorcery": {
+        "type": "class_feature",
+        "action_class": None,
+        "description": "Unleash innate magic for advantage on spell attacks (Sorcerer)",
+        "params": [],
+        "cost_type": "bonus_actions",
+        "cost": 1,
+        "requires": "class_feature",
+        "feature_id": "innate_sorcery",
+    },
+
+    "tireless": {
+        "type": "class_feature",
+        "action_class": None,
+        "description": "Give yourself temporary hit points (Ranger)",
+        "params": [],
+        "cost_type": "actions",
+        "cost": 1,
+        "requires": "class_feature",
+        "feature_id": "tireless",
+    },
+
     # ========================================================================
     # EQUIPMENT ACTIONS (plan 2.11: mid-combat equip)
     #

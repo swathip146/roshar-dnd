@@ -88,6 +88,10 @@ FEATURES_FILE = (PROJECT_ROOT / "data" / "rules" / "class_features"
 KNOWN_EFFECTS = frozenset({
     "heal", "grant_action", "melee_damage_bonus", "resistance",
     "extra_attack_damage", "inspiration_die", "save_or_condition",
+    # Generic, data-driven nodes added for broad class-feature coverage. Each
+    # writes to a PERSISTENT engine value and records its removal recipe, the
+    # same discipline the original seven follow (see the module docstring).
+    "ability_score_bonus", "ac_bonus", "temp_hp", "speed_bonus", "advantage",
 })
 
 # Activations that cost something from the action economy.
@@ -315,6 +319,18 @@ class FeatureResult:
                 parts.append(f"{event['target']} "
                              + ("is " + event["condition"] if event["failed"]
                                 else "resists"))
+            elif event["type"] == "ability_score_bonus":
+                parts.append(f"+{event['amount']} {event['ability'][:3].upper()}")
+            elif event["type"] == "ac_bonus":
+                parts.append(f"+{event['amount']} AC")
+            elif event["type"] == "temp_hp":
+                parts.append(f"{event['amount']} temp HP")
+            elif event["type"] == "speed_bonus":
+                parts.append(f"+{event['amount']} ft speed")
+            elif event["type"] == "advantage":
+                parts.append("advantage on " + event["on"]
+                             + (f" ({event['ability']})" if event.get("ability")
+                                else ""))
         return f"{self.actor} uses {self.feature}" + (
             f" ({'; '.join(parts)})" if parts else "")
 
@@ -333,7 +349,12 @@ class _Applied:
     char_id: str
     value_modifiers: List[Tuple[Any, UUID]] = field(default_factory=list)
     resistances: List[Tuple[Any, UUID]] = field(default_factory=list)
+    # Advantage modifiers are removed through a DIFFERENT StaticValue method than
+    # numerical ones (`remove_advantage_modifier`), so they cannot share the
+    # `value_modifiers` list — an id popped from the wrong list silently no-ops.
+    advantage_modifiers: List[Tuple[Any, UUID]] = field(default_factory=list)
     extra_damage_slots: int = 0          # entries appended to the parallel lists
+    temp_hp: int = 0                     # temporary HP granted, for teardown
     rounds_left: int = 0
 
 
@@ -528,7 +549,9 @@ class ClassFeatureEngine:
             getattr(self, f"_effect_{node_type}")(
                 node, entry, char_id, target, result, applied)
 
-        if applied.value_modifiers or applied.resistances or applied.extra_damage_slots:
+        if (applied.value_modifiers or applied.resistances
+                or applied.advantage_modifiers or applied.extra_damage_slots
+                or applied.temp_hp):
             self._active.setdefault(entry["id"], {})[char_id] = applied
 
     def _effect_heal(self, node, entry, char_id, target, result, applied) -> None:
@@ -750,6 +773,197 @@ class ClassFeatureEngine:
         logger.info(f"      🎲 {recipient} {ability} save {roll} vs DC {dc} — "
                     f"{'FAIL' if failed else 'success'}")
 
+    # ------------------------------------------------------ generic buff nodes
+    #
+    # The five nodes below are the data-driven vocabulary that lets far more of
+    # the 5e class table be expressed without a bespoke method per feature. Each
+    # mutates a PERSISTENT engine value (never the fresh object `ac_bonus()`
+    # rebuilds per call) and records its removal recipe on `applied`, the same
+    # contract the original seven honour.
+
+    def _effect_ability_score_bonus(self, node, entry, char_id, target, result,
+                                    applied) -> None:
+        """Raise one ability SCORE (Barbarian Primal Champion: +4 STR/+4 CON)."""
+        from dnd.core.modifiers import NumericalModifier
+
+        entity = self._entity(char_id)
+        character = self._character(char_id)
+        if entity is None:
+            return
+        ability = str(node.get("ability") or "strength").lower()
+        ability_block = getattr(entity.ability_scores, ability, None)
+        if ability_block is None:
+            raise FeatureDataError(f"unknown ability {ability!r}")
+        amount = self._resolve_amount(node.get("amount"), character)
+        value = ability_block.ability_score
+        modifier = NumericalModifier(name=entry["id"], value=amount,
+                                     source_entity_uuid=entity.uuid,
+                                     target_entity_uuid=entity.uuid)
+        applied.value_modifiers.append(
+            (value, value.self_static.add_value_modifier(modifier)))
+        result.events.append({"type": "ability_score_bonus", "ability": ability,
+                              "amount": amount})
+        logger.info(f"      💪 {char_id}: +{amount} {ability} "
+                    f"(score now {value.score})")
+
+    def _effect_ac_bonus(self, node, entry, char_id, target, result,
+                         applied) -> None:
+        """Flat Armor Class bonus (Fighter Defense fighting style: +1 AC).
+
+        Lands on `equipment.ac_bonus`, which both the armored and unarmored AC
+        formulas fold in (`Entity.ac_bonus()` -> `get_(un)armored_ac_values`),
+        so it counts whatever armor the wearer is in.
+        """
+        from dnd.core.modifiers import NumericalModifier
+
+        entity = self._entity(char_id)
+        character = self._character(char_id)
+        if entity is None:
+            return
+        amount = self._resolve_amount(node.get("amount"), character)
+        value = entity.equipment.ac_bonus
+        modifier = NumericalModifier(name=entry["id"], value=amount,
+                                     source_entity_uuid=entity.uuid,
+                                     target_entity_uuid=entity.uuid)
+        applied.value_modifiers.append(
+            (value, value.self_static.add_value_modifier(modifier)))
+        result.events.append({"type": "ac_bonus", "amount": amount})
+        logger.info(f"      🛡️  {char_id}: +{amount} AC (bonus now {value.score})")
+
+    def _effect_temp_hp(self, node, entry, char_id, target, result,
+                        applied) -> None:
+        """Grant Temporary Hit Points (Ranger Tireless: 1d8 + Wis mod).
+
+        5e temp HP does not stack; `Health.add_temporary_hit_points` keeps the
+        larger of the current and new pools, which is exactly the engine
+        behaviour. Tracked on `applied` so `clear()` removes what leaked past the
+        encounter.
+        """
+        entity = self._entity(char_id)
+        character = self._character(char_id)
+        if entity is None:
+            return
+        raw = node.get("amount")
+        amount = raw if isinstance(raw, int) else self._roll(str(raw or "0"),
+                                                             character)
+        if amount <= 0:
+            return
+        entity.health.add_temporary_hit_points(int(amount), entity.uuid)
+        applied.temp_hp = int(amount)
+        result.events.append({"type": "temp_hp", "amount": int(amount)})
+        logger.info(f"      💗 {char_id} gains {amount} temporary HP "
+                    f"(pool {entity.health.temporary_hit_points.score})")
+
+    def _effect_speed_bonus(self, node, entry, char_id, target, result,
+                            applied) -> None:
+        """Increase Speed (Barbarian Fast Movement, Monk Unarmored Movement)."""
+        from dnd.core.modifiers import NumericalModifier
+
+        entity = self._entity(char_id)
+        character = self._character(char_id)
+        if entity is None:
+            return
+        amount = self._resolve_amount(node.get("amount"), character)
+        value = entity.action_economy.movement
+        modifier = NumericalModifier(name=entry["id"], value=amount,
+                                     source_entity_uuid=entity.uuid,
+                                     target_entity_uuid=entity.uuid)
+        applied.value_modifiers.append(
+            (value, value.self_static.add_value_modifier(modifier)))
+        result.events.append({"type": "speed_bonus", "amount": amount})
+        logger.info(f"      🏃 {char_id}: +{amount} ft speed "
+                    f"(now {value.normalized_score})")
+
+    def _effect_advantage(self, node, entry, char_id, target, result,
+                          applied) -> None:
+        """Grant Advantage on a stated roll (a save or the weapon attack).
+
+        `on`: "saving_throw" (with an `ability`) or "attack". Advantage on a save
+        lands on that save's `bonus`; advantage on attacks lands on the main-hand
+        weapon's `attack_bonus` (where flanking and Reckless Attack already land,
+        and where `_has_advantage` reads it), falling back to the equipment-level
+        attack bonus for an unarmed combatant.
+        """
+        from dnd.core.modifiers import AdvantageModifier, AdvantageStatus
+
+        entity = self._entity(char_id)
+        if entity is None:
+            return
+        on = str(node.get("on") or "saving_throw").lower()
+        targets: List[Any] = []
+        if on == "saving_throw":
+            ability = str(node.get("ability") or "").lower()
+            abilities = ([ability] if ability else
+                         ["strength", "dexterity", "constitution",
+                          "intelligence", "wisdom", "charisma"])
+            for name in abilities:
+                try:
+                    targets.append(entity.saving_throws.get_saving_throw(name).bonus)
+                except Exception:
+                    raise FeatureDataError(f"unknown save ability {name!r}")
+        elif on == "attack":
+            weapon = getattr(entity.equipment, "weapon_main_hand", None)
+            bonus = getattr(weapon, "attack_bonus", None)
+            targets.append(bonus if bonus is not None
+                           else entity.equipment.attack_bonus)
+        else:
+            raise FeatureDataError(f"unknown advantage target {on!r}")
+
+        for value in targets:
+            modifier = AdvantageModifier(
+                name=entry["id"], value=AdvantageStatus.ADVANTAGE,
+                source_entity_uuid=entity.uuid, target_entity_uuid=entity.uuid)
+            applied.advantage_modifiers.append(
+                (value, value.self_static.add_advantage_modifier(modifier)))
+        event = {"type": "advantage", "on": on}
+        if node.get("ability"):
+            event["ability"] = str(node.get("ability")).lower()
+        result.events.append(event)
+        logger.info(f"      🎯 {char_id}: advantage on {on}"
+                    + (f" ({node.get('ability')})" if node.get("ability") else ""))
+
+    # ------------------------------------------------------ passive application
+
+    def apply_passives(self, char_id: str) -> List[str]:
+        """
+        Apply every always-on (``activation: "passive"``) feature this character has.
+
+        Passive class features (Fast Movement, Unarmored Movement, Danger Sense,
+        Defense fighting style, …) carry the same effect nodes as activated ones,
+        so applying them is the same `_run_effects` path — the only difference is
+        that no turn action triggers them; they hold for the whole encounter.
+        They are tracked in `_active`, so `clear_all()` strips them at combat end
+        exactly like a Rage, and this method is idempotent: a feature already
+        active is skipped.
+
+        Combat start should call this once per combatant. It is not spent against
+        any use counter, because a passive is not "used".
+
+        Returns the feature ids applied.
+        """
+        character = self._character(char_id)
+        if character is None:
+            return []
+        applied_ids: List[str] = []
+        for entry in self.table.for_character(
+                getattr(character, "character_class", ""),
+                int(getattr(character, "level", 1) or 1)):
+            if entry.get("activation") != "passive":
+                continue
+            if not (entry.get("effects") or []):
+                continue          # data-only marker: granted and tracked, no state
+            if char_id in self._active.get(entry["id"], {}):
+                continue
+            result = FeatureResult(feature=entry.get("name", entry["id"]),
+                                   actor=char_id)
+            try:
+                self._run_effects(entry, char_id, "", result)
+                applied_ids.append(entry["id"])
+                logger.info(f"   🎖️  {char_id} passive {entry['name']} applied")
+            except FeatureDataError as e:
+                logger.error(f"❌ passive {entry['name']} is malformed: {e}")
+        return applied_ids
+
     # ----------------------------------------------------------- on-hit path
 
     def on_hit_features(self, char_id: str,
@@ -918,9 +1132,23 @@ class ClassFeatureEngine:
                 reduction.self_static.remove_resistance_modifier(modifier_id)
             except Exception as e:
                 logger.debug(f"   Could not remove {feature_id} resistance: {e}")
+        for value, modifier_id in applied.advantage_modifiers:
+            try:
+                value.self_static.remove_advantage_modifier(modifier_id)
+            except Exception as e:
+                logger.debug(f"   Could not remove {feature_id} advantage: {e}")
 
         if applied.extra_damage_slots:
             self._pop_extra_damage(char_id, applied.extra_damage_slots)
+
+        if applied.temp_hp:
+            entity = self._entity(char_id)
+            if entity is not None:
+                try:
+                    entity.health.remove_temporary_hit_points(
+                        applied.temp_hp, entity.uuid)
+                except Exception as e:
+                    logger.debug(f"   Could not remove {feature_id} temp HP: {e}")
 
         logger.info(f"   ⏹️  {char_id}'s {feature_id} ends")
         return True
@@ -1053,16 +1281,30 @@ class ClassFeatureEngine:
 
     def _roll(self, expression: str, character) -> int:
         """
-        Roll `1d10+level` style expressions.
+        Roll `1d10+level` / `1d8+wisdom` style expressions.
 
-        `+level` is the only interpolation the table uses, so it is the only one
-        supported and anything else raises — see `_resolve_amount`.
+        Two interpolations are supported: `+level` (the character's class level)
+        and `+<ability>` (that ability's modifier, e.g. `+wisdom` for Ranger
+        Tireless). Any other `+token` raises rather than resolving to zero — a
+        feature that silently heals for +0 looks like it works, the bug class this
+        module exists to end (compare `_resolve_amount`).
         """
         level = int(getattr(character, "level", 1) or 1)
-        text = expression.replace("+level", f"+{level}")
-        if re.search(r"\+[a-z_]+", text):
-            raise FeatureDataError(
-                f"unsupported interpolation in {expression!r}; only +level")
+        # `\blevel\b` catches both `+level` (Second Wind's `1d10+level`) and a bare
+        # `level` (Lay On Hands' per-use draw), which `DiceRoller` reads as a flat
+        # constant.
+        text = re.sub(r"\blevel\b", str(level), expression)
+        mods = getattr(character, "ability_modifiers", {}) or {}
+
+        def _sub(match: "re.Match") -> str:
+            name = match.group(1)
+            if name not in mods:
+                raise FeatureDataError(
+                    f"unsupported interpolation +{name} in {expression!r}")
+            value = int(mods.get(name, 0) or 0)
+            return f"+{value}" if value >= 0 else f"{value}"
+
+        text = re.sub(r"\+([a-z_]+)", _sub, text)
         outcome = self.dice.damage_roll(text)
         return int(outcome.get("total_damage", 0))
 

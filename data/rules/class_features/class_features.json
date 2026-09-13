@@ -1,7 +1,8 @@
 {
   "_meta": {
-    "title": "D&D 5e class features — the combat-relevant subset",
-    "license": "OGL 1.0a (SRD 5.1 content; rules text paraphrased, not reproduced verbatim)",
+    "title": "D&D 5e class features — the mechanically-expressible subset (all 12 base classes)",
+    "license": "CC-BY-4.0 (SRD 5.2.1 content; rules text paraphrased, not reproduced verbatim)",
+    "source": "parsed_data/srd_cc_v5.2.1/docling.md (SRD 5.2.1, the 2024 rules)",
     "read_by": "components/combat/class_features.py",
     "why": [
       "CharacterData has carried a `features` list since the first commit and NOTHING",
@@ -11,24 +12,65 @@
       "",
       "These entries are DATA, not code, for the same reason surgebinding.json is:",
       "the lesson of plan 3.1b was that a new ability should be a JSON entry, not a",
-      "new Python class. Adding Uncanny Dodge or Reckless Attack means adding an",
-      "object here."
+      "new Python class. Adding a feature means adding an object here whose effect",
+      "nodes the engine already knows how to execute.",
+      "",
+      "Coverage was raised from 7 features / 6 classes to every base class having at",
+      "least one authored feature, honestly split: `executable` features write real",
+      "engine state through the effect nodes below; `data-only` features (no effects,",
+      "or activation `passive`/`utility`) are granted and tracked but apply no state",
+      "yet; and whole subsystems that these nodes cannot express are listed in",
+      "`needs_subsystem` rather than faked."
     ],
     "schema": {
       "id": "stable key; also the ACTION_REGISTRY name when `activation` is an action",
       "classes": "which character_class values grant it (lowercase); [] = any",
       "min_level": "level at which the feature is granted",
-      "activation": "action | bonus_action | reaction | passive | on_hit",
-      "uses": "int, or 'proficiency_bonus', or 'unlimited'",
+      "activation": "action | bonus_action | reaction | free | passive | on_hit",
+      "uses": "int, or 'proficiency_bonus', or '<ability>_modifier', or 'unlimited'",
       "recovery": "short_rest | long_rest | turn | never",
       "trigger": "for on_hit features: the condition that must hold (see TRIGGERS)",
       "effects": "list of effect nodes; see EFFECT NODES in class_features.py"
     },
+    "effect_nodes": {
+      "heal": "restore HP (amount, e.g. '1d10+level', '1d8+wisdom')",
+      "grant_action": "add an action/bonus action/reaction to the economy",
+      "melee_damage_bonus": "+damage on Strength melee attacks (Rage)",
+      "resistance": "resistance to named damage types",
+      "extra_attack_damage": "arm extra dice on the next hit (Sneak Attack, smites)",
+      "inspiration_die": "hand an ally a die for one roll (Bardic Inspiration)",
+      "save_or_condition": "target makes a save or gains a 5e condition",
+      "ability_score_bonus": "raise one ability SCORE by a flat amount",
+      "ac_bonus": "flat Armor Class bonus",
+      "temp_hp": "grant Temporary Hit Points (does not stack)",
+      "speed_bonus": "increase Speed in feet",
+      "advantage": "grant Advantage on a stated roll ({on:'saving_throw',ability:..} or {on:'attack'})"
+    },
+    "coverage_status": [
+      "executable = applies engine state via an effect node and is unit-tested",
+      "activated executable features are also wired into ACTION_REGISTRY so a turn can select them",
+      "on_hit executable features ride the same arming path as Sneak Attack / Divine Smite",
+      "passive executable features apply through ClassFeatureEngine.apply_passives() (unit-tested);",
+      "  the combat-start call site (DnDEngineWrapper) is a one-line follow-up outside this change's scope",
+      "data-only = granted and tracked (synced to entity.class_features) but no engine effect yet"
+    ],
+    "needs_subsystem": [
+      {"system": "Wild Shape (Druid)", "reason": "replaces the whole stat block with a Beast form; needs a polymorph/form subsystem, not an effect node"},
+      {"system": "Ki / Focus Points (Monk)", "reason": "Flurry of Blows, Patient Defense, Step of the Wind and Stunning Strike all spend Focus Points from a pool that is not modeled"},
+      {"system": "Metamagic / Sorcery Points (Sorcerer)", "reason": "Font of Magic and Metamagic modify a spell mid-cast and spend Sorcery Points; needs a spell-modification layer"},
+      {"system": "Pact Magic (Warlock)", "reason": "short-rest slot recharge and a single escalating slot level per rest; a distinct slot model from the standard progression"},
+      {"system": "Eldritch Invocations + Mystic Arcanum (Warlock)", "reason": "a selectable catalog of always-on/utility invocations and per-rest high-level spell casts; needs an invocation registry"},
+      {"system": "Full spellcasting progression / spell slots by class", "reason": "prepared-spell lists and per-class slot tables (Bard, Cleric, Druid, Paladin, Ranger, Sorcerer, Warlock, Wizard) are not represented here; cast_spell exists but per-class slot growth is not"},
+      {"system": "Wild Magic surge", "reason": "a d20 random-effect table triggered by casting; needs its own surge resolver (a subclass feature, not in the base SRD classes)"},
+      {"system": "Divine Intervention (Cleric)", "reason": "calls for GM/plane adjudication with a percentile-then-automatic success; needs an intervention subsystem"},
+      {"system": "Reaction interrupts", "reason": "Uncanny Dodge, Deflect Attacks, Cutting Words, Countercharm and Indomitable fire off ANOTHER creature's roll/damage; needs a reaction-interrupt hook the turn loop does not expose"},
+      {"system": "Skill-math features", "reason": "Expertise, Jack of All Trades and Reliable Talent change ability-check math; needs proficiency doubling / floors in the checks pipeline"}
+    ],
     "deliberately_absent": [
       "Extra Attack — components/combat/multiattack.py is another agent's file.",
-      "Wild Shape, Metamagic, Ki, Warlock invocations: no clean seam yet.",
       "Subclass features (Battle Master maneuvers, Assassinate, ...) — the base",
-      "class features had to exist first."
+      "class features had to exist first. Reckless Attack's downside (attackers gain",
+      "advantage against you) and durations that refresh each turn are not modeled."
     ]
   },
 
@@ -157,6 +199,285 @@
         {"type": "save_or_condition", "ability": "wisdom",
          "condition": "Frightened", "target": "chosen"}
       ]
+    },
+
+    {
+      "id": "danger_sense",
+      "name": "Danger Sense",
+      "classes": ["barbarian"],
+      "min_level": 2,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Advantage on Dexterity saving throws.",
+      "quote": "You gain an uncanny sense of when things aren't as they should be. You have Advantage on Dexterity saving throws unless you have the Incapacitated condition.",
+      "effects": [
+        {"type": "advantage", "on": "saving_throw", "ability": "dexterity"}
+      ]
+    },
+
+    {
+      "id": "reckless_attack",
+      "name": "Reckless Attack",
+      "classes": ["barbarian"],
+      "min_level": 2,
+      "activation": "free",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Attack with abandon for advantage on Strength attack rolls (attackers also gain advantage against you — downside not modeled).",
+      "quote": "When you make your first attack roll on your turn, you can decide to attack recklessly. Doing so gives you Advantage on attack rolls using Strength until the start of your next turn, but attack rolls against you have Advantage during that time.",
+      "effects": [
+        {"type": "advantage", "on": "attack"}
+      ]
+    },
+
+    {
+      "id": "fast_movement",
+      "name": "Fast Movement",
+      "classes": ["barbarian"],
+      "min_level": 5,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Your speed increases by 10 feet while you aren't wearing heavy armor.",
+      "quote": "Your speed increases by 10 feet while you aren't wearing Heavy armor.",
+      "effects": [
+        {"type": "speed_bonus", "amount": 10}
+      ]
+    },
+
+    {
+      "id": "primal_champion",
+      "name": "Primal Champion",
+      "classes": ["barbarian"],
+      "min_level": 20,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Your Strength and Constitution scores increase by 4, to a maximum of 25.",
+      "quote": "You embody primal power. Your Strength and Constitution scores increase by 4, to a maximum of 25.",
+      "effects": [
+        {"type": "ability_score_bonus", "ability": "strength", "amount": 4},
+        {"type": "ability_score_bonus", "ability": "constitution", "amount": 4}
+      ]
+    },
+
+    {
+      "id": "channel_divinity_divine_spark",
+      "name": "Channel Divinity: Divine Spark",
+      "classes": ["cleric"],
+      "min_level": 2,
+      "activation": "action",
+      "uses": 2,
+      "recovery": "short_rest",
+      "coverage": "executable",
+      "description": "Focus divine energy to restore 1d8 + Wisdom hit points (the harm branch is not modeled here).",
+      "quote": "As a Magic action, you point your Holy Symbol at another creature and focus divine energy at it. Roll 1d8 and add your Wisdom modifier. You either restore Hit Points to the creature equal to that total or force it to make a Constitution saving throw for damage.",
+      "note": "Shares the Channel Divinity use pool with Turn Undead in the SRD; here each has its own counter.",
+      "scaling": {"uses": {"2": 2, "6": 3, "18": 4}},
+      "effects": [
+        {"type": "heal", "amount": "1d8+wisdom", "target": "self"}
+      ]
+    },
+
+    {
+      "id": "blessed_strikes_divine_strike",
+      "name": "Blessed Strikes: Divine Strike",
+      "classes": ["cleric"],
+      "min_level": 7,
+      "activation": "on_hit",
+      "uses": 1,
+      "recovery": "turn",
+      "coverage": "executable",
+      "description": "Once per turn, your weapon hit deals an extra 1d8 radiant damage.",
+      "quote": "Once on each of your turns when you hit a creature with an attack roll using a weapon, you can cause the target to take an extra 1d8 Radiant damage.",
+      "effects": [
+        {"type": "extra_attack_damage", "dice": 8, "count": 1,
+         "damage_type": "Radiant"}
+      ]
+    },
+
+    {
+      "id": "primal_strike",
+      "name": "Elemental Fury: Primal Strike",
+      "classes": ["druid"],
+      "min_level": 7,
+      "activation": "on_hit",
+      "uses": 1,
+      "recovery": "turn",
+      "coverage": "executable",
+      "description": "Once per turn, your weapon or Beast-form hit deals an extra 1d8 elemental damage (Fire chosen here).",
+      "quote": "Once on each of your turns when you hit a creature with an attack roll using a weapon or a Beast form's attack in Wild Shape, you can cause the target to take an extra 1d8 Cold, Fire, Lightning, or Thunder damage.",
+      "effects": [
+        {"type": "extra_attack_damage", "dice": 8, "count": 1,
+         "damage_type": "Fire"}
+      ]
+    },
+
+    {
+      "id": "fighting_style_defense",
+      "name": "Fighting Style: Defense",
+      "classes": ["fighter"],
+      "min_level": 1,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "While wearing armor, you gain a +1 bonus to Armor Class.",
+      "quote": "Defense. While you are wearing armor, you gain a +1 bonus to Armor Class.",
+      "note": "Fighting Style is a choice; Defense is authored as the representative option.",
+      "effects": [
+        {"type": "ac_bonus", "amount": 1}
+      ]
+    },
+
+    {
+      "id": "unarmored_movement",
+      "name": "Unarmored Movement",
+      "classes": ["monk"],
+      "min_level": 2,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Your speed increases by 10 feet while unarmored (the base value; it scales higher by level in the SRD).",
+      "quote": "Your speed increases by 10 feet while you aren't wearing armor or wielding a Shield. This bonus increases when you reach certain Monk levels.",
+      "effects": [
+        {"type": "speed_bonus", "amount": 10}
+      ]
+    },
+
+    {
+      "id": "lay_on_hands",
+      "name": "Lay On Hands",
+      "classes": ["paladin"],
+      "min_level": 1,
+      "activation": "bonus_action",
+      "uses": 5,
+      "recovery": "long_rest",
+      "coverage": "executable",
+      "description": "Draw on a pool of healing power to restore hit points.",
+      "quote": "You have a pool of healing power that replenishes when you finish a Long Rest. With that pool, you can restore a total number of Hit Points equal to five times your Paladin level. As a Bonus Action, you can touch a creature and restore Hit Points to it.",
+      "note": "The 5×level HP pool is abstracted as 5 uses of ~level HP each (5×level total).",
+      "effects": [
+        {"type": "heal", "amount": "level", "target": "self"}
+      ]
+    },
+
+    {
+      "id": "radiant_strikes",
+      "name": "Radiant Strikes",
+      "classes": ["paladin"],
+      "min_level": 11,
+      "activation": "on_hit",
+      "uses": 1,
+      "recovery": "turn",
+      "coverage": "executable",
+      "description": "Your melee or unarmed hits carry an extra 1d8 radiant damage.",
+      "quote": "When you hit a target with an attack roll using a Melee weapon or an Unarmed Strike, the target takes an extra 1d8 Radiant damage.",
+      "effects": [
+        {"type": "extra_attack_damage", "dice": 8, "count": 1,
+         "damage_type": "Radiant"}
+      ]
+    },
+
+    {
+      "id": "tireless",
+      "name": "Tireless",
+      "classes": ["ranger"],
+      "min_level": 10,
+      "activation": "action",
+      "uses": "wisdom_modifier",
+      "recovery": "long_rest",
+      "coverage": "executable",
+      "description": "Give yourself 1d8 + Wisdom temporary hit points.",
+      "quote": "As a Magic action, you can give yourself a number of Temporary Hit Points equal to 1d8 plus your Wisdom modifier (minimum of 1). You can use this action a number of times equal to your Wisdom modifier.",
+      "effects": [
+        {"type": "temp_hp", "amount": "1d8+wisdom", "target": "self"}
+      ]
+    },
+
+    {
+      "id": "roving",
+      "name": "Roving",
+      "classes": ["ranger"],
+      "min_level": 6,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Your speed increases by 10 feet while you aren't wearing heavy armor.",
+      "quote": "Your Speed increases by 10 feet while you aren't wearing Heavy armor. You also have a Climb Speed and a Swim Speed equal to your Speed.",
+      "effects": [
+        {"type": "speed_bonus", "amount": 10}
+      ]
+    },
+
+    {
+      "id": "steady_aim",
+      "name": "Steady Aim",
+      "classes": ["rogue"],
+      "min_level": 3,
+      "activation": "bonus_action",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Give yourself advantage on your next attack roll (your speed becomes 0 for the turn — that cost is not modeled).",
+      "quote": "As a Bonus Action, you give yourself Advantage on your next attack roll on the current turn. You can use this feature only if you haven't moved during this turn, and after you use it, your Speed is 0 until the end of the current turn.",
+      "effects": [
+        {"type": "advantage", "on": "attack"}
+      ]
+    },
+
+    {
+      "id": "innate_sorcery",
+      "name": "Innate Sorcery",
+      "classes": ["sorcerer"],
+      "min_level": 1,
+      "activation": "bonus_action",
+      "uses": 2,
+      "recovery": "long_rest",
+      "coverage": "executable",
+      "description": "Unleash your innate magic: advantage on the attack rolls of your spells (the +1 spell save DC is not modeled).",
+      "quote": "As a Bonus Action, you can unleash that magic for 1 minute, during which the spell save DC of your Sorcerer spells increases by 1 and you have Advantage on the attack rolls of Sorcerer spells you cast.",
+      "effects": [
+        {"type": "advantage", "on": "attack"}
+      ]
+    },
+
+    {
+      "id": "eldritch_mind",
+      "name": "Eldritch Invocation: Eldritch Mind",
+      "classes": ["warlock"],
+      "min_level": 1,
+      "activation": "passive",
+      "uses": "unlimited",
+      "recovery": "never",
+      "coverage": "executable",
+      "description": "Advantage on Constitution saving throws to maintain concentration.",
+      "quote": "You have Advantage on Constitution saving throws that you make to maintain Concentration.",
+      "note": "One Eldritch Invocation option; the invocation catalog itself is a subsystem (see needs_subsystem).",
+      "effects": [
+        {"type": "advantage", "on": "saving_throw", "ability": "constitution"}
+      ]
+    },
+
+    {
+      "id": "arcane_recovery",
+      "name": "Arcane Recovery",
+      "classes": ["wizard"],
+      "min_level": 1,
+      "activation": "passive",
+      "uses": 1,
+      "recovery": "long_rest",
+      "coverage": "data-only",
+      "description": "Recover expended spell slots on a short rest. Recorded so a Wizard is not featureless; the mechanic needs the spell-slot subsystem (see needs_subsystem).",
+      "quote": "When you finish a Short Rest, you can choose expended spell slots to recover. The spell slots can have a combined level equal to no more than half your Wizard level (round up).",
+      "effects": []
     }
   ]
 }
