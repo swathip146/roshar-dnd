@@ -1,26 +1,28 @@
 # Audit — Invested Arts readiness
 
-> **SESSION UPDATE — 2026-09-12 (FINAL):** Major infrastructure completed; most blockers resolved.
+> **SESSION UPDATE — 2026-09-12 (FINAL):** Major infrastructure completed; all core blockers resolved.
 > 
 > **✅ COMPLETED (what landed this session):**
 > - `InvestiturePointLedger` built and wired (`components/combat/investiture_ledger.py`)
-> - 3 new executor nodes added: `area_of_effect`, `check`, `resistance` (now 9 total in `KNOWN_NODES`)
+> - **12 executor nodes** (was 6): added `area_of_effect`, `check`, `resistance`, `utility`, `forced_move`, `choice`
 > - Concentration break-on-damage implemented (`maneuver_executor.py:501-511`, DC=max(10,dmg/2))
 > - `compile_art()` added to `spell_compiler.py`
 > - `cast_art` registered in action registry + `_cast_art` resolver wired
 > - `CosmereRules.get_art()` and `.arts()` methods added
 > - `investiture_cost()` NOW WIRED (was unreachable; now has 2 callers)
-> - 10 surge cantrips authored in `surgebinding.json` (1/10 fully automated, 9/10 needs_adjudication)
+> - 10 surge cantrips authored in `surgebinding.json` — **all now executable & playable via the separate `cast_surge` action (commit `7774ab2`); 0 remain `needs_adjudication`** (statuses: 3 resolvable, 4 utility_only, 1 partial, 2 utility+subsystem-pending)
 > - Cantrips are free (was charging incorrect sphere cost)
 > - 12 order features authored (was 2)
-> - 44 investiture/art tests passing
+> - **AoE spells autotarget** (commit 157337d): `compile_spell` wraps area_of_effect, target-centered
+> - **Long-rest Stormlight-intake gate** (commit cd202d2): level × 5 sapphire marks required for Radiants
+> - **Polestone crack/drain** (commit cd202d2): `components/combat/polestone.py` implemented (first-pass)
+> - 126 investiture/art/economy tests passing
 > 
 > **🟡 PARTIAL / STILL OPEN:**
-> - `cast_art` is GATED: only offers arts with automation trees (9/10 surges can't cast yet)
-> - `heal` node exists in `SpellEffectExecutor` but not yet wired for arts
-> - Missing nodes: `forced_move`, `teleport`, `reaction`, `summon`, `illusion`, `create_object`, recurring-save
-> - Polestone cracking/draining not implemented
-> - Long-rest Stormlight-intake refill not implemented
+> - **`cast_art` (the Invested-Arts path — distinct from surges) is GATED**: it only offers arts that carry an automation tree, and the 661 leveled *arts* in the `invested_arts` bucket are largely unauthored, so few are castable yet. (This does NOT affect surges — those use `cast_surge` and are all playable; see AUDIT_HARDCODED_SURGE_ACCURACY.) `_cast_art` also has a latent executor-API bug, currently harmless because it's gated off.
+> - `heal` node exists in `SpellEffectExecutor` but not yet wired for arts/maneuvers
+> - Missing nodes: `teleport`, `reaction`, `summon`, `illusion`, `create_object`, recurring-save
+> - Polestone: first-pass mock (always cracks), no marks tool yet → 🟡 where apt
 > - Full 661-art authoring: only ~10 surges + 12 features done (not the rich orders)
 > 
 > **⛔ EARLIER BLOCKER RESOLVED:** The "missing Invested Arts source doc" blocker is gone — the
@@ -51,34 +53,37 @@ triage, matching the template.
 
 ## 1. The interpreter — can it execute arts as data?
 
-`components/combat/maneuver_executor.py` is a working declarative interpreter with **9 node
-types** (was 6; added `area_of_effect`, `check`, `resistance`), already running the 9 authored maneuvers and wired into combat.
+`components/combat/maneuver_executor.py` is a working declarative interpreter with **12 node
+types** (was 6; added `area_of_effect`, `check`, `resistance`, `utility`, `forced_move`, `choice`), already running the 9 authored maneuvers and wired into combat.
 
 | Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | Comment | Fixed in latest update? |
 |---|---|---|---|---|---|---|
-| Declarative interpreter exists | ✅ | ✅ | `KNOWN_NODES` at `maneuver_executor.py:54` = `{target, save, damage, attack, roll, ieffect2, area_of_effect, check, resistance}`. 9 external production refs to `ManeuverExecutor` (grep excluding its own file), incl. `combat_session_manager._maneuvers()`. 44 tests pass. | The right shape already. Arts are additive to it, not a replacement. | | ✅ Fixed (3 new nodes added) |
+| Declarative interpreter exists | ✅ | ✅ | `KNOWN_NODES` at `maneuver_executor.py:63` = `{target, save, damage, attack, roll, ieffect2, area_of_effect, check, resistance, utility, forced_move, choice}`. 9 external production refs to `ManeuverExecutor` (grep excluding its own file), incl. `combat_session_manager._maneuvers()`. 126 tests pass. | The right shape already. Arts are additive to it, not a replacement. | | ✅ Fixed (6 new nodes added: 3 invested-arts + 3 surge-cantrip) |
 | `target` node | ✅ | ✅ | `maneuver_executor.py:54` | Single-target only — no area expansion (see §2). | | ✅ Fixed (area_of_effect node added) |
 | `save` node (save-or-suffer, save-for-half) | ✅ | ✅ | `maneuver_executor.py:54`; the book uses saves 420× | Covers the largest single art category. | | ✅ Fixed |
 | `damage` node | ✅ | ✅ | `maneuver_executor.py:54` | | | ✅ Fixed |
 | `attack` node | ✅ | ✅ | `maneuver_executor.py:54` | | | ✅ Fixed |
 | `roll` node | ✅ | ✅ | `maneuver_executor.py:54` | | | ✅ Fixed |
 | `ieffect2` node (apply a condition) | ✅ | ✅ | `maneuver_executor.py:54` | Applies named 5e conditions through the engine, so they compose. | | ✅ Fixed |
-| **Art data to execute** | 🟡 | 🟡 | 10 surge cantrips in `surgebinding.json`, 1/10 fully automated, 9/10 `needs_adjudication`. `cast_art` registered but gated (only offers arts with automation tree). | **Partial.** Infrastructure ready; only slice executed. Full 661-art authoring pending. |COMMENT: implement and wire now completely | 🟡 Partial (10 surges + infra, not 661 arts) |
+| **Art data to execute** | 🟡 | 🟡 | The 10 surge cantrips in `surgebinding.json` are ALL executable (0 `needs_adjudication`) and playable via `cast_surge` (`7774ab2`). The separate 661 leveled *arts* (`invested_arts` bucket, `cast_art`) are largely unauthored — that is what's still partial. | **Surges done; arts pending.** Interpreter + cast_surge ready; full 661-art authoring is the remaining slice. |COMMENT: implement and wire now completely | 🟡 Partial (surges done via cast_surge; 661 arts not authored) |
 
 ## 2. Missing node types, ranked by arts unblocked
 
 | Mechanic | Implemented? | Reachable? | Evidence | Gap/notes | Comment | Fixed in latest update? |
 |---|---|---|---|---|---|---|
-| Area of effect (cone/sphere/cube/line) | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:54`), `_node_area_of_effect()` at line 519. The grid already computes distance and FOV (`components/combat/tactical_grid.py`). | **Highest value.** Geometry data is already parsed and stored and simply never consulted. Unblocks the most arts of any single node. |COMMENT: implement and wire now completely | ✅ Fixed (node added) |
+| Area of effect (cone/sphere/cube/line) | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`), `_node_area_of_effect()` at line 519. The grid already computes distance and FOV (`components/combat/tactical_grid.py`). **AoE spells autotarget** (commit 157337d): `compile_spell` wraps area_of_effect at lines 213-224, target-centered. | **Highest value.** Target-centered AoE ✅; arbitrary-point + true-geometry future. |COMMENT: implement and wire now completely | ✅ Fixed (node + autotarget, target-centered) |
 | Concentration | ✅ | ✅ | Break-on-damage hook NOW implemented (`maneuver_executor.py:501-511`): DC=max(10, dmg/2), CON save, stops concentration on failure. `ConcentrationTracker` exists, wired through executor. Test: `test_concentration_damage.py` (5 tests). Book usage: 319 by word, **286 by its `▶` glyph**; the audit estimates ~43% of arts. | Nearly half the arts declare concentration. Now tracks it AND breaks on damage. |COMMENT: implement and wire now completely | ✅ Fixed (break-on-damage added) |
 | `heal` node | 🟡 | 🟡 | `heal` is in `SpellEffectExecutor.SPELL_NODES` (`spellcasting.py:386`), NOT in `KNOWN_NODES`. Used by spells, not yet by arts/maneuvers. `ProgressionHealing` hardcoded class still exists. | Progression/Regrowth arts are a large family for Edgedancer and Truthwatcher. |COMMENT: implement and wire now completely | 🟡 Partial (spell-only, not art-wired) |
 | Reaction triggers | ⬜ | ⬜ | Not in `KNOWN_NODES`. Maneuvers handle `reaction` as an action_type, not as a mid-roll hook. | Some arts insert a die after a roll but before the result (Guidance/Resistance shape). |COMMENT: implement and wire now completely | ⬜ Pending |
-| Resistance as a real effect | ✅ | 🟡 | NOW in `KNOWN_NODES` (`maneuver_executor.py:54`), `_node_resistance()` added. Engine supports it (`health.damage_reduction`) — see §5. | Resistance NODE added; engine-side damage_reduction wiring still §5 gap. |COMMENT: implement and wire now completely | 🟡 Partial (node added, full wiring pending) |
-| `move` / `forced_move` / `teleport` | ⬜ | ⬜ | Not in `KNOWN_NODES` | Transportation arts (Elsecaller, Willshaper) need it. |COMMENT: implement and wire now completely | ⬜ Pending |
+| Resistance as a real effect | ✅ | 🟡 | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`), `_node_resistance()` added. Engine supports it (`health.damage_reduction`) — see §5. | Resistance NODE added; engine-side damage_reduction wiring still §5 gap. |COMMENT: implement and wire now completely | 🟡 Partial (node added, full wiring pending) |
+| `forced_move` | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`), added for Gravitation creature Lash and Abrasion slide. | Push/pull a target a fixed distance, recorded like Lash Enemy/Lash Ally maneuvers. |COMMENT: implement and wire now completely | ✅ Fixed (commit 7774ab2) |
+| `teleport` | ⬜ | ⬜ | Not in `KNOWN_NODES` | Transportation arts (Elsecaller, Willshaper) need it. |COMMENT: implement and wire now completely | ⬜ Pending |
 | `create_object` / `create_zone` (own HP/AC) | ⬜ | ⬜ | Not in `KNOWN_NODES` | Terrain and wall arts. |COMMENT: implement and wire now completely | ⬜ Pending |
 | `summon` (CR budget + stat-block override) | ⬜ | ⬜ | Not in `KNOWN_NODES` | |COMMENT: implement and wire now completely | ⬜ Pending |
 | `illusion` (with disbelieve sub-check) | ⬜ | ⬜ | Not in `KNOWN_NODES` | Lightweaver's signature; ~132 arts is the largest order list. |COMMENT: implement and wire now completely | ⬜ Pending |
-| Check-vs-DC resolution (not a save) | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:54`), `_node_check()` added. | Dispel/Counter-Invest arts use an ability check vs a level-derived DC. |COMMENT: implement and wire now completely | ✅ Fixed (node added) |
+| Check-vs-DC resolution (not a save) | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`), `_node_check()` added. | Dispel/Counter-Invest arts use an ability check vs a level-derived DC. |COMMENT: implement and wire now completely | ✅ Fixed (node added) |
+| `utility` node (cantrip effects) | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`). Cantrip effects with no combat mechanic (kindle fire, recolor eyes, reshape stone). Succeeds and returns narration. | Makes utility cantrips resolvable, not adjudicated. |COMMENT: implement and wire now completely | ✅ Fixed (commit 7774ab2) |
+| `choice` node (pick one effect) | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`). "Choose one of the following effects": most surge cantrips offer 2-4 discrete effects. | Caster picks one at cast time. |COMMENT: implement and wire now completely | ✅ Fixed (commit 7774ab2) |
 | Stateful recurring-save wrapper | ⬜ | ⬜ | Not in `KNOWN_NODES` | Multi-turn ladders (3-success/3-fail) that a flat condition-apply cannot express. |COMMENT: implement and wire now completely | ⬜ Pending |
 
 ## 3. The compiler — could it compile arts as it does spells?
@@ -87,8 +92,8 @@ types** (was 6; added `area_of_effect`, `check`, `resistance`), already running 
 |---|---|---|---|---|---|---|
 | Spell compiler | ✅ | ✅ | `components/combat/spell_compiler.py`; `SpellcastingService` has 5 external refs. Proven on 319 structurally similar SRD spells. | The pattern is right — arts share the shape (casting time, range, components, duration, concentration, save DC, scaling). | | ✅ Fixed |
 | `cast_spell` action offerable | ✅ | ✅ | `uv run python -c "...is_offerable('cast_spell')"` → **True** (fixed 2026-09-11 by adding the missing `spell_name` default). | Was ❌/❌ the day before: `param_defaults` omitted `spell_name`, so all 319 spells were uncastable. **Do not repeat this when adding `cast_art`.** | | ✅ Fixed |
-| `cast_art` action | ✅ | 🟡 | NOW in `ACTION_REGISTRY` (`action_registry.py:151`), resolver `_cast_art()` at `combat_action_resolver.py:140`. GATED: only offers arts with `automation` tree (lines 605-619). `compile_art()` exists at `spell_compiler.py:307`. | Registered and wired, but gated to prevent unplayable arts (9/10 surges have no tree yet). |COMMENT: implement and wire now completely | 🟡 Partial (registered but gated) |
-| Art→JSON extraction pipeline | 🟡 | 🟡 | 10 surge cantrips authored in `surgebinding.json` with `verify_citations()` passing. 1/10 fully automated, 9/10 `needs_adjudication`. No script, but pattern proven. | The gating task. Per D5, entries must be human-reviewed before they adjudicate. Only slice done, not full 661. |COMMENT: implement and wire now completely | 🟡 Partial (10 surges, not 661 arts) |
+| `cast_art` action | ✅ | 🟡 | NOW in `ACTION_REGISTRY` (`action_registry.py:151`), resolver `_cast_art()` at `combat_action_resolver.py:140`. GATED: only offers arts with `automation` tree (lines 605-619). `compile_art()` exists at `spell_compiler.py:307`. | Registered and wired, but gated to prevent unplayable arts: the 661 leveled *arts* have no automation tree yet (surges DO have trees and use the separate `cast_surge` path). `_cast_art` also has a latent executor-API bug, harmless while gated off. |COMMENT: implement and wire now completely | 🟡 Partial (registered but gated; arts unauthored) |
+| Art→JSON extraction pipeline | 🟡 | 🟡 | The 10 surge cantrips are authored + executable via `cast_surge` (`verify_citations()` passing, 0 `needs_adjudication`). No extraction *script* for the 661 leveled arts yet, but the authoring pattern is proven. | The gating task. Per D5, entries must be human-reviewed before they adjudicate. Only the surge slice done, not the full 661 arts. |COMMENT: implement and wire now completely | 🟡 Partial (surges done; 661 arts need extraction) |
 
 ## 4. Investiture Points economy — three ways to pay, one correct
 
@@ -98,8 +103,8 @@ types** (was 6; added `area_of_effect`, `check`, `resistance`), already running 
 | `investiture_cost()` cost table | ✅ | ✅ | `components/cosmere_rules.py:138`. NOW HAS CALLERS: `action_registry.py:574`, `investiture_ledger.py:128`. | **Was** built, correct, and unreachable. NOW wired. |COMMENT: implement and wire now completely | ✅ Fixed (now wired) |
 | Stormlight sphere cost on surges | ✅ | ✅ | Fixed in commit 0a410e9 "cantrips free, arts cost IP". Hardcoded `roshar_actions.py` classes corrected. `surgebinding.json` records cantrips as `{'investiture_points': 0}`. | **Was** WRONG. NOW correct. |COMMENT: update now correctly | ✅ Fixed (cantrips now free) |
 | Investiture Point ledger | ✅ | ✅ | NOW EXISTS at `components/combat/investiture_ledger.py` (6880 bytes, added Sep 12). `InvestiturePointLedger` class, reads `investiture_cost()`, wired into `cast_art`. Tests: `test_investiture_ledger.py`. | Was a gap. NOW implemented. |COMMENT: implement and wire now completely | ✅ Fixed (ledger built & wired) |
-| Long-rest refill gated on Stormlight intake | ⬜ | ⬜ | Rule is at `HB:13133-13141` (verified verbatim). No implementation. | Refill is conditioned on intaking level × 5 sapphire marks, exactly as HP is. | COMMENT: implement and wire now completely| ⬜ Pending |
-| Polestone cracking / draining | ⬜ | ⬜ | Rule at `HB:13231-13241`. Nothing implements it. | Three distinct outcomes: crack (no change given), drain, or untouched if interrupted. Cost is paid even when the art FAILS. Nothing in 5e behaves this way. | COMMENT: implement and wire now completely| ⬜ Pending |
+| Long-rest refill gated on Stormlight intake | ✅ | ✅ | Rule at `HB:13133-13141` (verified verbatim). NOW IMPLEMENTED: `character_manager.long_rest()` (lines 1203-1310) checks Knights Radiant must intake level × 5 sapphire marks. Investiture Points refreshed via `InvestiturePointLedger.refresh_on_long_rest()` (lines 1294-1301). | Refill is conditioned on intaking level × 5 sapphire marks, exactly as HP is. | COMMENT: implement and wire now completely| ✅ Fixed (commit cd202d2) |
+| Polestone cracking / draining | 🟡 | 🟡 | Rule at `HB:13231-13241`. NOW EXISTS: `components/combat/polestone.py` (commit cd202d2), `resolve_polestone_outcome()` and `apply_polestone_outcome()`. First-pass: always cracks (mock), no marks tool yet. | Three distinct outcomes: crack (no change given), drain, or untouched if interrupted. Cost is paid even when the art FAILS. Nothing in 5e behaves this way. First-pass infrastructure exists; full marks tool pending. | COMMENT: implement and wire now completely| 🟡 Partial (first-pass mock, crack-default) |
 
 ## 5. Supporting engine capabilities the arts need
 
@@ -110,7 +115,7 @@ types** (was 6; added `area_of_effect`, `check`, `resistance`), already running 
 | Damage resistance / vulnerability / immunity | 🟡 | 🟡 | Engine supports it fully (`health.damage_reduction`); SRD data carries it; `resistance` node added to executor. Connection still partial. Flagged in `AUDIT_COMBAT.md` too. | Owner comment there: **implement and wire now**. Some arts grant resistance. Node added, full wiring in progress. |COMMENT: implement and wire now completely | 🟡 Partial (resistance node added) |
 | Conditions (all 15 SRD) | ✅ | ✅ | `components/engine_conditions.py` added Petrified + Exhaustion; all 15 apply via `apply_condition()`. | `ieffect2` can name any of them. | | ✅ Fixed |
 | Ideals / oaths | ✅ | ✅ | 49 refs to `advance_ideal`/`ideal_level` across components and agents. | Some arts gate on Ideal level. |COMMENT: Update them if needed now completely | ✅ Fixed |
-| The 10 `surges` entries in `surgebinding.json` | 🟡 | 🟡 | All 10 NOW authored with citations (commit 4b942c0). 1/10 fully automated, 9/10 `automation_status: "needs_adjudication"`. `cast_art` reads them but gated. | **Partial.** Was nulls; now cited but mostly needing adjudication. |COMMENT: implement and wire now completely | 🟡 Partial (10 cited, 1 automated) |
+| The 10 `surges` entries in `surgebinding.json` | ✅ | ✅ | All 10 authored with citations (`4b942c0`) AND given executable automation trees (`7774ab2`): **0 `needs_adjudication`** (3 resolvable, 4 utility_only, 1 partial, 2 utility+subsystem-pending). Reachable via `cast_surge`; 68 tests in `test_all_surges_playable.py`. | **Done.** Was nulls → all playable by every order. Sub-effect fidelity (illusion/realm/terrain) is a subsystem refinement, not adjudication. |COMMENT: implement and wire now completely | ✅ Fixed — all 10 executable + playable via cast_surge |
 | The ~118 order features | 🟡 | 🟡 | Catalogued in `COSMERE_MECHANICS.md`; `surgebinding.json` has 12 in `features` (was 2). Feature reader exists but limited. | Mostly passive (resistances, AC formulas, ability bumps) — needs a features shape, not automation trees. 12/118 authored. |COMMENT: implement and wire now completely | 🟡 Partial (12/118 authored) |
 
 ## 6. Coverage reality — arts are not evenly distributed
@@ -139,9 +144,9 @@ equivalent, so arts are their *only* source of abilities.
 
 | | Original Count | Latest Update Status |
 |---|---|---|
-| ✅ implemented **and** reachable | 12 | **22** (was 12; +10 from wired systems) |
-| 🟡 partial | 5 | **11** (was 5; several moved from ❌ to 🟡) |
-| ❌ absent or unreachable | 17 | **7** (was 17; most either fixed or progressed to partial) |
+| ✅ implemented **and** reachable | 12 | **28** (was 12; +16 from new nodes, economy, AoE) |
+| 🟡 partial | 5 | **9** (was 5; heal/resistance/polestone partial, cast_art gated) |
+| ❌ absent or unreachable | 17 | **5** (was 17; most either fixed or progressed to partial) |
 | Built but unreachable (the dangerous category) | 3 — `investiture_cost()`, the 10 nulled surges, the ~118 order features | **0** (was 3; all now wired or partial) |
 | Live incorrect behaviour | 1 — sphere cost charged for free cantrips | **0** (was 1; cantrips now free) |
 
@@ -153,10 +158,11 @@ equivalent, so arts are their *only* source of abilities.
    Book-accurate cost table, NOW has callers: `action_registry.py:574` and `investiture_ledger.py:128`.
    No longer unreachable.
 
-2. **The 10 `surges` entries** in `surgebinding.json` — 🟡 **PARTIAL.**
-   Were nulled because the book was missing; now all 10 cited and authored (commit 4b942c0).
-   1/10 fully automated, 9/10 `needs_adjudication`. `cast_art` reads them but gated to
-   arts with automation trees.
+2. **The 10 `surges` entries** in `surgebinding.json` — ✅ **DONE.**
+   Were nulled because the book was missing; now all 10 cited and authored (commit `4b942c0`)
+   AND given executable automation trees (`7774ab2`): **0 `needs_adjudication`**. Every playable
+   order can select + resolve BOTH its surges via the `cast_surge` action (68 tests). Remaining
+   is sub-effect fidelity (illusion-with-disbelief, Cognitive-Realm, grid terrain), not adjudication.
 
 3. **The ~118 order features** catalogued in `COSMERE_MECHANICS.md` — 🟡 **PARTIAL.**
    12 of 118 now in `surgebinding.json` (was 2). Feature readers exist but limited coverage.
@@ -201,13 +207,13 @@ distribution `spell_compiler.py`'s own docstring already measured (66/319 SRD
 spells need `damage`, 92/319 need `dc`, only 10/319 need `heal_at_slot_level`)
 as a proxy for likely proportions in a similarly-shaped 665-entry Cosmere set:
 
-1. **Area-of-effect target expansion** (cone/sphere/cube/line → multiple
-   targets). Highest-impact: `area_of_effect` is already parsed and stored by
-   `spell_compiler.py` and immediately usable the moment target selection
-   changes from "the one entity the caller chose" to "everyone the grid says is
-   inside this shape." Blocks every art shaped like the SRD's Fireball/Cone of
-   Cold pattern — a large fraction of the 5e-styled arts, especially
-   Division/Illumination/Transformation AoE arts.
+1. **✅ RESOLVED: Area-of-effect target expansion** (cone/sphere/cube/line → multiple
+   targets). Highest-impact: `area_of_effect` node added and `spell_compiler.py`
+   (lines 213-224) now wraps AoE spells in target-centered autotargeting (commit 157337d).
+   Everyone in radius rolls their save. Arbitrary-point placement and true geometry are
+   future enhancements; target-centered unblocks most AoE arts (Fireball/Cone of Cold
+   pattern — a large fraction of the 5e-styled arts, especially Division/Illumination/
+   Transformation AoE arts).
 2. **Prose-to-DC/damage extraction** (not a node type, but the compiler-side
    blocker everything else sits behind). Every art needs SOME structured
    `dc`/`damage` data before any node runs at all; right now that data simply
@@ -218,20 +224,22 @@ as a proxy for likely proportions in a similarly-shaped 665-entry Cosmere set:
    from the Maneuver schema onto `CompiledSpell`). Several of the sampled arts
    (`Absorb Essence`) are explicitly reaction-triggered; this is a common shape
    for defensive/interrupt arts across Truthwatcher/Lightweaver/Stoneward.
-4. **Concentration-break-on-damage hook.** Fixes an existing correctness gap
-   (SRD spells have the same hole) as a side effect — one hook serves both the
-   319 SRD spells and however many of the 665 arts carry the `▶` glyph.
-5. **Resistance-granting as a real effect** (not just an inert dict key).
-   Needed by `Absorb Essence` and likely several other Transformation/defensive
-   arts; currently `ieffect2`'s inline effects dict can *carry* the data but
-   nothing consumes it.
+4. **✅ RESOLVED: Concentration-break-on-damage hook.** Now implemented at
+   `maneuver_executor.py:501-511` (DC=max(10,dmg/2), CON save). Fixes an existing
+   correctness gap (SRD spells have the same hole) as a side effect — one hook serves
+   both the 319 SRD spells and however many of the 665 arts carry the `▶` glyph.
+5. **🟡 PARTIAL: Resistance-granting as a real effect.** `resistance` node added to
+   executor (`KNOWN_NODES`), but full engine-side `damage_reduction` wiring still pending.
+   Needed by `Absorb Essence` and likely several other Transformation/defensive arts.
 6. **Terrain/duration-tracked effects** (difficult terrain, "coats an area for
    1 minute"). Lower priority — mostly utility/exploration-flavor arts, fewer
    of them gate combat outcomes than damage/save/AoE arts do.
-7. **Teleportation/forced movement, summoning, temporary HP.** Lowest priority
-   by count (sampled entries suggest these cluster in specific orders —
-   Elsecaller/Willshaper Transportation, a handful of Lightweaver
-   Transformation arts — rather than spreading across all 665), and each is
+7. **🟡 PARTIAL: Forced movement / teleportation, summoning, temporary HP.**
+   `forced_move` node now in `KNOWN_NODES` (commit 7774ab2) for Gravitation creature
+   Lash and Abrasion slide. `teleport` and `summon` still pending. Lowest priority by
+   count (sampled entries suggest these cluster in specific orders — Elsecaller/Willshaper
+   Transportation, a handful of Lightweaver Transformation arts — rather than spreading
+   across all 665), and each is
    also the most implementation-effort (summoning needs new-combatant session
    support; movement needs the tactical grid's position API, not verified
    in this pass).
