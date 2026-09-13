@@ -5,7 +5,8 @@
 > - ✅ **Social skill checks as real dice** — Persuasion/Deception/Intimidation now roll via `process_skill_check` and feed attitude; **passive perception**; **inventory add/remove @tools**; **`export_game_state` character-branch fix** (uses `to_dict()`, no more HP/AC/equipment reset on import); **routing-history cap 20/50 → 200** (`66b04e0`).
 > - ✅ **cast_spell offerability** and the **proficiency double-count** bug fixed; **Help** action wired (`5a0a764`).
 > - ✅ Verified: expertise stored, exhaustion reduced on long rest, death saves working.
-> - 🟡 **DEFERRED/blocked:** exploration-mode `cast_spell` (skipped as risky this pass); tool-proficiency mechanical gate; live mid-combat re-equip; shops/buying-selling; concentration/ritual/components for spellcasting. Feats/subclass/multiclass/inspiration remain "future" per the original triage.
+> - ✅ **Completed in the follow-up pass** (commits `917881a`, `a2ced1e`, `a6ddf3e`, `0de1b62`): **tool-proficiency gate** (`process_skill_check(required_tool=…)`, 13/13 tests); **exploration-mode `cast_spell`** (reuses `SpellcastingService`); **ritual casting**; **concentration break-on-damage** (fires on executor-dealt damage; weapon-attack triggers not yet covered); **mid-combat re-equip**; **activated class features** (Rage/Second Wind/Action Surge selectable in a turn).
+> - ⬜ **Still deferred:** shops / buying-selling (currency field exists, no merchants or transactions); spell V/S/M components; prepared-vs-known casters. Feats / subclass / multiclass / inspiration remain "future" per the original triage. See the per-row "Fixed in latest update?" column below for exact status.
 
 **Date**: 2026-09-12
 **Branch**: `phase-0-fixes` (HEAD `ac4b680`, built on the `439df7a` commit that landed
@@ -343,6 +344,11 @@ Combat does **not** go through `dm_tools.py` — it uses the entirely separate
 ---
 
 ## Test status
+
+> **HISTORICAL — pre-fix baseline at commit `ac4b680`. Superseded by the SESSION UPDATE at the top:
+> non-combat is now 1209 passing and combat 863 passing (only the RNG-flaky `test_npc_dnd_engine_sync`).
+> The failures listed below (spellcasting offerability, proficiency, combat-agent, etc.) were all fixed
+> this session — see the per-row "Fixed in latest update?" columns.**
 
 `uv run pytest tests/ -q -p no:randomly --ignore=tests/combat --deselect tests/test_llm_utils.py -k "not test_gemini_ and not test_tool_calling and not test_api_connection and not test_game_"`:
 
