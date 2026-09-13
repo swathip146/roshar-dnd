@@ -260,12 +260,37 @@ class GameEngine:
             required_tool=check_request.get("required_tool")
         )
         
-        # Step 3: Policy Engine → advantage/disadvantage, house rules  
+        # Step 3: Policy Engine → advantage/disadvantage, house rules
         advantage_state = self.policy_engine.compute_advantage(
             self._get_state_dict(), check_request["actor"], check_request.get("skill", ""),
             check_request.get("context", {})
         )
-        
+
+        # Apply encumbrance disadvantage for heavily encumbered characters on STR/DEX/CON checks
+        # (5e PHB 176: heavy encumbrance imposes disadvantage on "ability checks, attack rolls,
+        # and saving throws that use Strength, Dexterity, or Constitution")
+        skill_name = check_request.get("skill", "")
+        if skill_name:
+            # Get the ability score this skill uses
+            skill_ability = self.character_manager.skill_abilities.get(skill_name.lower())
+            # Check if it's a physical ability affected by encumbrance
+            physical_abilities = ["strength", "dexterity", "constitution"]
+            if skill_ability and skill_ability.value in physical_abilities:
+                encumbrance = self.character_manager.get_encumbrance(check_request["actor"])
+                if encumbrance.get("has_disadvantage"):
+                    # Add encumbrance disadvantage
+                    advantage_state["disadvantage_sources"].append(
+                        f"heavily encumbered ({encumbrance['weight']:.0f}/{encumbrance['capacity']} lb)"
+                    )
+                    advantage_state["disadvantage_count"] += 1
+                    # Recalculate final state
+                    if advantage_state["advantage_count"] > advantage_state["disadvantage_count"]:
+                        advantage_state["final_state"] = "advantage"
+                    elif advantage_state["disadvantage_count"] > advantage_state["advantage_count"]:
+                        advantage_state["final_state"] = "disadvantage"
+                    else:
+                        advantage_state["final_state"] = "normal"
+
         adjusted_dc_result = self.policy_engine.adjust_difficulty(dc, check_request.get("context", {}))
         adjusted_dc = adjusted_dc_result["final_dc"]
 

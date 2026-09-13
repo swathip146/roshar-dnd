@@ -327,6 +327,9 @@ def get_character_state(actor: str = "") -> Dict[str, Any]:
         if character is None:
             return {"error": f"unknown character {actor_id!r}"}
 
+        # Get encumbrance status
+        encumbrance = manager.get_encumbrance(actor_id)
+
         # Cached per turn: a pure read, so a repeat call costs no step.
         return _cached_read(f"character_state:{actor_id}", lambda: {
             "id": actor_id,
@@ -343,6 +346,7 @@ def get_character_state(actor: str = "") -> Dict[str, Any]:
             "experience_points": getattr(character, "experience_points", 0),
             "is_dying": (character.hit_points or {}).get("current", 1) <= 0,
             "is_dead": getattr(character, "is_dead", False),
+            "encumbrance": encumbrance,
         })
     except Exception as e:
         logger.warning(f"⚠️ get_character_state failed: {e}")

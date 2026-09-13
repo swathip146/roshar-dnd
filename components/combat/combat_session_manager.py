@@ -1226,11 +1226,22 @@ class CombatSessionManager:
 
         Tracked per turn on the combatant's own state, so a character cannot walk
         the whole map by choosing Movement repeatedly.
+
+        Applies encumbrance speed penalty on first access.
         """
         state = self.combat_state["combatant_states"].get(char_id) or {}
         remaining = state.get("movement_remaining")
         if remaining is None:
-            remaining = self.MOVEMENT_BUDGET_FEET
+            # Initialize movement with base speed and encumbrance penalty
+            base_speed = self.MOVEMENT_BUDGET_FEET
+            if char_id in self.character_manager.characters:
+                character = self.character_manager.characters[char_id]
+                base_speed = getattr(character, 'speed', self.MOVEMENT_BUDGET_FEET)
+
+            # Apply encumbrance penalty
+            encumbrance = self.character_manager.get_encumbrance(char_id)
+            speed_penalty = encumbrance.get("speed_penalty", 0)
+            remaining = max(0, base_speed - speed_penalty)
             state["movement_remaining"] = remaining
         return int(remaining)
 
@@ -1443,9 +1454,37 @@ class CombatSessionManager:
         return getattr(character, "name", char_id)
 
     def _reset_movement(self) -> None:
-        """Restore everyone's movement at the start of a round."""
-        for state in self.combat_state["combatant_states"].values():
-            state["movement_remaining"] = self.MOVEMENT_BUDGET_FEET
+        """
+        Restore everyone's movement at the start of a round.
+
+        Applies encumbrance speed penalty: characters carrying too much
+        move slower (5e PHB 176: -10 ft encumbered, -20 ft heavily encumbered).
+        """
+        for char_id, state in self.combat_state["combatant_states"].items():
+            # Start with base speed (default to 30 for NPCs/monsters without speed field)
+            base_speed = self.MOVEMENT_BUDGET_FEET
+
+            # Try to get character's actual base speed
+            if char_id in self.character_manager.characters:
+                character = self.character_manager.characters[char_id]
+                base_speed = getattr(character, 'speed', self.MOVEMENT_BUDGET_FEET)
+
+            # Apply encumbrance penalty
+            encumbrance = self.character_manager.get_encumbrance(char_id)
+            speed_penalty = encumbrance.get("speed_penalty", 0)
+
+            # Movement can't go negative
+            effective_speed = max(0, base_speed - speed_penalty)
+            state["movement_remaining"] = effective_speed
+
+            # Log if encumbered
+            if speed_penalty > 0:
+                enc_level = encumbrance.get("encumbrance_level", "")
+                self.logger.debug(
+                    f"   🎒 {char_id} is {enc_level}: "
+                    f"{encumbrance['weight']:.0f}/{encumbrance['capacity']} lb, "
+                    f"speed {base_speed} → {effective_speed} ft"
+                )
 
     def _parse_hierarchical_action(
         self,
