@@ -23,9 +23,10 @@
 > - Long-rest Stormlight-intake refill not implemented
 > - Full 661-art authoring: only ~10 surges + 12 features done (not the rich orders)
 > 
-> **⛔ EARLIER BLOCKER NOW IRRELEVANT:** The "missing Invested Arts source doc" blocker no longer gates
-> progress — the 10 surge cantrips were successfully authored from the Radiant's Handbook alone,
-> proving the pattern. The full 661-art extraction remains an authoring task, not a blocker.
+> **⛔ EARLIER BLOCKER RESOLVED:** The "missing Invested Arts source doc" blocker is gone — the
+> Invested Arts `docling.md` was restored, the 10 surge cantrips were authored from it with verbatim
+> citations (`source.book: "invested_arts"`), and `verify_citations()` passes 64/64. The full 661-art
+> extraction remains an authoring task, not a blocker.
 
 **Can this codebase execute the 661 Invested Arts?** Scored the same way as
 `AUDIT_CHARACTER_AND_NONCOMBAT.md`, on two axes that come apart constantly in this

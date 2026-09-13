@@ -3,9 +3,9 @@
 > **SESSION UPDATE — 2026-09-12 (commits `5a0a764`, `eb15312`, `ceb2b04`):** Several "implement now" items are DONE & tested on `phase-0-fixes`:
 > - ✅ **Damage resistance/vulnerability/immunity** + **monster senses** (darkvision/blindsight/truesight) wired from stat blocks at entity creation, plus an HP-sync clamp (`eb15312`).
 > - ✅ **Standard 5e actions** (Grapple/Shove/Help/Disengage/Hide/Search/Ready/Two-weapon) registered + tested; **cast_spell offerability** fixed (`5a0a764`). *(2024-only Influence/Study/Utilize skipped per the "use the 2014 engine" guidance.)*
-> - ✅ **Class-feature runtime** partially wired (`ceb2b04`): round lifecycle (`tick_round`/`clear_all`) and on-hit **Sneak Attack** + **Divine Smite** (now slot-scaled 2d8+1d8/level, cap 5d8) fire in real combat. 🟡 **DEFERRED:** activated Rage/Second Wind/Action Surge as selectable turn actions (needs action-menu integration).
+> - ✅ **Class-feature runtime fully wired** (`ceb2b04`, `0de1b62`): round lifecycle (`tick_round`/`clear_all`), on-hit **Sneak Attack** + **Divine Smite** (slot-scaled 2d8+1d8/level, cap 5d8), AND **activated Rage/Second Wind/Action Surge now selectable as turn actions** (per-actor gated, dispatched to `ClassFeatureEngine.use()`, for players and NPC AI).
 > - ✅ **Grid `has_line_of_sight`** resolved — removed as dead code (`ceb2b04`).
-> - Combat suite went 71 failing → **~797 passing** (only the pre-existing RNG-flaky `test_npc_dnd_engine_sync`). Instant death, legendary/lair actions, surprise, AoE remain "future" per the original triage.
+> - Combat suite went 71 failing → **863 passing** (only the pre-existing RNG-flaky `test_npc_dnd_engine_sync`, which passes in isolation). Instant death, legendary/lair actions, surprise, AoE autotargeting remain "future" per the original triage.
 
 Audited on branch `phase-0-fixes` (commit `ac4b680`, working tree clean). Every claim
 below was verified by running code or grepping for production callers just now, not by
@@ -17,6 +17,10 @@ Legend: ✅ implemented and reachable · 🟡 partially — gap stated explicitl
 implemented or not reachable at all.
 
 ## Test status
+
+> **HISTORICAL — this snapshot is the pre-fix baseline at commit `ac4b680`. The SESSION UPDATE at the
+> top supersedes it: the combat suite is now 863 passing (only the RNG-flaky `test_npc_dnd_engine_sync`).
+> The 18 failures below were all addressed this session — see the per-row "Fixed in latest update?" column.**
 
 ```
 uv run pytest tests/combat/ -q -p no:randomly
