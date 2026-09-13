@@ -32,9 +32,10 @@ Specifically NOT invented:
   * conditions from prose ("the target is paralysed") — the SRD gives no
     structured condition field, and guessing which 5e condition a sentence means
     is exactly the LLM hallucination the Tier-1 rules layer exists to remove.
-  * area-of-effect target selection. `area_of_effect` gives shape and size, but
-    who is inside it is a grid question; the caster's chosen targets are used and
-    the area is reported so a DM (or the tactical grid) can widen it.
+  * area-of-effect target selection. When `area_of_effect` exists, the compiled
+    spell auto-expands to all entities within `size` feet of the chosen target
+    (a radius approximation for all shapes). Arbitrary point placement (not
+    target-centered) and true cone/cube/line geometry are future refinements.
   * `damage_at_character_level` for a monster/NPC caster with no class level —
     the level is required to pick the row, and picking row "1" for a level-17
     archmage would under-report by 3d10.
@@ -208,8 +209,28 @@ def compile_spell(spell: Dict[str, Any], slot_level: Optional[int] = None,
         return compiled
 
     tree = _wrap_in_save_or_attack(effects, spell, compiled)
-    compiled.automation = [{"type": "target", "target": "chosen",
-                            "effects": tree}]
+
+    # Wrap in area_of_effect if the spell has one, otherwise use target:chosen
+    if compiled.area_of_effect:
+        aoe = compiled.area_of_effect
+        shape = str(aoe.get("type", "sphere")).lower()
+        size = int(aoe.get("size", 0) or 0)
+        if size > 0:
+            # AoE node takes the chosen target as center and expands to all
+            # entities within range, running effects on each
+            compiled.automation = [{"type": "target", "target": "chosen",
+                                    "effects": [{"type": "area_of_effect",
+                                                "shape": shape, "size": size,
+                                                "effects": tree}]}]
+            logger.debug(f"   📜 compiled {compiled.describe()} with {shape} "
+                        f"AoE ({size}ft)")
+        else:
+            compiled.automation = [{"type": "target", "target": "chosen",
+                                    "effects": tree}]
+    else:
+        compiled.automation = [{"type": "target", "target": "chosen",
+                                "effects": tree}]
+
     logger.debug(f"   📜 compiled {compiled.describe()}")
     return compiled
 

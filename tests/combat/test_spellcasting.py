@@ -284,7 +284,10 @@ class TestSlotSpending:
         high = compile_spell(srd.spell("Fireball"), slot_level=5)
 
         def dice(compiled):
-            save = compiled.automation[0]["effects"][0]
+            # Fireball is an AoE spell, so navigate: target -> area_of_effect -> save
+            aoe = compiled.automation[0]["effects"][0]
+            assert aoe["type"] == "area_of_effect", "Fireball should have AoE node"
+            save = aoe["effects"][0]
             return save["fail"][0]["damage"]
 
         assert dice(low) == "8d6"
@@ -401,7 +404,10 @@ class TestSaveBasedSpellBranches:
         be pointless and no HP assertion would ever notice.
         """
         compiled = compile_spell(get_srd_rules().spell("Fireball"), slot_level=3)
-        save = compiled.automation[0]["effects"][0]
+        # Fireball is an AoE spell, so navigate: target -> area_of_effect -> save
+        aoe = compiled.automation[0]["effects"][0]
+        assert aoe["type"] == "area_of_effect", "Fireball should have AoE node"
+        save = aoe["effects"][0]
         assert save["fail"][0].get("multiplier") in (None, 1)
         assert save["success"][0]["multiplier"] == 0.5
 
