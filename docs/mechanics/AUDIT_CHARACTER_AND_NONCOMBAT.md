@@ -59,11 +59,13 @@ Legend: ✅ yes / 🟡 partial or unverified / ❌ no.
 | Conditions | ✅ | ✅ | `conditions: List[str]` (`:49`); `engine_conditions.py` implements Petrified, Exhaustion, etc. (commit `311230d`) | Wired | ➖ N/A (already worked) |
 | Inspiration | ❌ | ❌ | Zero hits | Not modeled | ⬜ Pending (future version) |
 
-**Built but unreachable / entirely absent** (confirmed by grep — only self-references,
-no production consumer in `components/`, `agents/`, `core/`, `orchestrator/`): subclass,
-feats, currency/gold, carrying capacity, attunement slots, inspiration — none of these
-exist even as a stub field. Background, languages, and tool proficiencies exist and are
-saved/shown to the LLM, but have zero mechanical effect.
+**Built but unreachable / entirely absent** (as of the original `ac4b680` audit): subclass,
+feats, currency/gold, carrying capacity, attunement slots, inspiration — none existed even
+as a stub field. **UPDATE 2026-09-12:** **currency/gold** and **carrying capacity** now exist
+(`84000b6`; encumbrance is being fully wired next); **tool proficiencies** now have a mechanical
+gate (`917881a`) and **saving-throw proficiencies** are now consumed in the save path. Still
+absent (future): subclass, feats, attunement slots, inspiration. **Background and languages**
+remain saved/shown-to-the-LLM only — ➖ narrative-only by design, not a defect.
 
 ---
 
@@ -377,6 +379,8 @@ still filtered," which is a real but incomplete step forward.
 ---
 
 ## Built but unreachable (highest-value findings)
+
+> **✅ RECONCILED — 2026-09-12:** The seven findings below are the ORIGINAL `ac4b680` diagnosis, kept for their explanatory value; **most are now FIXED** this session and are no longer unreachable. Current status: (1) `cast_spell` ✅ (`5a0a764` — `is_offerable`=True, castable in combat + exploration); (2) class-features engine ✅ (`ceb2b04`+`0de1b62` — on-hit Sneak Attack/Divine Smite fire, Rage/Second Wind/Action Surge selectable; 12-class coverage being expanded); (3) `standard_actions.py` ✅ (`5a0a764` — `register_standard_actions()` called + 27 tests); (4) inventory add/remove ✅ (`66b04e0` — `@tool`s at `dm_tools.py:1052`); (5) `export_game_state` branch ✅ (`66b04e0` — uses `to_dict()`); (6) ASI ✅ (`84000b6` — `_apply_level_up`; class-specific extra ASIs, Fighter 6/14 & Rogue 10, still TODO); (7) tool profs ✅ (`917881a`) and saving-throw profs ✅ **now consumed** (`get_saving_throw_modifier` + entity save setup at `dnd_engine_wrapper.py:727`) — only **Background/languages remain ➖ narrative-only by design**. See the per-row "Fixed in latest update?" columns above.
 
 1. **`cast_spell`** — registered in `ACTION_REGISTRY`, mechanically complete (64/72 tests
    pass), but filtered out of every menu because `param_defaults` omits `spell_name`.
