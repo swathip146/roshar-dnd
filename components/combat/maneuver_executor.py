@@ -37,11 +37,53 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from config.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _parse_damage_type_for_resistance(damage_type_str: str):
+    """
+    Parse a damage type string to DamageType enum for resistance nodes.
+
+    Handles simple types like "acid", "fire", "slashing".
+    Skips complex conditions like "bludgeoning from nonmagical weapons".
+    Returns None for unknown types (logs a warning in the caller).
+
+    This is identical to dnd_engine_wrapper._parse_damage_type but kept local
+    to avoid a circular import (wrapper imports maneuver_executor's result types).
+    """
+    from dnd.core.modifiers import DamageType
+
+    if not damage_type_str:
+        return None
+
+    dtype_lower = damage_type_str.strip().lower()
+
+    # Skip complex conditions
+    if " from " in dtype_lower or "," in dtype_lower:
+        return None
+
+    damage_type_map = {
+        "acid": DamageType.ACID,
+        "bludgeoning": DamageType.BLUDGEONING,
+        "cold": DamageType.COLD,
+        "fire": DamageType.FIRE,
+        "force": DamageType.FORCE,
+        "lightning": DamageType.LIGHTNING,
+        "necrotic": DamageType.NECROTIC,
+        "piercing": DamageType.PIERCING,
+        "poison": DamageType.POISON,
+        "psychic": DamageType.PSYCHIC,
+        "radiant": DamageType.RADIANT,
+        "slashing": DamageType.SLASHING,
+        "thunder": DamageType.THUNDER,
+    }
+
+    return damage_type_map.get(dtype_lower)
+
 
 # Node types the automation trees can use. An unrecognised type is an error, not
 # something to skip: silently ignoring a node would execute half a maneuver and
@@ -139,6 +181,8 @@ class ManeuverExecutor:
         self.concentration = concentration
         # Which option a `choice` node should run for the current execute() call.
         self._selected_choice: Any = None
+        # Track applied resistances for teardown: target -> [(reduction, modifier_id), ...]
+        self._applied_resistances: Dict[str, List[Tuple[Any, Any]]] = {}
 
         if dice_roller is None:
             from components.dice import DiceRoller
@@ -634,12 +678,12 @@ class ManeuverExecutor:
         """
         Grant damage resistance (Invested Arts addition).
 
-        The engine already supports resistances via `health.damage_reduction`. This
-        node records the resistance so it can be applied.
-
-        NOTE: Full resistance wiring to the engine's damage pipeline is needed for
-        this to actually reduce damage. This node records the intent.
+        Now fully wired: applies ResistanceModifier to the entity's
+        health.damage_reduction so damage is actually halved, following the same
+        pattern class_features._effect_resistance uses for Rage.
         """
+        from dnd.core.modifiers import DamageType, ResistanceModifier, ResistanceStatus
+
         damage_type = str(node.get("damage_type") or "").lower()
         if not damage_type:
             raise AutomationError("resistance node has no `damage_type`")
@@ -647,7 +691,7 @@ class ManeuverExecutor:
         duration = str(node.get("duration") or "")
 
         for target in (targets or [actor]):
-            # Record as an inline effect so the session can see and apply it
+            # Record as an inline effect so the session can see it
             effect = {
                 "name": f"Resistance to {damage_type}",
                 "target": target,
@@ -657,9 +701,31 @@ class ManeuverExecutor:
             result.effects_applied.append(effect)
             self._record_effect(target, effect)
 
+            # WIRE TO ENGINE: actually grant the resistance
+            entity = self.wrapper.entities.get(target) if self.wrapper else None
+            if entity is not None:
+                dtype = _parse_damage_type_for_resistance(damage_type)
+                if dtype is not None:
+                    modifier = ResistanceModifier(
+                        name=f"Resistance to {dtype.value}",
+                        value=ResistanceStatus.RESISTANCE,
+                        damage_type=dtype,
+                        source_entity_uuid=entity.uuid,
+                        target_entity_uuid=entity.uuid
+                    )
+                    reduction = entity.health.damage_reduction
+                    modifier_id = reduction.self_static.add_resistance_modifier(modifier)
+                    # Track for teardown
+                    self._applied_resistances.setdefault(target, []).append(
+                        (reduction, modifier_id))
+                    logger.info(f"      🛡️  {target} gains resistance to {damage_type} "
+                               f"({duration}) — damage halved")
+                else:
+                    logger.warning(f"      ⚠️  Unknown damage type {damage_type!r}, "
+                                 f"resistance recorded but not applied to engine")
+
             result.events.append({"type": "resistance", "target": target,
                                   "damage_type": damage_type, "duration": duration})
-            logger.info(f"      🛡️  {target} gains resistance to {damage_type} ({duration})")
 
     # ------------------------------------------------- surge cantrip nodes (surge-complete)
 
@@ -737,3 +803,22 @@ class ManeuverExecutor:
         logger.info(f"      🔀 chose '{label}'")
         self._run_nodes(chosen.get("effects") or [], actor, list(targets or []),
                         result)
+
+    # ------------------------------------------------------------------ teardown
+
+    def clear_all(self) -> None:
+        """
+        Remove all engine resistances granted by maneuver resistance nodes.
+
+        MUST run at end of combat. Resistances live on the Entity, which outlives
+        the encounter, so a resistance granted in one fight would otherwise persist
+        for every fight afterwards (matching the class_features teardown pattern).
+        """
+        for target, modifiers in list(self._applied_resistances.items()):
+            for reduction, modifier_id in modifiers:
+                try:
+                    reduction.self_static.remove_resistance_modifier(modifier_id)
+                except Exception as e:
+                    logger.debug(f"   Could not remove resistance from {target}: {e}")
+        self._applied_resistances.clear()
+        logger.info("   ⏹️  Cleared all maneuver resistances")

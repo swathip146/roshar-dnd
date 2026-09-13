@@ -75,7 +75,7 @@ types** (was 6; added `area_of_effect`, `check`, `resistance`, `utility`, `force
 | Concentration | ✅ | ✅ | Break-on-damage hook NOW implemented (`maneuver_executor.py:501-511`): DC=max(10, dmg/2), CON save, stops concentration on failure. `ConcentrationTracker` exists, wired through executor. Test: `test_concentration_damage.py` (5 tests). Book usage: 319 by word, **286 by its `▶` glyph**; the audit estimates ~43% of arts. | Nearly half the arts declare concentration. Now tracks it AND breaks on damage. |COMMENT: implement and wire now completely | ✅ Fixed (break-on-damage added) |
 | `heal` node | 🟡 | 🟡 | `heal` is in `SpellEffectExecutor.SPELL_NODES` (`spellcasting.py:386`), NOT in `KNOWN_NODES`. Used by spells, not yet by arts/maneuvers. `ProgressionHealing` hardcoded class still exists. | Progression/Regrowth arts are a large family for Edgedancer and Truthwatcher. |COMMENT: implement and wire now completely | 🟡 Partial (spell-only, not art-wired) |
 | Reaction triggers | ⬜ | ⬜ | Not in `KNOWN_NODES`. Maneuvers handle `reaction` as an action_type, not as a mid-roll hook. | Some arts insert a die after a roll but before the result (Guidance/Resistance shape). |COMMENT: implement and wire now completely | ⬜ Pending |
-| Resistance as a real effect | ✅ | 🟡 | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`), `_node_resistance()` added. Engine supports it (`health.damage_reduction`) — see §5. | Resistance NODE added; engine-side damage_reduction wiring still §5 gap. |COMMENT: implement and wire now completely | 🟡 Partial (node added, full wiring pending) |
+| Resistance as a real effect | ✅ | ✅ | `_node_resistance()` now calls `entity.health.damage_reduction.self_static.add_resistance_modifier(ResistanceModifier(...))` — the same engine path monster resistances use — and tracks each modifier in `_applied_resistances` for teardown via `clear_all()`. `_parse_damage_type_for_resistance()` maps the node's `damage_type` to the engine `DamageType` enum (complex/unknown types logged and skipped). | Fully wired: an art/surge that grants resistance actually halves that damage type and is removed at combat end. | ✅ Fixed — engine-side wiring + teardown complete. Verified: `tests/combat/test_resistance_node.py` (5 passed): fire 20→10, other types unaffected, restored to 20 after `clear_all()`. |
 | `forced_move` | ✅ | ✅ | NOW in `KNOWN_NODES` (`maneuver_executor.py:63`), added for Gravitation creature Lash and Abrasion slide. | Push/pull a target a fixed distance, recorded like Lash Enemy/Lash Ally maneuvers. |COMMENT: implement and wire now completely | ✅ Fixed (commit 7774ab2) |
 | `teleport` | ⬜ | ⬜ | Not in `KNOWN_NODES` | Transportation arts (Elsecaller, Willshaper) need it. |COMMENT: implement and wire now completely | ⬜ Pending |
 | `create_object` / `create_zone` (own HP/AC) | ⬜ | ⬜ | Not in `KNOWN_NODES` | Terrain and wall arts. |COMMENT: implement and wire now completely | ⬜ Pending |
@@ -112,7 +112,7 @@ types** (was 6; added `area_of_effect`, `check`, `resistance`, `utility`, `force
 |---|---|---|---|---|---|---|
 | Saving throws | ✅ | ✅ | Engine `saving_throws.get_saving_throw`; used by the `save` node. Book uses saves 420×. | Ready. | | ✅ Fixed |
 | Invested save DC formula | ✅ | ✅ | `surgebinding.json` `invested_save_dc` = `8 + proficiency + Investiture ability modifier`; `cosmere_rules.invested_save_dc()` exists. `compile_art()` uses it (line 324). | Formula present AND wired in art compilation. | | ✅ Fixed (wired in compile_art) |
-| Damage resistance / vulnerability / immunity | 🟡 | 🟡 | Engine supports it fully (`health.damage_reduction`); SRD data carries it; `resistance` node added to executor. Connection still partial. Flagged in `AUDIT_COMBAT.md` too. | Owner comment there: **implement and wire now**. Some arts grant resistance. Node added, full wiring in progress. |COMMENT: implement and wire now completely | 🟡 Partial (resistance node added) |
+| Damage resistance / vulnerability / immunity | ✅ | ✅ | Engine supports it fully (`health.damage_reduction`); monster stat-block resistance/vuln/immunity wired at `dnd_engine_wrapper.py:899` (commit `eb15312`); ability-**granted** resistance now wired via `_node_resistance()` → `add_resistance_modifier` with teardown. | Resistance is now real on both paths (monster data + art/surge-granted). Vulnerability/immunity for art-granted effects reuse the same `ResistanceModifier` mechanism when an art needs them. | ✅ Fixed — art/surge-granted resistance actually reduces damage; see `test_resistance_node.py`. |
 | Conditions (all 15 SRD) | ✅ | ✅ | `components/engine_conditions.py` added Petrified + Exhaustion; all 15 apply via `apply_condition()`. | `ieffect2` can name any of them. | | ✅ Fixed |
 | Ideals / oaths | ✅ | ✅ | 49 refs to `advance_ideal`/`ideal_level` across components and agents. | Some arts gate on Ideal level. |COMMENT: Update them if needed now completely | ✅ Fixed |
 | The 10 `surges` entries in `surgebinding.json` | ✅ | ✅ | All 10 authored with citations (`4b942c0`) AND given executable automation trees (`7774ab2`): **0 `needs_adjudication`** (3 resolvable, 4 utility_only, 1 partial, 2 utility+subsystem-pending). Reachable via `cast_surge`; 68 tests in `test_all_surges_playable.py`. | **Done.** Was nulls → all playable by every order. Sub-effect fidelity (illusion/realm/terrain) is a subsystem refinement, not adjudication. |COMMENT: implement and wire now completely | ✅ Fixed — all 10 executable + playable via cast_surge |
@@ -228,9 +228,12 @@ as a proxy for likely proportions in a similarly-shaped 665-entry Cosmere set:
    `maneuver_executor.py:501-511` (DC=max(10,dmg/2), CON save). Fixes an existing
    correctness gap (SRD spells have the same hole) as a side effect — one hook serves
    both the 319 SRD spells and however many of the 665 arts carry the `▶` glyph.
-5. **🟡 PARTIAL: Resistance-granting as a real effect.** `resistance` node added to
-   executor (`KNOWN_NODES`), but full engine-side `damage_reduction` wiring still pending.
-   Needed by `Absorb Essence` and likely several other Transformation/defensive arts.
+5. **✅ RESOLVED: Resistance-granting as a real effect.** `_node_resistance()` now
+   applies a `ResistanceModifier` through `health.damage_reduction.self_static` (the
+   monster-resistance engine path) and tears it down via `clear_all()` at combat end,
+   so an art that grants resistance actually halves that damage type. Verified by
+   `tests/combat/test_resistance_node.py`. Needed by `Absorb Essence` and other
+   Transformation/defensive arts.
 6. **Terrain/duration-tracked effects** (difficult terrain, "coats an area for
    1 minute"). Lower priority — mostly utility/exploration-flavor arts, fewer
    of them gate combat outcomes than damage/save/AoE arts do.
