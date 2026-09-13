@@ -199,6 +199,9 @@ class TestCombatActionResolverFunctional:
         InvestiturePointLedger, distinct from spells and surges. `equipment_action`
         was added for mid-combat weapon equipping — dispatched via
         DnDEngineWrapper.equip_weapon(), distinct from standard actions.
+        `surge_action` was added the same way for data-driven Surges (`cast_surge`)
+        — dispatched via CosmereRules + ManeuverExecutor over each Surge's authored
+        cantrip automation, distinct from the bespoke `roshar_action` surge classes.
         """
         for action_type, metadata in action_resolver.ACTION_REGISTRY.items():
             # Verify type is valid
@@ -207,6 +210,7 @@ class TestCombatActionResolverFunctional:
                 "dnd_condition",
                 "spell_action",
                 "art_action",
+                "surge_action",
                 "class_feature",
                 "equipment_action",
                 "roshar_action",

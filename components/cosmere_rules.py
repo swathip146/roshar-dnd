@@ -164,6 +164,28 @@ class CosmereRules:
         entry = self.order(name)
         return list(entry.get("surges", [])) if entry else []
 
+    def surges(self, reviewed_only: bool = True) -> List[Dict[str, Any]]:
+        """
+        Every Surge cantrip entry (the `surges` bucket, plan 2.9).
+
+        Each entry carries its cantrip mechanics as an `automation` tree (or null
+        where the effect needs an unbuilt subsystem). `cast_surge` reads these to
+        decide what a Radiant order can actually cast.
+        """
+        items = list((self._data.get("surges", {}) or {}).values())
+        if reviewed_only:
+            items = [s for s in items if self._reviewed(s)]
+        return items
+
+    def get_surge(self, surge_name: str,
+                  reviewed_only: bool = True) -> Optional[Dict[str, Any]]:
+        """One Surge by name (case-insensitive), or None. See surges()."""
+        needle = (surge_name or "").strip().lower()
+        for surge in self.surges(reviewed_only=reviewed_only):
+            if str(surge.get("name", "")).lower() == needle:
+                return surge
+        return None
+
     def economy_for_order(self, name: str) -> Optional[Dict[str, Any]]:
         """The resource economy an order spends (Lashing Dice, Investiture …)."""
         entry = self.order(name)
