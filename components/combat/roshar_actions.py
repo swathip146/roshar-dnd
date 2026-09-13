@@ -706,6 +706,8 @@ class Soulcast(_TypedEventAction):
     target_essence: str = "stone"
     #: 0 = free cantrip; >=5 = the costed, save-based 5th-level Soulcast Art.
     art_level: int = 0
+    #: Whether this casting requires a polestone (5th-level Art requires a large polestone)
+    requires_polestone: bool = False
 
     def _validate(self, declaration_event: SoulcastEvent) -> SoulcastEvent:
         entity = Entity.get(self.source_entity_uuid)
@@ -777,6 +779,40 @@ class Soulcast(_TypedEventAction):
         logger.info(f"✨ {entity.name} Soulcasts {target.name} toward stone — "
                     f"CON save {save_roll} vs DC {save_dc}: "
                     f"{'SAVED' if saved else 'FAILED'}")
+
+        art_succeeded = not saved  # Art succeeded if target failed save
+
+        # HB:13231-13241: 5th-level Soulcast requires a large polestone as material
+        # component. The polestone outcome (crack/drain/untouched) is resolved AFTER
+        # casting, and the cost is paid even if the art fails (target saves).
+        if self.requires_polestone or execution_event.art_level >= 5:
+            from components.combat.polestone import (
+                Polestone, consume_polestone_for_art, resolve_polestone_outcome
+            )
+
+            # For testing/demo: create a mock large polestone
+            # In production, this would come from entity's inventory
+            polestone = Polestone(
+                type="generic",
+                size="large",
+                value_sm=100,
+                infused=True,
+                cracked=False
+            )
+
+            # Resolve polestone outcome (cost paid regardless of success/failure)
+            polestone_result = consume_polestone_for_art(
+                polestone=polestone,
+                art_name="Soulcast (5th-level)",
+                interrupted=False,  # Art was fully cast
+                art_succeeded=art_succeeded
+            )
+
+            if polestone_result.get("success"):
+                outcome = polestone_result.get("outcome")
+                logger.info(f"   💎 Polestone {outcome}: {polestone_result.get('message', '')}")
+            else:
+                logger.warning(f"   ⚠️ Polestone error: {polestone_result.get('error', 'unknown')}")
 
         if saved:
             return execution_event.phase_to(
