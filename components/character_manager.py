@@ -1500,6 +1500,9 @@ class CharacterManager:
             passive_data = self.get_passive_score(character_id, skill)
             passive_scores[skill] = passive_data["passive_score"]
         
+        # Get encumbrance status
+        encumbrance = self.get_encumbrance(character_id)
+
         return {
             "character_id": character.character_id,
             "name": character.name,
@@ -1510,7 +1513,8 @@ class CharacterManager:
             "passive_scores": passive_scores,
             "conditions": character.conditions,
             "skill_count": len([s for s, prof in character.skills.items() if prof]),
-            "expertise_count": len(character.expertise_skills)
+            "expertise_count": len(character.expertise_skills),
+            "encumbrance": encumbrance
         }
     
     def list_characters(self) -> List[Dict[str, Any]]:
@@ -2378,6 +2382,58 @@ class CharacterManager:
         character = self.characters[character_id]
         str_score = character.ability_scores.get("strength", 10)
         return str_score * 15
+
+    def get_carried_weight(self, character_id: str) -> Optional[float]:
+        """
+        Calculate total carried weight in pounds from character's equipment.
+
+        Looks up each item in the SRD equipment data. Items without weight data
+        or not found in the SRD are treated as 0 lb.
+
+        Note: This does NOT include coin weight. The 5e variant rule treats
+        50 coins = 1 lb, but that's omitted here for simplicity.
+
+        Args:
+            character_id: Character ID
+
+        Returns:
+            Total weight in pounds, or None if character not found
+        """
+        if character_id not in self.characters:
+            return None
+
+        character = self.characters[character_id]
+        if not character.equipment:
+            return 0.0
+
+        # Import here to avoid circular dependency
+        from components.srd_rules import get_srd_rules
+        srd = get_srd_rules()
+
+        total_weight = 0.0
+        for item_name in character.equipment:
+            item_data = srd.equipment(item_name)
+            if item_data and "weight" in item_data:
+                total_weight += float(item_data["weight"])
+
+        return total_weight
+
+    def get_encumbrance(self, character_id: str) -> Dict[str, Any]:
+        """
+        Get the character's current encumbrance status based on carried weight.
+
+        This is a pure computation read live from the character's current equipment.
+        Does NOT mutate or track persistent state.
+
+        Returns:
+            Dict with "encumbrance_level", "speed_penalty", "has_disadvantage",
+            "capacity", "weight", or {"error": ...} if character not found
+        """
+        carried_weight = self.get_carried_weight(character_id)
+        if carried_weight is None:
+            return {"error": "Character not found"}
+
+        return self.is_encumbered(character_id, int(carried_weight))
 
     def is_encumbered(self, character_id: str, weight: int) -> Dict[str, Any]:
         """
