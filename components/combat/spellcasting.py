@@ -387,10 +387,12 @@ class SpellEffectExecutor(ManeuverExecutor):
 
     def __init__(self, dnd_wrapper, character_manager=None, dice_roller=None,
                  combat_state=None, concentration=None):
+        concentration_tracker = concentration or ConcentrationTracker()
         super().__init__(dnd_wrapper, dice_pool=None, cosmere_rules=None,
-                         dice_roller=dice_roller, combat_state=combat_state)
+                         dice_roller=dice_roller, combat_state=combat_state,
+                         concentration=concentration_tracker)
         self.character_manager = character_manager
-        self.concentration = concentration or ConcentrationTracker()
+        self.concentration = concentration_tracker
         #: Set for the duration of one cast, so the DC/{mod}/attack bonus nodes
         #: resolve against the right caster without threading them through every
         #: node signature (the parent's node methods take a fixed argument list).

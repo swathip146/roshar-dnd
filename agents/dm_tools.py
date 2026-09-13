@@ -653,6 +653,146 @@ def apply_healing(amount: int, actor: str = "") -> Dict[str, Any]:
 
 
 @tool
+def cast_spell(spell_name: str, actor: str = "", target: str = "",
+               at_level: int = 0, ritual: bool = False) -> Dict[str, Any]:
+    """
+    Cast a spell outside combat.
+
+    Reuses SpellcastingService for spell compilation and slot economy, then
+    applies effects to CharacterData via apply_damage/apply_healing. This gives
+    ONE spell-definition + slot source of truth without needing a combat grid.
+
+    Args:
+        spell_name: Name of the spell to cast (e.g., "Cure Wounds", "Fireball")
+        actor: Caster character id; defaults to the acting party member
+        target: Target character id; defaults to the caster (for self-buffs/heals)
+        at_level: Spell slot level to use (0 = use lowest available); ignored for cantrips
+        ritual: Cast as a ritual (no slot spent, takes 10 extra minutes)
+
+    Returns:
+        success, spell, slot_level, damage/healing applied, description
+    """
+    try:
+        invalidate_dm_tool_reads()  # state may change
+        manager = _need("character_manager")
+        srd = _need("srd_rules")
+        actor_id = _active_actor(actor)
+        target_id = target or actor_id
+
+        caster = manager.characters.get(actor_id)
+        if caster is None:
+            return {"error": f"Unknown character {actor_id!r}", "success": False}
+
+        # Get spellcasting stats
+        from components.combat.spellcasting import spellcasting_stats, SpellSlotLedger
+
+        stats = spellcasting_stats(caster, actor_id)
+        if not stats.is_caster:
+            return {
+                "error": f"{actor_id} is not a spellcaster ({stats.character_class})",
+                "success": False,
+            }
+
+        # Look up the spell
+        spell_entry = srd.spell(spell_name)
+        if spell_entry is None:
+            return {
+                "error": f"'{spell_name}' not found in SRD spell list",
+                "success": False,
+            }
+
+        spell_level = int(spell_entry.get("level", 0) or 0)
+        spell_ritual = bool(spell_entry.get("ritual"))
+
+        # Compile the spell
+        from components.combat.spell_compiler import compile_spell
+
+        slot_level = at_level if at_level > 0 else max(spell_level, 1)
+        compiled = compile_spell(spell_entry, slot_level=slot_level,
+                                caster_level=stats.level)
+
+        if compiled.needs_adjudication:
+            return {
+                "success": False,
+                "spell": compiled.name,
+                "error": f"Spell needs adjudication: {compiled.reason}",
+                "needs_adjudication": True,
+            }
+
+        # Handle ritual casting
+        is_ritual_cast = ritual and spell_ritual
+        ledger = SpellSlotLedger(manager)
+
+        if spell_level > 0 and not is_ritual_cast:
+            # Pay the slot
+            spend = ledger.spend(actor_id, spell_level, at_level=at_level if at_level > 0 else None)
+            if not spend.spent:
+                return {
+                    "success": False,
+                    "spell": compiled.name,
+                    "error": spend.reason,
+                }
+            slot_used = spend.level
+        else:
+            slot_used = 0  # cantrip or ritual
+
+        logger.info(f"🔮 {actor_id} casts {compiled.name} (exploration mode, "
+                   f"{'ritual, ' if is_ritual_cast else ''}slot {slot_used})")
+
+        # Apply effects via dm_tools (reusing existing damage/heal paths)
+        damage_dealt = 0
+        healing_done = 0
+        description_parts = []
+
+        # Parse automation tree for damage/healing
+        for node in compiled.automation:
+            if node.get("type") == "target":
+                effects = node.get("effects", [])
+                for effect in effects:
+                    # Handle save nodes
+                    if effect.get("type") == "save":
+                        # For exploration, assume the target fails the save
+                        sub_effects = effect.get("fail", [])
+                        for sub in sub_effects:
+                            if sub.get("type") == "damage":
+                                dmg_expr = sub.get("damage", "0")
+                                dmg_type = sub.get("damage_type", "force")
+                                dmg_result = roll_dice(dmg_expr, f"{compiled.name} damage")
+                                if "error" not in dmg_result:
+                                    damage_dealt = dmg_result["total"]
+                                    apply_damage(damage_dealt, target_id, dmg_type)
+                                    description_parts.append(f"{damage_dealt} {dmg_type} damage")
+
+                    # Direct damage
+                    elif effect.get("type") == "damage":
+                        dmg_expr = effect.get("damage", "0")
+                        dmg_type = effect.get("damage_type", "force")
+                        dmg_result = roll_dice(dmg_expr, f"{compiled.name} damage")
+                        if "error" not in dmg_result:
+                            damage_dealt = dmg_result["total"]
+                            apply_damage(damage_dealt, target_id, dmg_type)
+                            description_parts.append(f"{damage_dealt} {dmg_type} damage")
+
+        return {
+            "success": True,
+            "spell": compiled.name,
+            "caster": actor_id,
+            "target": target_id,
+            "slot_level": slot_used,
+            "ritual": is_ritual_cast,
+            "damage": damage_dealt,
+            "healing": healing_done,
+            "description": (f"{actor_id} casts {compiled.name}" +
+                          (f" as a ritual" if is_ritual_cast else "") +
+                          (f" — {'; '.join(description_parts)}" if description_parts else "")),
+        }
+
+    except Exception as e:
+        logger.warning(f"⚠️ cast_spell failed: {e}")
+        return {"error": str(e), "success": False}
+
+
+@tool
 def take_rest(kind: str = "long", actor: str = "") -> Dict[str, Any]:
     """
     Rest the party, restoring hit points and advancing the game clock.
@@ -989,6 +1129,7 @@ DM_TOOLS = [
     search_lore,
     apply_damage,
     apply_healing,
+    cast_spell,
     take_rest,
     stabilize_dying,
     spend_stormlight,

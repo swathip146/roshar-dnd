@@ -115,11 +115,12 @@ class ManeuverExecutor:
     """
 
     def __init__(self, dnd_wrapper, dice_pool=None, cosmere_rules=None,
-                 dice_roller=None, combat_state=None):
+                 dice_roller=None, combat_state=None, concentration=None):
         self.wrapper = dnd_wrapper
         self.dice_pool = dice_pool
         self.rules = cosmere_rules
         self.combat_state = combat_state or {}
+        self.concentration = concentration
 
         if dice_roller is None:
             from components.dice import DiceRoller
@@ -494,7 +495,22 @@ class ManeuverExecutor:
             resolved = DamageType(damage_type.capitalize())
         except ValueError:
             resolved = DamageType.BLUDGEONING
-        return int(entity.health.take_damage(amount, resolved, entity.uuid))
+        dealt = int(entity.health.take_damage(amount, resolved, entity.uuid))
+
+        # Concentration check: DC = max(10, damage/2), CON save (PHB 203)
+        if dealt > 0 and self.concentration is not None:
+            concentrating_on = self.concentration.concentrating_on(target)
+            if concentrating_on:
+                dc = max(10, dealt // 2)
+                save_total = self._roll_save(target, "constitution")
+                success = save_total >= dc
+                logger.info(f"      🧠 {target} takes damage while concentrating on "
+                           f"{concentrating_on}: CON save {save_total} vs DC {dc} "
+                           f"— {'maintains' if success else 'loses'} concentration")
+                if not success:
+                    self.concentration.stop(target)
+
+        return dealt
 
     # --------------------------------------------------------- new nodes (plan 2.9)
     # NOTE: 'heal' is in SpellEffectExecutor, not here, to preserve the test
