@@ -424,6 +424,123 @@ Generate the enhanced scenario now:"""
     return prompt
 
 
+# --------------------------------------------------------------------------- #
+# Backstop: make the fiction true when the adjudicator forgot to
+# --------------------------------------------------------------------------- #
+
+#: Phrases in the adjudicator's findings that assert a STATE CHANGE, mapped to the
+#: tool that must have been called to make it true. Deliberately narrow: only
+#: unambiguous, mechanically-consequential claims, so a passing mention of the word
+#: "rest" in scene-setting does not trigger a real long rest.
+_STATE_CLAIM_PATTERNS: Dict[str, tuple] = {
+    "take_rest": (
+        "took a long rest", "takes a long rest", "take a long rest",
+        "completed a long rest", "completes a long rest",
+        "took a short rest", "takes a short rest",
+        "rested until", "rests until", "made camp and rested",
+        "night's rest", "nights rest", "slept until", "sleeps until",
+    ),
+    "travel_to_location": (
+        "travelled to", "traveled to", "travels to", "journeyed to",
+        "arrived at", "arrives at", "set out for", "sets out for",
+        "made their way to", "reached the",
+    ),
+}
+
+
+def _apply_unapplied_state_changes(findings: str, messages, game_engine=None) -> None:
+    """Apply a state change the adjudicator DESCRIBED but never applied with a tool.
+
+    The prompt forbids this in three places and cites a measured failure. It happened
+    anyway: in a live Suite B run, "make camp and rest until morning" produced 1561
+    chars describing a night's rest, `take_rest` was offered three times and never
+    called, and no HP or clock movement followed. Prose cannot enforce a contract the
+    model honours only most of the time, so the state gets the last word.
+
+    Conservative by construction:
+      * Only fires when the findings make an UNAMBIGUOUS claim (see the patterns).
+      * Only fires when the corresponding tool was NOT already called this turn —
+        double-applying a rest would be worse than missing one.
+      * Goes through the real `@tool`, so the same validation, logging and clamping
+        apply as when the model calls it. No parallel code path to drift.
+      * Never raises: a backstop that breaks the turn is worse than the drift it
+        prevents.
+    """
+    text = (findings or "").lower()
+    if not text.strip():
+        return
+
+    already_called = set()
+    for message in (messages or []):
+        for call in (getattr(message, "tool_calls", None) or []):
+            name = getattr(call, "tool_name", None)
+            if name:
+                already_called.add(name)
+
+    try:
+        from agents.dm_tools import DM_TOOLS
+    except Exception:  # pragma: no cover - defensive
+        return
+    by_name = {getattr(t, "name", None): t for t in DM_TOOLS}
+
+    for tool_name, phrases in _STATE_CLAIM_PATTERNS.items():
+        if tool_name in already_called:
+            continue
+        matched = next((p for p in phrases if p in text), None)
+        if matched is None:
+            continue
+        tool = by_name.get(tool_name)
+        if tool is None:
+            continue
+
+        try:
+            if tool_name == "take_rest":
+                kind = "short" if "short rest" in text else "long"
+                result = tool.invoke(kind=kind)
+                logger.warning(
+                    "🩹 Backstop: findings claimed %r but take_rest was never "
+                    "called; applied a %s rest -> %s",
+                    matched, kind, str(result)[:120])
+            elif tool_name == "travel_to_location":
+                # Only act on a destination we can name; guessing a place would be
+                # worse than leaving the clock alone.
+                destination = _destination_in(text)
+                if not destination:
+                    continue
+                result = tool.invoke(destination=destination)
+                logger.warning(
+                    "🩹 Backstop: findings claimed %r but travel_to_location was "
+                    "never called; travelled to %r -> %s",
+                    matched, destination, str(result)[:120])
+        except Exception as exc:  # noqa: BLE001 - never break the turn
+            logger.debug("Backstop for %s did not apply: %s", tool_name, exc)
+
+
+def _destination_in(text: str) -> str:
+    """The named location the findings say the party reached, if any.
+
+    Matched against the campaign's own locations rather than parsed out of prose, so
+    the backstop can only ever travel somewhere that actually exists.
+    """
+    try:
+        from agents.dm_tools import _CONTEXT
+
+        engine = _CONTEXT.get("game_engine")
+        locations = getattr(engine, "locations", None) or {}
+        names = list(locations.keys()) if isinstance(locations, dict) else list(locations)
+        if not names:
+            context = getattr(engine, "get_location_context", None)
+            if callable(context):
+                names = list((context() or {}).get("known_locations") or [])
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+    for name in names:
+        if isinstance(name, str) and name and name.lower() in text:
+            return name
+    return ""
+
+
 def format_scenario_response(scenario_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Format the scenario response according to the required JSON schema.
@@ -682,6 +799,23 @@ class ScenarioValidatorComponent:
                             parts.append(value.strip())
                             break
                 findings = "\n".join(parts[-3:])
+
+            # BACKSTOP: apply a state change the adjudicator described but never
+            # applied with a tool.
+            #
+            # The prompt already forbids this explicitly ("NEVER say the party
+            # travelled, rested, or that time passed, unless you called the tool that
+            # made it so"), and cites a live run where six turns advanced the clock by
+            # zero hours. Measured again in a Suite B run AFTER that prompt was
+            # written: "make camp and rest until morning" produced 1561 chars of
+            # narration describing a night's rest, `take_rest` was offered to the
+            # model three times, and it was never called — no HP restored, no clock
+            # movement. Prose alone cannot enforce this; the model complies most of
+            # the time and silently does not the rest of the time.
+            #
+            # So the state, not the prompt, gets the last word: if the findings say a
+            # rest or a journey happened and no tool made it true, make it true here.
+            _apply_unapplied_state_changes(findings, messages, game_engine=None)
 
             # recent_scenes lets Phase B reject a scene the player has already
             # been shown (turns 8 and 9 of a 12-turn playtest were identical).
