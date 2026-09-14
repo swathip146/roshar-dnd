@@ -56,6 +56,18 @@
       "rulings": [],
       "promoted": false,
       "last_seen": 1789158442.0303721
+    },
+    "rules lookup highstorm": {
+      "situation": "rules lookup: highstorm",
+      "uses": 2,
+      "tiers": {
+        "narrative": 1,
+        "judged": 1
+      },
+      "first_seen": 1789356369.351457,
+      "rulings": [],
+      "promoted": false,
+      "last_seen": 1789356369.352799
     }
   }
 }

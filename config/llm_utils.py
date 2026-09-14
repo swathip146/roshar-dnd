@@ -332,6 +332,25 @@ def _empty_response_reason(response: Any) -> str:
     return "no candidates and no finish_reason"
 
 
+#: HTTP timeout for every LLM call, in MILLISECONDS (`HttpOptions.timeout`).
+#:
+#: There was NO timeout at all, on either transport. A silently-dropped connection
+#: therefore hung the turn indefinitely: measured in a live Suite B run, one turn
+#: blocked in `receive_response_headers` for **10 minutes 43 seconds** before the
+#: server disconnected —
+#:
+#:     20:15:15  receive_response_headers.started
+#:     20:25:58  receive_response_headers.failed  RemoteProtocolError(
+#:                   'Server disconnected without sending a response.')
+#:
+#: A player would experience that as the game freezing. 90s is generous for a
+#: thinking-enabled scenario call (the slowest observed healthy turn was ~37s) while
+#: still failing fast enough for the existing 408/429/5xx retry path to recover — a
+#: degraded NPC beats a frozen game, which is the same reasoning behind the
+#: deliberately small retry budget below.
+REQUEST_TIMEOUT_MS = 90_000
+
+
 @component
 class GeminiChatGenerator:
     """
@@ -385,11 +404,20 @@ class GeminiChatGenerator:
             if client_args:
                 self.client = genai.Client(
                     api_key=api_key,
-                    http_options=genai_types.HttpOptions(client_args=client_args),
+                    http_options=genai_types.HttpOptions(
+                        client_args=client_args,
+                        timeout=REQUEST_TIMEOUT_MS,
+                    ),
                 )
             else:
-                self.client = (genai.Client(api_key=api_key) if api_key
-                               else genai.Client())
+                self.client = genai.Client(
+                    api_key=api_key,
+                    http_options=genai_types.HttpOptions(
+                        timeout=REQUEST_TIMEOUT_MS),
+                ) if api_key else genai.Client(
+                    http_options=genai_types.HttpOptions(
+                        timeout=REQUEST_TIMEOUT_MS),
+                )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Gemini client: {e}")
     
@@ -1033,6 +1061,9 @@ class GatewayChatGenerator(GeminiChatGenerator):
                 base_url=GATEWAY_BASE_URL,
                 headers=headers,
                 client_args=client_args or None,
+                # Same reasoning as the direct transport: without a timeout a
+                # dropped connection hangs the turn forever (measured: 10m43s).
+                timeout=REQUEST_TIMEOUT_MS,
             ),
         )
         logger.info(

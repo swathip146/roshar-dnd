@@ -31,7 +31,20 @@ def clear_npc_tool_context() -> None:
 
 
 @tool(
-    outputs_to_state={"npc_response": {"source": "."}}
+    # `source` names a KEY IN THIS TOOL'S RETURN DICT; omitting it sends the WHOLE
+    # result to state (Haystack 2.31 `Tool.outputs_to_state` docs).
+    #
+    # This was `{"source": "."}`, and there is no "." key in the returned dict — so
+    # nothing was ever written to state. `npc_response` was absent entirely
+    # (`STATE_KEYS = ['last_message', 'messages']`), the orchestrator read None, and
+    # every NPC conversation returned "NPC produced no dialogue", surfacing to the
+    # player as "The world seems momentarily confused by your action."
+    #
+    # The model was doing its part correctly the whole time: it called
+    # generate_npc_response, the tool ran, and the result was discarded on the way
+    # into state. The orchestrator calls `.get()` on the response, so it wants the
+    # whole dict — hence no `source`.
+    outputs_to_state={"npc_response": {}}
 )
 def generate_npc_response(
     npc_id: str,

@@ -1392,6 +1392,37 @@ Retrieve relevant documents for this query and provide a concise answer based on
 
         return context
 
+    def _npc_turn_envelope(self, npc_id: str,
+                           npc_response: Dict[str, Any]) -> Dict[str, Any]:
+        """Wrap an NPC dialogue dict in what the game loop actually reads.
+
+        Same defect the combat path already carries a comment about (see
+        `_run_combat_pipeline`): `haystack_dnd_game.play_turn` gates on
+        `response_dict["success"]`, and `_handle_response` dispatches on
+        `response_type`, taking the dialogue from `npc_response["dialogue"]`
+        (`haystack_dnd_game.py:1001-1018`).
+
+        The NPC branch returned the BARE dialogue dict — no `success`, no
+        `response_type` — so every NPC conversation was reported to the player as
+        "The world seems momentarily confused by your action", logged as
+        `Processing failed: Unknown error`, even though the NPC had answered in
+        character and the exchange was already written to memory. Combat was fixed for
+        this; the NPC path was not.
+        """
+        dialogue = ""
+        if isinstance(npc_response, dict):
+            dialogue = str(npc_response.get("dialogue") or "")
+
+        return {
+            "success": True,
+            "response_type": "npc_interaction",
+            "npc_response": npc_response,
+            "npc_id": npc_id,
+            # `_handle_npc` builds its own formatted_response, but the turn loop also
+            # reads this key directly on some paths; supplying it keeps both honest.
+            "formatted_response": f"💬 {dialogue}" if dialogue else "",
+        }
+
     def _remember_npc_interaction(self, npc_id: str, player_action: str,
                                   response: Dict[str, Any]) -> None:
         """Persist the exchange so the next conversation has continuity (2.4)."""
@@ -1452,11 +1483,25 @@ Retrieve relevant documents for this query and provide a concise answer based on
             if not npc_context:
                 npc_context = self._build_npc_context(npc_id)
             
+            # Haystack requires inputs NESTED UNDER THE COMPONENT NAME. These were
+            # passed flat — `{"npc_id": ..., "player_action": ...}` — so none of them
+            # reached `prompt_builder`, whose template declares exactly those three as
+            # `required_variables`. The agent was therefore prompted with an empty
+            # template, never called `generate_npc_response`, and the turn came back as
+            # "NPC produced no dialogue" -> "The world seems momentarily confused by
+            # your action."
+            #
+            # Haystack said so out loud and the warning was being ignored:
+            #   Inputs ['interface_context'] were not matched to any component inputs
+            # `interface_context` is not a `prompt_builder` variable at all, which is
+            # why it was the one name Haystack could name. Every sibling pipeline
+            # (scenario at :1128, rag at :1315) already nests correctly.
             result = pipeline.run({
-                "npc_id": npc_id,
-                "player_action": player_action,
-                "npc_context": npc_context,
-                "interface_context": dto  # Pass DTO for additional context
+                "prompt_builder": {
+                    "npc_id": npc_id,
+                    "player_action": player_action,
+                    "npc_context": npc_context,
+                }
             })
             
             if "npc_controller" in result:
@@ -1487,7 +1532,7 @@ Retrieve relevant documents for this query and provide a concise answer based on
                     # Plan 2.4: persist the exchange so the next conversation
                     # has continuity instead of restarting at "neutral".
                     self._remember_npc_interaction(npc_id, player_action, npc_response)
-                    return npc_response
+                    return self._npc_turn_envelope(npc_id, npc_response)
                 else:
                     return {"error": "No NPC response in state"}
             else:
