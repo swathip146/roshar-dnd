@@ -68,6 +68,54 @@
       "rulings": [],
       "promoted": false,
       "last_seen": 1789356369.352799
+    },
+    "rules lookup lashing": {
+      "situation": "rules lookup: Lashing",
+      "uses": 1,
+      "tiers": {
+        "judged": 1
+      },
+      "first_seen": 1789357798.9657102,
+      "rulings": [
+        {
+          "ruling": "The provided rules text mentions 'Lashing' in the context of 'Lashing Dice' and Windrunner abilities, but does not offer a direct definition or a general rule for what 'Lashing' *is* or *does* as a specific action or mechanic. It primarily describes a resource ('Lashing dice') related to it.",
+          "citations": [
+            "Radiant's Handbook / Lashing Dice",
+            "Radiant's Handbook / Investiture Points",
+            "Radiant's Handbook / Stormlight Replenishment"
+          ]
+        }
+      ],
+      "promoted": false,
+      "last_seen": 1789357798.9657118
+    },
+    "rules lookup regrowth": {
+      "situation": "rules lookup: Regrowth",
+      "uses": 2,
+      "tiers": {
+        "judged": 2
+      },
+      "first_seen": 1789357813.4056609,
+      "rulings": [
+        {
+          "ruling": "The provided rules text mentions 'Lashing' in the context of 'Lashing Dice' and Windrunner abilities, but does not offer a direct definition or a general rule for what 'Lashing' *is* or *does* as a specific action or mechanic. It primarily describes a resource ('Lashing dice') related to it.",
+          "citations": [
+            "Radiant's Handbook / Lashing Dice",
+            "Radiant's Handbook / Investiture Points",
+            "Radiant's Handbook / Stormlight Replenishment"
+          ]
+        },
+        {
+          "ruling": "The provided rules text mentions 'Lashing' in the context of 'Lashing Dice' and Windrunner abilities, but does not offer a direct definition or a general rule for what 'Lashing' *is* or *does* as a specific action or mechanic. It primarily describes a resource ('Lashing dice') related to it.",
+          "citations": [
+            "Radiant's Handbook / Lashing Dice",
+            "Radiant's Handbook / Investiture Points",
+            "Radiant's Handbook / Stormlight Replenishment"
+          ]
+        }
+      ],
+      "promoted": false,
+      "last_seen": 1789357815.8602638
     }
   }
 }

@@ -939,6 +939,23 @@ class HaystackDnDGame:
             return self._handle_rag(response_data)
         elif response_type == "npc_interaction":
             return self._handle_npc(response_data)
+        elif response_type in ("combat_complete", "combat", "combat_start",
+                               "combat_ongoing"):
+            # Combat had NO branch here at all, so every resolved encounter fell
+            # through to `_handle_unknown`, which looks for a TOP-LEVEL "scene" or
+            # "response" key. The combat envelope has neither: `_run_combat_pipeline`
+            # builds `response_type="combat_complete"` with the narrative nested in
+            # `scenario.scene` (`pipeline_integration.py:1606-1612`).
+            #
+            # Measured live: an 8-round encounter resolved cleanly
+            # ("✅ Combat complete: defeat in 8 rounds", GameEngine updated) and the
+            # player was shown "The adventure continues in unexpected ways...",
+            # logged as "Unrecognized response format with keys: [...]". The fight
+            # happened; only its description was thrown away.
+            #
+            # The narrative already lives where `_handle_scenario` expects it, so
+            # reuse that rather than adding a fourth near-duplicate formatter.
+            return self._handle_scenario(response_data)
         else:
             return self._handle_unknown(response_data)
 
