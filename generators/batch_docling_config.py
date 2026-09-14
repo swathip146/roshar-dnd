@@ -1,6 +1,5 @@
 """
 Docling Configuration for Batch PDF Processing
-Simplified configuration without hwtgenielib dependencies
 """
 
 from dataclasses import dataclass, field

@@ -1,7 +1,6 @@
 """
 Gemini Vision Captioner
 Standalone utility for generating image captions using Gemini Flash 2.0 vision capabilities
-No hwtgenielib dependencies - uses google.genai directly (NEW SDK)
 """
 
 import os

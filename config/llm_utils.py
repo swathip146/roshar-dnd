@@ -980,12 +980,6 @@ class FloodgateChatGenerator(GeminiChatGenerator):
     sanitising, the tools-vs-JSON-mode rule, AFC disabling, empty-response
     diagnosis, and transient-fault retry. Only the transport differs.
 
-    An earlier version pointed at hwtgenie-dev.csg.apple.com through the OpenAI
-    client and reimplemented all of that. It also never connected: every call
-    failed with "Connection error" even with a freshly minted token, because the
-    host was wrong. pkg-wiki-cli reaches floodgate.g.apple.com successfully, and
-    that is the endpoint used here.
-
     Auth is a Bearer ID token in a header rather than an API key, which is why
     the client is rebuilt instead of inherited.
     """

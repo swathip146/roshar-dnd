@@ -121,12 +121,31 @@ class TestCombatSessionManagerFunctional:
 
     @pytest.fixture
     def character_manager(self):
-        """Create mock CharacterManager"""
+        """Create mock CharacterManager.
+
+        `speed` and `get_encumbrance` MUST return real numbers, not Mocks.
+        `_reset_movement` computes `max(0, base_speed - speed_penalty)`
+        (`combat_session_manager.py:1477`), and a bare `Mock()` satisfies the
+        `getattr(character, 'speed', ...)` lookup while failing the subtraction with
+        `TypeError: unsupported operand type(s) for -: 'Mock' and 'Mock'`.
+
+        That is the whole hazard of mock-based fixtures in one line: the Mock accepted
+        every call right up to the point where real arithmetic needed a real value.
+        The production code here is correct and defensive; only the fixture was wrong.
+        """
         manager = Mock()
         manager.characters = {
-            "hero": Mock(name="Aggi", attacks=[{"name": "Longsword"}]),
-            "goblin_1": Mock(name="Goblin Warrior", attacks=[{"name": "Scimitar"}]),
-            "goblin_2": Mock(name="Goblin Scout", attacks=[{"name": "Shortbow"}])
+            "hero": Mock(name="Aggi", attacks=[{"name": "Longsword"}], speed=30),
+            "goblin_1": Mock(name="Goblin Warrior", attacks=[{"name": "Scimitar"}],
+                             speed=30),
+            "goblin_2": Mock(name="Goblin Scout", attacks=[{"name": "Shortbow"}],
+                             speed=30),
+        }
+        # Unencumbered: no speed penalty. A Mock return value would break the same
+        # subtraction from the other side.
+        manager.get_encumbrance.return_value = {
+            "speed_penalty": 0,
+            "encumbrance_level": "unencumbered",
         }
         return manager
 

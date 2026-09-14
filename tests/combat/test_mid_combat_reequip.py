@@ -165,7 +165,25 @@ def test_equip_weapon_mid_combat(resolver, dnd_wrapper, character_manager):
     })
 
     logger.info(f"   Attack result: {attack_result}")
-    assert attack_result["success"], f"Attack failed: {attack_result.get('error')}"
+
+    # FLAKE FIX: `success` is the HIT/MISS verdict, not "did the action execute".
+    # A miss returns {"success": False, "attack_outcome": MISS, "error": None} with a
+    # real AttackEvent attached — nothing has gone wrong. Asserting `success` here
+    # therefore failed whenever the d20 missed AC 10, which reproduced at roughly
+    # 2 runs in 12 (and the message read "Attack failed: None", since there was no
+    # error to report).
+    #
+    # This test is about WHICH WEAPON was used, so assert the action executed and
+    # produced an outcome, not that it connected.
+    assert attack_result.get("error") is None, (
+        f"the attack action failed to execute: {attack_result.get('error')}")
+    assert attack_result.get("event") is not None, (
+        "no AttackEvent was produced, so the attack never reached the engine")
+
+    outcome = str(attack_result.get("attack_outcome") or "").rsplit(".", 1)[-1]
+    assert outcome in ("HIT", "MISS", "CRIT", "CRIT_MISS"), (
+        f"unrecognised attack outcome {outcome!r}")
+    logger.info(f"✓ Attack resolved with outcome {outcome} (hit or miss both fine)")
 
     # The attack used the longsword. Verify by checking the event's weapon
     # (the resolver should have used weapon_main_hand, which is now the longsword)

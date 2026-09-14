@@ -105,6 +105,12 @@ does. A naive heading grep silently misses ~286 concentration arts.
 | `cosmere_rpg_unused/AUDIT_COSMERE_RPG_FEASIBILITY.md` | Why the 5e engine cannot host the standalone Cosmere RPG — with live evidence of silent corruption |
 | `cosmere_rpg_unused/AUDIT_STORMLIGHT_CONTENT.md` | Rosharan **content** rather than rules: pregens, adversaries, locations, scenarios, unindexed lore. Largely system-independent |
 
+### Testing — proving the audited mechanics actually work in play
+
+| Document | Covers |
+|---|---|
+| `INTEGRATION_TEST_STRATEGY.md` | Plan for two integration suites over every mechanic the audits mark implemented-and-reachable: **Suite A** (no LLM — a scripted fake at the single `create_generator` seam) and **Suite B** (real LLM playtest). Includes a **runtime coverage gate** enumerated from `ACTION_REGISTRY`/`DM_TOOLS`/`surgebinding.json`, so adding a mechanic without a test breaks the build |
+
 ## How to use this
 
 - **Implementing a mechanic?** Find it in the requirements doc for the exact rule and
@@ -114,6 +120,10 @@ does. A naive heading grep silently misses ~286 concentration arts.
   from the wrong system.
 - **Deciding what to build next?** The audit docs' "Built but unreachable" sections are
   the cheapest wins — the code already exists and just needs wiring.
+- **Proving a mechanic actually works in play?** Read `INTEGRATION_TEST_STRATEGY.md`. The
+  audits establish *what* is implemented and reachable; that document is the plan for
+  testing all of it end-to-end, and its coverage gate is what keeps these audit tables
+  from drifting out of sync with the code again.
 - **Adding to these docs?** Cite `file:line` or show the command and its output. That
   standard is the whole point of this directory.
 

@@ -1139,28 +1139,78 @@ class DnDEngineWrapper:
         attack_roll = attacker.roll_d20(attack_bonus, RollType.ATTACK)
         attack_total = attack_roll.total
 
-        # Get target AC
-        dex_mod = target.ability_scores.dexterity.modifier
-        dex_modifier = int(dex_mod) if not hasattr(dex_mod, 'normalized_score') else int(dex_mod.normalized_score)
-        target_ac = 10 + dex_modifier
+        # Get target AC from the engine, NOT by hand.
+        #
+        # This previously computed `10 + dex_modifier`, which ignores armour and every
+        # AC modifier — so chain mail, a shield, cover, Reverse Lashing and Shardplate
+        # were all invisible, and a plate-armoured knight defended as though naked.
+        # `ac_bonus()` is the same accessor the real `Attack` action uses; note it
+        # returns a FRESH object each call, so it is read here and never mutated.
+        try:
+            target_ac = int(target.ac_bonus().normalized_score)
+        except Exception:  # pragma: no cover - defensive
+            dex_mod = target.ability_scores.dexterity.modifier
+            dex_modifier = (int(dex_mod) if not hasattr(dex_mod, "normalized_score")
+                            else int(dex_mod.normalized_score))
+            target_ac = 10 + dex_modifier
+            logger.warning("⚠️  ac_bonus() unavailable; falling back to 10+DEX")
 
         hit = attack_total >= target_ac
         critical = attack_roll.results == 20
 
         damage = 0
+        damage_type_name = "bludgeoning"
         if hit:
-            # Create damage dice (1d6 + strength modifier for unarmed)
+            # Weapon dice from the real weapon table, so a spear is not a fist.
+            # `_WEAPON_STATS` is (dice_count, die_faces, damage_type, reach_ft).
+            dice_count, die_faces, weapon_damage_type, _reach = self._WEAPON_STATS.get(
+                (weapon or "unarmed").lower(), (1, 6, "Bludgeoning", 5))
+            damage_type_name = weapon_damage_type.lower()
+
+            # The engine's fields are `count`/`value`, and `bonus` is a REQUIRED
+            # ModifiableValue. Passing `num_dice`/`die_value` raised
+            # `ValidationError: count Field required / value Field required` on every
+            # hit, which is why this helper crashed whenever it was called. `value` is
+            # a Literal[4,6,8,10,12,20], so an unsupported die size must be coerced
+            # rather than passed through.
+            if die_faces not in (4, 6, 8, 10, 12, 20):
+                logger.warning("⚠️  d%s is not an engine die size; using d6", die_faces)
+                die_faces = 6
+
+            damage_bonus = ModifiableValue.create(
+                source_entity_uuid=attacker.uuid,
+                base_value=attack_modifier,
+                value_name="Damage Bonus",
+            )
+            # `attack_outcome` is REQUIRED on a damage roll — the engine validates
+            # "Attack outcome must be provided for damage rolls", because a damage
+            # roll must know whether it was a crit. Mirrors the real `Attack` action,
+            # which passes the outcome it derived from the attack roll
+            # (`external/dnd_engine/dnd/actions.py:314-319`).
+            from dnd.core.dice import AttackOutcome
+
             damage_dice = Dice(
-                num_dice=1,
-                die_value=6,
+                count=dice_count,
+                value=die_faces,
+                bonus=damage_bonus,
+                attack_outcome=(AttackOutcome.CRIT if critical else AttackOutcome.HIT),
                 source_entity_uuid=attacker.uuid,
                 target_entity_uuid=target.uuid,
                 roll_type=RollType.DAMAGE
             )
-            damage_roll = damage_dice.roll()
-            damage = damage_roll.total + attack_modifier
-            if critical:
-                damage *= 2
+            # `Dice.roll` is a `cached_property`, NOT a method — so it is the DiceRoll
+            # itself and must not be called. `damage_dice.roll()` raised
+            # `TypeError: 'DiceRoll' object is not callable`, and only intermittently,
+            # because whether the property had already been materialised depended on
+            # access order elsewhere in the run.
+            damage_roll = damage_dice.roll
+            # `bonus` is already folded into the roll's total, so the modifier must
+            # NOT be added again here — doing so double-counted it. The engine also
+            # already doubles the dice for a CRIT outcome, so do not double again.
+            damage = damage_roll.total
+            # 5e: a hit always deals at least 1 damage; a big negative modifier must
+            # not heal the target.
+            damage = max(1, damage)
 
             # Apply damage to target.
             # Plan 1.2: take_damage's real signature is
@@ -1168,7 +1218,8 @@ class DnDEngineWrapper:
             # amount raised TypeError, so damage was never actually applied.
             target.health.take_damage(
                 damage,
-                DamageType.BLUDGEONING,
+                getattr(DamageType, weapon_damage_type.upper(),
+                        DamageType.BLUDGEONING),
                 attacker.uuid,
             )
 
@@ -1189,7 +1240,7 @@ class DnDEngineWrapper:
             "natural_roll": attack_roll.results,
             "target_ac": target_ac,
             "damage": damage if hit else 0,
-            "damage_type": "bludgeoning",
+            "damage_type": damage_type_name,
             "critical": critical,
             "target_hp_remaining": int(target_hp_remaining)
         }

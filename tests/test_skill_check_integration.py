@@ -28,17 +28,15 @@ def test_skill_check_integration():
     print("1. Initializing game...")
     config = initialize_enhanced_dnd_game()
 
-    if not config.dnd_engine_wrapper:
-        print("❌ FAILED: dnd_engine_wrapper not created during initialization")
-        return False
+    assert config.dnd_engine_wrapper, (
+        "dnd_engine_wrapper was not created during initialization, so no skill "
+        "check can reach the real 5e mechanics")
 
     print(f"✅ Game initialized with {len(config.dnd_engine_wrapper.entities)} entities")
 
     # Get a character for testing
     character_manager = config.character_manager
-    if not character_manager.characters:
-        print("❌ FAILED: No characters available")
-        return False
+    assert character_manager.characters, "initialization produced no characters"
 
     char_id = list(character_manager.characters.keys())[0]
     character = character_manager.characters[char_id]
@@ -86,13 +84,15 @@ def test_skill_check_integration():
     print(f"  - Advantage State: {result.get('advantage_state', 'normal')}")
 
     # Verify the result has expected structure
-    if "roll_total" not in result:
-        print(f"\n❌ FAILED: Result missing 'roll_total' field. Got: {list(result.keys())}")
-        return False
+    assert "roll_total" in result, (
+        f"result is missing 'roll_total', so no die was reported. "
+        f"Got keys: {sorted(result.keys())}")
 
-    if "success" not in result:
-        print("\n❌ FAILED: Result missing 'success' field")
-        return False
+    assert "success" in result, (
+        f"result is missing 'success', so the check has no verdict. "
+        f"Got keys: {sorted(result.keys())}")
+    assert 1 <= int(result["roll_total"]) <= 40, (
+        f"implausible d20-based total: {result['roll_total']}")
 
     print("\n✅ Skill check executed successfully through wrapper!")
 
@@ -119,15 +119,20 @@ def test_skill_check_integration():
 
         print(f"  - {skill.capitalize():15} (DC {dc:2}): d20={natural:2}, modifier={modifier:+3}, total={total:2} → {'SUCCESS' if success else 'FAIL'}")
 
+        # Previously this loop only PRINTED, so a broken skill produced tidy output
+        # and a green test. Assert the shape of every check instead.
+        assert "roll_total" in result, f"{skill}: no roll_total in {sorted(result)}"
+        assert isinstance(success, bool), f"{skill}: success was {success!r}"
+        assert 1 <= natural <= 20, f"{skill}: natural roll {natural} is not a d20"
+
     print("\n✅ Multiple skill checks working correctly!")
 
     # Test that wrapper entities are synced
     print("\n5. Verifying entity synchronization...")
 
     entity = config.dnd_engine_wrapper.entities.get(char_id)
-    if not entity:
-        print("❌ FAILED: Character entity not found in wrapper")
-        return False
+    assert entity is not None, (
+        f"no engine entity for {char_id}; the wrapper never synced this character")
 
     print(f"  - Entity name: {entity.name}")
     print(f"  - Entity UUID: {entity.uuid}")
@@ -137,9 +142,9 @@ def test_skill_check_integration():
     print(f"  - Entity has equipment: ✅")
 
     # Verify wrapper is using actual character data
-    if entity.name != character.name:
-        print(f"❌ FAILED: Name mismatch (Entity: {entity.name}, Character: {character.name})")
-        return False
+    assert entity.name == character.name, (
+        f"entity/character mismatch: entity {entity.name!r} vs "
+        f"CharacterManager {character.name!r}")
 
     print(f"  - Character sync: ✅ (Entity '{entity.name}' matches CharacterManager)")
     print("\n✅ Entity synchronization working correctly!")
@@ -155,13 +160,11 @@ def test_skill_check_integration():
     print("  - Entity synchronization maintains state consistency")
     print("\n🎲 Ready to proceed with Phase 3: Combat System Integration")
 
-    return True
-
 
 if __name__ == "__main__":
     try:
-        success = test_skill_check_integration()
-        sys.exit(0 if success else 1)
+        test_skill_check_integration()
+        sys.exit(0)
     except Exception as e:
         print(f"\n❌ TEST FAILED WITH ERROR: {e}")
         import traceback
