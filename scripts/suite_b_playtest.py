@@ -5,6 +5,7 @@ Suite B — the real-LLM playtest. `docs/mechanics/INTEGRATION_TEST_STRATEGY.md`
     ./scripts/suite_b_playtest.py                       # 8 turns, all checks
     ./scripts/suite_b_playtest.py --turns 20            # longer run
     ./scripts/suite_b_playtest.py --routing-only        # just the L4 battery (cheap)
+    ./scripts/suite_b_playtest.py --full-coverage       # 20 turns, one per DM tool
     ./scripts/suite_b_playtest.py --require-coverage roll_skill_check,query_rules
     ./scripts/suite_b_playtest.py --report out.json     # machine-readable
     ./scripts/suite_b_playtest.py --seed 7              # seed the DICE, not the model
@@ -66,6 +67,59 @@ DEFAULT_SCRIPT = [
     "head toward the warcamp",
 ]
 
+#: `--full-coverage`: one turn per tool, each phrased to make ONE tool the obvious
+#: choice. Still player-phrased — never "call award_experience" — because the thing
+#: under test is whether the model maps intent to the right tool. The `expects` column
+#: is the tool this turn is TRYING to provoke, so a run reports per-turn hit/miss
+#: rather than only an aggregate.
+#:
+#: Ordering matters: damage before healing and stabilising (something must be hurt
+#: first), and the two inventory turns are adjacent so the remove has something to
+#: remove.
+#:
+#: SOME MISSES ARE STRUCTURAL, NOT PROMPT FAILURES — read a report with that in mind:
+#:   * `cast_spell` — the default campaign character is a **Lightweaver**, and
+#:     `spellcasting_ability("Lightweaver")` is None. A Radiant has no spell slots;
+#:     healing is Regrowth paid in Investiture. So "cast a healing spell" has no
+#:     cast_spell path for THIS party, and the turn correctly does not force one.
+#:     Verified separately: `cast_spell` DOES fire live for "heal my wounds with
+#:     Regrowth" when the surge route is available.
+#:   * `stabilize_dying` — needs an ally actually at 0 HP. Narrating a collapse does
+#:     not create one, and Suite B must not fake state to make a tool fire.
+#:   * `get_passive_perception` — only meaningful when something is hidden.
+#: Those three are situational. `search_lore`, `roll_social_check`,
+#: `travel_to_location` and `apply_healing` are NOT: they have a live path and the
+#: model still does not choose them, which is prompt work.
+COVERAGE_SCRIPT: List[tuple] = [
+    ("look around carefully for tracks or movement", "roll_skill_check"),
+    ("who is in the party and how are they holding up?", "get_party_state"),
+    ("what is my character's condition right now?", "get_character_state"),
+    ("what time is it and what is the weather doing?", "get_world_state"),
+    ("am I likely to notice an ambush without actively looking?",
+     "get_passive_perception"),
+    ("what does the rulebook say about grappling a larger creature?",
+     "query_rules"),
+    ("roll a d20 for me to see how the wind shifts", "roll_dice"),
+    ("tell me the lore of the Knights Radiant and the Oathpact", "search_lore"),
+    ("ask Nale what happened to the Heralds", "roll_social_check"),
+    ("I stumble into the chasm and scrape myself badly on the rocks",
+     "apply_damage"),
+    ("use a healing potion from my pack to restore my hit points",
+     "apply_healing"),
+    ("my companion has collapsed and is bleeding out — I tend to them",
+     "stabilize_dying"),
+    ("draw in Stormlight and lash myself upward", "spend_stormlight"),
+    ("heal my wounds with Regrowth", "cast_spell"),
+    ("pick up the rope and spear lying in the camp", "add_item_to_inventory"),
+    ("drop the rope, it is too heavy to carry", "remove_item_from_inventory"),
+    ("make camp and take a long rest until morning", "take_rest"),
+    ("set out and travel to Kholinar", "travel_to_location"),
+    ("we have found Herald Kalak — that completes what we set out to do",
+     "advance_quest"),
+    ("we survived that and learned a great deal; the party has earned it",
+     "award_experience"),
+]
+
 
 class ScriptedInput:
     """Answers `game_initialization`'s prompts without a terminal."""
@@ -114,13 +168,26 @@ def build_live_game(report: live_checks.LiveTurnReport):
 
 
 def play_turns(game, script: List[str], recorder: ToolCallRecorder,
-               report: live_checks.LiveTurnReport, verbose: bool) -> None:
-    """Play real turns, checking properties after each one."""
-    problems: List[str] = []
+               report: live_checks.LiveTurnReport, verbose: bool,
+               expectations: Optional[List[str]] = None) -> None:
+    """Play real turns, checking properties after each one.
+
+    `expectations[i]` names the tool turn i is TRYING to provoke (`--full-coverage`).
+    A miss is reported per turn but is NOT a failure: the model declining to call a
+    tool is data about the prompts, not a broken mechanic. Only a crash is a failure.
+    """
+    narration_problems: List[str] = []
+    invariant_problems: List[str] = []
+    unbacked_claims: List[str] = []
+    hits: List[str] = []
+    misses: List[tuple] = []
 
     for index, player_input in enumerate(script, start=1):
         recorder.turn = index
-        print(f"\n── turn {index}/{len(script)}: {player_input!r}")
+        wanted = (expectations[index - 1] if expectations
+                  and index <= len(expectations) else None)
+        label = f" [want {wanted}]" if wanted else ""
+        print(f"\n── turn {index}/{len(script)}: {player_input!r}{label}")
         started = time.time()
         try:
             narration = game.play_turn(player_input)
@@ -133,29 +200,46 @@ def play_turns(game, script: List[str], recorder: ToolCallRecorder,
         text = str(narration or "")
         report.narrations.append(text)
         calls_this_turn = [c.name for c in recorder.calls if c.turn == index]
+
+        mark = ""
+        if wanted:
+            if wanted in calls_this_turn or wanted in recorder.tools_reached:
+                mark = "  ✅ hit"
+                hits.append(wanted)
+            else:
+                mark = f"  ⚠️  missed {wanted}"
+                misses.append((wanted, player_input))
         print(f"   {elapsed:.1f}s · {len(text)} chars · tools: "
-              f"{calls_this_turn or '(none)'}")
+              f"{calls_this_turn or '(none)'}{mark}")
         if verbose and text:
             print("   " + text[:400].replace("\n", "\n   "))
 
-        problems += live_checks.check_narration(text, index)
-        problems += live_checks.check_state_invariants(game, index)
-        problems += live_checks.check_claims_are_backed_by_rolls(text, recorder, index)
+        narration_problems += live_checks.check_narration(text, index)
+        invariant_problems += live_checks.check_state_invariants(game, index)
+        unbacked_claims += live_checks.check_claims_are_backed_by_rolls(
+            text, recorder, index)
 
     report.check("No turn raised", not report.turn_errors,
                  "; ".join(report.turn_errors[:2]) or f"{len(script)} turns ran")
     report.check("Narration is well-formed on every turn",
-                 not [p for p in problems if "narration" in p or "placeholder" in p],
-                 "; ".join(p for p in problems
-                           if "narration" in p or "placeholder" in p)[:200])
+                 not narration_problems, "; ".join(narration_problems)[:200])
     report.check("State invariants held after every live turn",
-                 not [p for p in problems if "turn" in p and "narration" not in p
-                      and "placeholder" not in p and "claims" not in p],
-                 "reused Suite A's invariants")
+                 not invariant_problems,
+                 "; ".join(invariant_problems)[:200] or "reused Suite A's invariants")
     report.check("Narration varies between turns",
                  not live_checks.check_narration_varies(report.narrations))
 
-    unbacked = [p for p in problems if "no die was rolled" in p]
+    if expectations:
+        # Reported, never asserted: a per-turn miss is prompt data. `--require-coverage`
+        # is how a caller turns a specific tool into a hard requirement.
+        report.skip("Per-turn tool targeting",
+                    f"{len(hits)}/{len(expectations)} turns provoked their target tool")
+        if misses:
+            print("\n  turns whose target tool was never called:")
+            for wanted, prompt in misses:
+                print(f"     ⚠️  {wanted:28s} <- {prompt[:52]!r}")
+
+    unbacked = unbacked_claims
     if unbacked:
         # An OBSERVATION, not a failure: English is ambiguous and the model may be
         # narrating a result a tool already produced. The ratio is what matters.
@@ -219,6 +303,30 @@ def classify(game, player_input: str) -> str:
 
 # --------------------------------------------------------------------------- #
 
+def _accumulate(path: Path, reached: set) -> set:
+    """Merge this run's reached-tool set into `path` and return the union.
+
+    The model is nondeterministic in which tools it picks: two 20-turn runs each
+    reached 12 of 20, but not the SAME 12 (union 13). A single run therefore
+    understates real reach, and "never reached in ANY run" is the honest measure of a
+    genuinely unreachable tool.
+    """
+    previous: set = set()
+    runs = 0
+    if path.exists():
+        try:
+            cached = json.loads(path.read_text())
+            previous = set(cached.get("reached", []))
+            runs = int(cached.get("runs_merged", 0) or 0)
+        except Exception:  # noqa: BLE001 - a corrupt cache must not fail the run
+            previous, runs = set(), 0
+    union = previous | set(reached)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(
+        {"reached": sorted(union), "runs_merged": runs + 1}, indent=2))
+    return union
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -228,6 +336,9 @@ def main() -> int:
                         help="print each turn's narration")
     parser.add_argument("--routing-only", action="store_true",
                         help="run only the L4 intent battery (cheapest useful check)")
+    parser.add_argument("--full-coverage", action="store_true",
+                        help="one turn per DM tool (20 turns), each phrased to make "
+                             "ONE tool the obvious choice; reports per-turn hit/miss")
     parser.add_argument("--require-coverage", default="",
                         help="comma-separated tool names that MUST be reached; the run "
                              "fails if the model never calls one")
@@ -236,6 +347,12 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=None,
                         help="seed the DICE (not the model), so divergence between "
                              "runs is attributable to the model")
+    parser.add_argument("--accumulate", type=Path, default=None,
+                        metavar="FILE",
+                        help="merge this run's reached-tool set into FILE and report "
+                             "the UNION across runs. The model is nondeterministic — "
+                             "two 20-turn runs each reached 12/20 but different 12s "
+                             "(union 13/20) — so a single run understates real reach.")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -261,6 +378,16 @@ def main() -> int:
         return 1
     print("   ✅ live game ready")
 
+    # Combat asks the player to choose an action. Without a provider the encounter
+    # stalls at "Choose how you want to start:" and the turn returns a stub — so a
+    # combat turn could never be measured. `CombatAgent.input_provider` is the
+    # documented seam (plan 1.8/D4, `agents/combat_agent.py:72`); "1" takes the first
+    # offered action every time, which is enough to drive a fight to an outcome.
+    combat_agent = (getattr(game.orchestrator, "agents", {}) or {}).get("combat")
+    if combat_agent is not None:
+        combat_agent.input_provider = lambda prompt="": "1"
+        print("   ⚔️  combat input provider wired (always takes action 1)")
+
     instrumented = recorder.install()
     report.check("DM tools instrumented", instrumented >= 19,
                  f"{instrumented} tools wrapped")
@@ -269,8 +396,16 @@ def main() -> int:
         if args.routing_only:
             run_routing_battery(game, report)
         else:
-            script = (DEFAULT_SCRIPT * ((args.turns // len(DEFAULT_SCRIPT)) + 1))[:args.turns]
-            play_turns(game, script, recorder, report, args.verbose)
+            if args.full_coverage:
+                script = [prompt for prompt, _ in COVERAGE_SCRIPT]
+                expectations = [tool for _, tool in COVERAGE_SCRIPT]
+                if args.turns != len(DEFAULT_SCRIPT):   # an explicit --turns wins
+                    script, expectations = script[:args.turns], expectations[:args.turns]
+            else:
+                script = (DEFAULT_SCRIPT
+                          * ((args.turns // len(DEFAULT_SCRIPT)) + 1))[:args.turns]
+                expectations = None
+            play_turns(game, script, recorder, report, args.verbose, expectations)
             run_routing_battery(game, report)
 
             report.check("The model used its DM tools",
@@ -301,6 +436,16 @@ def main() -> int:
         print("\n  These are correct-but-invisible: the mechanic works (Suite A proves")
         print("  it) yet the prompts never lead the model to use it. That is a PROMPT")
         print("  gap, not a mechanics gap — and it is what this suite exists to find.")
+
+    if args.accumulate:
+        union = _accumulate(args.accumulate, set(coverage["reached_by_llm"]))
+        all_tools = set(coverage["reached_by_llm"]) | set(
+            coverage["never_reached_by_llm"])
+        print(f"\n  UNION across accumulated runs: {len(union)}/{len(all_tools)} "
+              f"({len(union) / max(1, len(all_tools)):.0%})")
+        still_missing = sorted(all_tools - union)
+        if still_missing:
+            print(f"     never reached in ANY run: {still_missing}")
 
     required = [t.strip() for t in args.require_coverage.split(",") if t.strip()]
     if required:

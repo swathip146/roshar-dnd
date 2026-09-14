@@ -1,0 +1,20 @@
+{
+  "reached": [
+    "add_item_to_inventory",
+    "advance_quest",
+    "apply_damage",
+    "apply_healing",
+    "award_experience",
+    "get_character_state",
+    "get_party_state",
+    "get_world_state",
+    "query_rules",
+    "remove_item_from_inventory",
+    "roll_dice",
+    "roll_skill_check",
+    "spend_stormlight",
+    "take_rest",
+    "travel_to_location"
+  ],
+  "runs_merged": 4
+}

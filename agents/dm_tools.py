@@ -177,7 +177,8 @@ def _active_actor(actor: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 @tool
-def roll_skill_check(skill: str, dc: int, actor: str = "", required_tool: str = "") -> Dict[str, Any]:
+def roll_skill_check(skill: str, dc: int, actor: str = "", required_tool: str = "",
+                     reason: str = "") -> Dict[str, Any]:
     """
     Roll an ability or skill check and return the real result.
 
@@ -191,6 +192,16 @@ def roll_skill_check(skill: str, dc: int, actor: str = "", required_tool: str = 
         required_tool: Optional tool required for this check (e.g., "thieves' tools").
                       If set, proficiency bonus only applies if the character has
                       this tool proficiency. Leave empty for normal skill checks.
+        reason: Free-text note on why the check is being made. Recorded in the log
+                only; it does NOT affect the roll.
+
+                Accepted purely for ROBUSTNESS. `roll_dice(expression, reason=...)`
+                and `award_experience(amount, reason=...)` both take a `reason`, so a
+                model reasonably generalises and passes one here too. It used to raise
+                `TypeError: roll_skill_check() got an unexpected keyword argument
+                'reason'` — caught by a live Suite B run — which cost the player the
+                whole turn on the single most-used tool in the game. Accepting an
+                inert, plausible argument is strictly better than crashing on it.
 
     Returns:
         success, selected_roll, roll_total, dc, character_modifier, and if a tool
@@ -206,6 +217,11 @@ def roll_skill_check(skill: str, dc: int, actor: str = "", required_tool: str = 
             "dc": int(dc),
             "context": {"source": "dm_tool"},
         }
+
+        # Carried into the decision log rather than dropped: it is the model's own
+        # stated justification for the check, which is useful when auditing a turn.
+        if reason:
+            check_request["context"]["reason"] = str(reason)[:200]
 
         # Add required_tool if provided
         if required_tool:
@@ -1143,6 +1159,73 @@ DM_TOOLS = [
     add_item_to_inventory,
     remove_item_from_inventory,
 ]
+
+
+def _tolerate_unknown_kwargs(tools: List[Any]) -> int:
+    """Make every DM tool ignore an argument it does not declare.
+
+    WHY: a live model passes plausible-but-undeclared arguments, and a `TypeError`
+    from that costs the player their whole turn. Caught by a Suite B run —
+
+        roll_skill_check() got an unexpected keyword argument 'reason'
+
+    — on the single most-used tool in the game. The model generalised reasonably:
+    `roll_dice(expression, reason=...)` and `award_experience(amount, reason=...)`
+    both take a `reason`, so it assumed `roll_skill_check` did too. It now does, but
+    16 other tools have exactly the same hazard for any similarly plausible argument.
+
+    Rather than guess which arguments a model might invent for sixteen signatures,
+    drop the undeclared ones and log it. Declared parameters are untouched, so a
+    genuine caller error in OUR code still raises TypeError as before — this only
+    affects keywords the function never had.
+
+    Deliberately NOT silent: each drop is logged at WARNING with the tool and the
+    argument, because a model repeatedly reaching for an argument that does not exist
+    is a signal the tool's schema should probably grow it (as `reason` just did).
+    """
+    import functools
+    import inspect
+
+    hardened = 0
+    for tool in tools:
+        function = getattr(tool, "function", None)
+        if function is None or not callable(function):
+            continue
+        try:
+            parameters = inspect.signature(function).parameters
+        except (TypeError, ValueError):  # pragma: no cover - builtins
+            continue
+        # A **kwargs function already tolerates anything.
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+            continue
+        declared = set(parameters)
+        name = getattr(tool, "name", getattr(function, "__name__", "?"))
+
+        def _filtered(*args, _function=function, _declared=declared, _name=name,
+                      **kwargs):
+            # `*args` must be accepted and forwarded: several tests and callers invoke
+            # these functions POSITIONALLY (`roll_dice("2d6+3")`). A keyword-only
+            # wrapper silently bound the first positional argument to the `_function`
+            # default instead, which broke three dice tests — caught immediately by the
+            # existing suite, which is exactly what it is for.
+            unknown = [k for k in kwargs if k not in _declared]
+            if unknown:
+                logger.warning(
+                    "🧹 %s: dropping undeclared argument(s) %s the model supplied "
+                    "(would previously have raised TypeError and lost the turn)",
+                    _name, unknown)
+                kwargs = {k: v for k, v in kwargs.items() if k in _declared}
+            return _function(*args, **kwargs)
+
+        functools.update_wrapper(_filtered, function)
+        tool.function = _filtered
+        hardened += 1
+
+    logger.info("🧹 %d DM tools hardened against undeclared arguments", hardened)
+    return hardened
+
+
+_tolerate_unknown_kwargs(DM_TOOLS)
 
 
 def dm_tool_names() -> List[str]:
