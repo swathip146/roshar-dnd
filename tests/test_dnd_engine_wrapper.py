@@ -205,15 +205,20 @@ def test_attack_execution(wrapper, character_manager):
 
 def test_entity_sync_to_game_state(wrapper, character_manager):
     """Test that entity changes sync back to game state."""
+    from dnd.core.events import DamageType
+
     # Get character ID
     char_id = list(character_manager.characters.keys())[0]
 
     # Get original HP
     original_hp = character_manager.characters[char_id].hit_points["current"]
 
-    # Modify entity HP directly
+    # Modify entity HP directly.
+    # `take_damage` requires (damage, damage_type, source_entity_uuid) — calling it
+    # with only the amount raised TypeError, so this test had been failing rather
+    # than asserting anything about the sync it names.
     entity = wrapper.entities[char_id]
-    entity.health.take_damage(5)
+    entity.health.take_damage(5, DamageType.BLUDGEONING, entity.uuid)
 
     # Sync back
     wrapper._sync_entity_to_game_state(char_id)

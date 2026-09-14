@@ -229,10 +229,27 @@ class TestProcessSkillCheckWithTool:
         # - Rogue: +3 dex + 2 prof = +5 total (HAS thieves' tools)
         # - Fighter: +2 dex + 0 prof = +2 total (LACKS thieves' tools)
         #
-        # The 3-point difference should be consistently visible.
+        # FLAKE FIX: this was an UNSEEDED statistical test with 20 trials per side,
+        # asserting `rogue >= fighter - 2`. Measured failure rate: 4.05% — about one
+        # run in 24 — which is exactly what it did in a full-suite run. At DC 15 the
+        # rogue needs d20>=10 (55%) and the fighter d20>=13 (40%), so 20 trials of
+        # each overlap constantly.
+        #
+        # Measured across 400 seeds, the worst-case (rogue - fighter) margin is:
+        #     20 trials  -> -6   (the gap can fully invert)
+        #    100 trials  -> -4
+        #    200 trials  -> +4   (the rogue always leads)
+        #
+        # So: seed the RNG for reproducibility AND raise the trial count until the
+        # effect is real, rather than widening the tolerance until the test stops
+        # complaining. This mirrors the fix applied to the advantage measurement,
+        # where a 9.8pp noise band was being checked against a 0.10 threshold.
+        import random
+
+        random.seed(20260913)
 
         dc = 15
-        num_trials = 20
+        num_trials = 200
 
         rogue_checks = [
             game_engine.process_skill_check({
@@ -268,12 +285,13 @@ class TestProcessSkillCheckWithTool:
         print(f"  Rogue (modifier +5): {rogue_successes}/{num_trials} successes")
         print(f"  Fighter (modifier +2): {fighter_successes}/{num_trials} successes")
 
-        # The rogue should have equal or higher success rate due to +3 modifier advantage
-        # (This is probabilistic, but over 20 trials the difference should be visible
-        # unless we get extremely unlucky rolls)
-        assert rogue_successes >= fighter_successes - 2, (
-            f"Rogue should succeed at least as often as fighter (margin for variance). "
-            f"Got rogue={rogue_successes}, fighter={fighter_successes}"
+        # With 200 seeded trials the +3 modifier advantage is unambiguous: assert the
+        # rogue STRICTLY leads, which is the actual claim, instead of allowing the
+        # rogue to trail by 2.
+        assert rogue_successes > fighter_successes, (
+            f"a +5 modifier must beat +2 over {num_trials} seeded trials. "
+            f"Got rogue={rogue_successes}, fighter={fighter_successes} "
+            f"(seed=20260913)"
         )
 
         print("✅ Tool proficiency creates measurable advantage")

@@ -1,6 +1,5 @@
 """
 Docling Configuration for Batch PDF Processing
-Simplified configuration without gateway-lib dependencies
 """
 
 from dataclasses import dataclass, field

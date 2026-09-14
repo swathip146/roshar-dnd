@@ -67,15 +67,52 @@ class GameInitializationSystem:
     Manages collection setup, saved games, and campaign selection
     """
     
-    def __init__(self):
-        """Initialize the game setup system"""
+    def __init__(self, input_provider=None):
+        """Initialize the game setup system.
+
+        Args:
+            input_provider: Callable[[str], str] used to ask the player to choose.
+                Defaults to builtins.input for CLI play.
+
+                Same rationale as `CombatSessionManager`'s provider (plan 1.8 / D4):
+                nothing below the interface layer should call `input()` directly.
+                This method has six prompts, so ANY caller that is not an interactive
+                terminal — a test, a script, a future web UI — blocked on stdin.
+                Under pytest that surfaced as
+                `OSError: pytest: reading from stdin while output is captured!`,
+                which is why `tests/test_skill_check_integration.py` could not run at
+                all. Resolved late in `_prompt` so that patching `builtins.input`
+                still works for CLI play.
+        """
         self.saves_dir = "game_saves"
         self.simple_doc_store = None
         self.embedder = None
         self.document_store = None
-        
+        self._input_provider_override = input_provider
+
         # Ensure game_saves directory exists
         os.makedirs(self.saves_dir, exist_ok=True)
+
+    def _prompt(self, message: str, default: str = "") -> str:
+        """Ask the player for a choice, via the injected provider or stdin.
+
+        Returns `default` when no provider is set and stdin is unusable, so a
+        non-interactive caller degrades to the default instead of raising.
+        """
+        provider = self._input_provider_override
+        if provider is not None:
+            try:
+                return str(provider(message)).strip()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(f"⚠️  input provider failed ({exc}); using default")
+                return default
+        try:
+            return input(message).strip()
+        except (OSError, EOFError):
+            # No usable stdin (pytest capture, a pipe, a daemon). Take the default
+            # rather than aborting initialization.
+            logger.info(f"ℹ️  no interactive stdin; defaulting to {default!r}")
+            return default
     
     def initialize_game(self) -> GameInitConfig:
         """
@@ -348,7 +385,7 @@ class GameInitializationSystem:
         
         while True:
             try:
-                choice = input(f"Select campaign (1-{len(campaigns)}): ").strip()
+                choice = self._prompt(f"Select campaign (1-{len(campaigns)}): ", default="1")
                 
                 if choice.isdigit():
                     idx = int(choice) - 1
@@ -427,7 +464,7 @@ class GameInitializationSystem:
         try:
             while True:
                 try:
-                    collection_name = input("Enter collection name (default: 'dnd_documents'): ").strip()
+                    collection_name = self._prompt("Enter collection name (default: 'dnd_documents'): ", default="dnd_documents")
                     
                     # Default to "dnd_documents" if empty
                     if not collection_name:
@@ -490,7 +527,7 @@ class GameInitializationSystem:
         while True:
             try:
                 if saved_games:
-                    choice = input("Enter your choice (1 for new, 2 for saved): ").strip()
+                    choice = self._prompt("Enter your choice (1 for new, 2 for saved): ", default="1")
                     if choice == "1":
                         return "new_campaign"
                     elif choice == "2":
@@ -498,7 +535,7 @@ class GameInitializationSystem:
                     else:
                         logger.error(f"❌ Invalid choice. Please enter 1 or 2.")
                 else:
-                    choice = input("Enter your choice (1 for new campaign): ").strip()
+                    choice = self._prompt("Enter your choice (1 for new campaign): ", default="1")
                     if choice == "1" or not choice:
                         return "new_campaign"
                     else:
@@ -596,7 +633,7 @@ class GameInitializationSystem:
         
         while True:
             try:
-                choice = input(f"Select save file (1-{len(saved_games)}) or press Enter to cancel: ").strip()
+                choice = self._prompt(f"Select save file (1-{len(saved_games)}) or press Enter to cancel: ", default="")
                 
                 if not choice:
                     return None
@@ -1049,7 +1086,7 @@ class GameInitializationSystem:
         
         while True:
             try:
-                choice = input("Select your character (1 or 2): ").strip()
+                choice = self._prompt("Select your character (1 or 2): ", default="1")
                 
                 if choice in characters:
                     selected_character = characters[choice]
