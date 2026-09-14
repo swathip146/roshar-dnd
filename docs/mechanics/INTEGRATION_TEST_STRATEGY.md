@@ -3,7 +3,10 @@
 **Written 2026-09-13.** Every number below was measured on branch `phase-0-fixes`,
 not copied from prior docs.
 
-> **STATUS — Suite A is BUILT and passing (2026-09-13).**
+> **STATUS — Suites A AND B are BUILT and passing (2026-09-13).** Suite B's status
+> block and findings are in §8.
+>
+> **Suite A:**
 > ```
 > uv run pytest tests/integration/          # 146 passed, 19.6s, parallel (-n 8)
 > ```
@@ -436,6 +439,56 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 ---
 
 ## 8. Suite B design (real LLM, full gameplay)
+
+> **STATUS — Suite B is BUILT and passing (2026-09-13).**
+> ```
+> ./scripts/suite_b_playtest.py --turns 8      # 10 checks passed, 0 failed
+> ./scripts/suite_b_playtest.py --routing-only # cheapest useful check
+> ```
+> **Files:** `scripts/suite_b_playtest.py` (runner),
+> `tests/llm_playtest/instrumentation.py` (`ToolCallRecorder` + the Suite A↔B diff),
+> `tests/llm_playtest/live_checks.py` (L1-L10).
+>
+> ### Verified with a real model (Gemini 2.5 Flash via gateway)
+>
+> | Check | Result |
+> |---|---|
+> | Intent routing across all four pipelines | **6/6 exact matches** |
+> | Tool crashes when the model called a tool | **0**, across five multi-turn runs |
+> | §6 state invariants after every live turn | **held on every turn** |
+> | Mechanics confirmed reached in live play | skills/7-step pipeline · rules tiers · rests · travel · inventory · Stormlight · spellcasting · combat |
+> | Worst turn latency | **28-41s** (was 665s before the timeout fix) |
+> | Tool reach | **30-40%** (6-8 of 20), varies by run |
+>
+> ### Four production bugs Suite B found — none visible to Suite A
+>
+> 1. **NPC conversations were entirely broken** (three chained defects): prompt
+>    variables passed flat instead of nested under the component, so the agent got an
+>    empty template; `outputs_to_state={"source": "."}` naming a key that does not
+>    exist, so `npc_response` never reached state; and the NPC branch returning a bare
+>    dict the turn loop cannot consume. Every NPC turn showed *"The world seems
+>    momentarily confused by your action."* Now: real in-character dialogue.
+> 2. **No HTTP timeout on either LLM transport.** One turn blocked in
+>    `receive_response_headers` for **10m43s** before the server disconnected — the
+>    game simply froze. Added `HttpOptions.timeout=90s` to both.
+> 3. **A resolved combat encounter never reached the player.** `_handle_response` had
+>    no combat branch, so an 8-round fight that ran correctly and updated GameEngine
+>    was reported as *"The adventure continues in unexpected ways..."*.
+> 4. **State changes narrated but never applied.** "Make camp and rest until morning"
+>    produced 1561 chars describing a night's rest with `take_rest` never called — no
+>    HP, no clock movement. The prompt already forbade this in three places and cited an
+>    earlier measurement of the same failure, so prose was not the fix; a backstop at
+>    the findings→narration seam now applies the claim.
+>
+> ### The reach gap is the product, and it is a PROMPT gap
+>
+> 12-14 of 20 tools are never called in ordinary play. Some are legitimately
+> situational (`stabilize_dying` needs someone dying), but others are not:
+> `search_lore` is never called even when the player asks a direct lore question,
+> partly because the prompt says *"search_lore is flavour only"*. These are
+> **correct-but-invisible** — Suite A proves each works. Closing that gap is prompt
+> work, tracked as the next step rather than silently absorbed.
+
 
 Suite B answers the question Suite A cannot: **will an actual model, given real prompts,
 ever reach these mechanics?** A scripted policy is a competent DM by construction; a
