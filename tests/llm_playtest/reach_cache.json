@@ -8,6 +8,7 @@
     "cast_spell",
     "get_character_state",
     "get_party_state",
+    "get_passive_perception",
     "get_world_state",
     "query_rules",
     "remove_item_from_inventory",
@@ -15,8 +16,9 @@
     "roll_skill_check",
     "roll_social_check",
     "spend_stormlight",
+    "stabilize_dying",
     "take_rest",
     "travel_to_location"
   ],
-  "runs_merged": 6
+  "runs_merged": 7
 }

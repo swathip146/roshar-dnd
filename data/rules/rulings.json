@@ -39,6 +39,26 @@
       "first_ruled": 1789357813.40452,
       "promoted": false,
       "last_used": 1789363515.521098
+    },
+    "rules lookup stabilize": {
+      "situation": "rules lookup: stabilize",
+      "ruling": {
+        "ruling": "The player is asking for a rules lookup for 'Lashing'. The provided text describes 'Lashing Dice' as a resource for Maneuvers, and mentions 'Lashing' in the context of Windrunner abilities. It also discusses 'Investiture Points' for casting Invested Arts and 'Stormlight Replenishment' for recovering class features and hit points after a long rest. The text does not provide a direct definition or comprehensive explanation of 'Lashing' as a standalone concept or action.",
+        "legal": false,
+        "confidence": "high",
+        "reason": "The provided rules text mentions 'Lashing' in the context of 'Lashing Dice' and Windrunner abilities, but does not offer a direct definition or a general rule for what 'Lashing' *is* or *does* as a specific action or mechanic. It primarily describes a resource ('Lashing dice') related to it.",
+        "cites": [
+          "Radiant's Handbook / Lashing Dice",
+          "Radiant's Handbook / Investiture Points",
+          "Radiant's Handbook / Stormlight Replenishment"
+        ],
+        "tier": 3,
+        "followed_precedent": false
+      },
+      "uses": 1,
+      "first_ruled": 1789406558.8456829,
+      "promoted": false,
+      "last_used": 1789406558.845686
     }
   }
 }

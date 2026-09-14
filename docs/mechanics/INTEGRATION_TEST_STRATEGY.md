@@ -264,7 +264,7 @@ generated from the run rather than written by hand:
 
 Suite B is **nondeterministic**: the model picks different tools on different runs (two
 20-turn runs each reached 12 of 20, but not the same 12). The ✅ marks therefore reflect
-the **union across accumulated runs** — 17 of 20 DM tools, 85% — recorded in
+the **union across accumulated runs** — 19 of 20 DM tools, 95% — recorded in
 `tests/llm_playtest/reach_cache.json` via `--accumulate`. A single run understates reach,
 so "never reached in ANY run" is the honest measure of a genuinely unreachable tool.
 
@@ -312,7 +312,7 @@ Rows in §9 are **deliberately absent** from these tables — there is no code t
 | P3 | Extra Attack → multiattack | Fighter 5 gets 2 attacks in a real turn | ✅ PASS | `tactical_full` | 1 check: Fighter L4->L5: 1 -> 2 attacks/turn | ⚪ | not driven by Suite B — Extra Attack is granted at level-up |
 | P4 | Proficiency bonus by level | +2 → +6, counted once (guards the double-count regression) | ✅ PASS | `exploration_full` | 1 check: {1: 2, 4: 2, 5: 3, 8: 3, 9: 4, 12: 4, 13: 5, 16: 5, 17: 6,... | ⚪ | not driven by Suite B — proficiency is computed, never a tool call |
 | E1 | 18 skills, 7-step pipeline, DC scaling | RAW/HOUSE/EASY change outcome distribution | ✅ PASS | `exploration_full` | 4 checks: roll=2 success=False | ✅ | called live in most runs |
-| E2 | Expertise, tool gate, passive perception | Expertise doubles; missing tool blocks; passive used by Hide | ✅ PASS | `exploration_full` | 2 checks: gated=2 ungated=4 | ⚠️ | never called in any run — situational (only meaningful when something may be hidden); the tool itself works |
+| E2 | Expertise, tool gate, passive perception | Expertise doubles; missing tool blocks; passive used by Hide | ✅ PASS | `exploration_full` | 2 checks: gated=2 ungated=4 | ✅ | called live 3/3 after fixing the prompt + description: two passive phrasings chose `get_passive_perception`, a deliberate search chose `roll_skill_check` |
 | E3 | Encumbrance | Speed penalty in combat **and** disadvantage on STR/DEX/CON checks | ✅ PASS | `exploration_full` | 2 checks: {'encumbrance_level': 'normal', 'speed_penalty': 0, 'has_di... | 🟡 | reached indirectly: encumbrance is read by get_character_state, never driven on its own |
 | E4 | Rests | Short: hit dice; long: HP, slots, Stormlight, features, exhaustion −1 | ✅ PASS | `exploration_full` | 5 checks: hp=18 result={'healed': 8, 'hit_dice_spent': 1, 'hit_dice_r... | ✅ | called live ('make camp and take a long rest') |
 | E5 | Travel, clock, highstorms | Travel advances the clock; highstorms cycle | ✅ PASS | `campaign_arc` | 3 checks: after 2 days: {'day': 3, 'hour': 0, 'part_of_day': 'night',... | ✅ | called live ('set out and travel to Kholinar') |
@@ -321,7 +321,7 @@ Rows in §9 are **deliberately absent** from these tables — there is no code t
 | E8 | Inventory, equip → AC/attack, mid-combat re-equip | Armor changes AC; weapon changes damage die | ✅ PASS | `exploration_full` | 2 checks: unarmoured=12 chain=16 +shield=18 | ✅ | called live ('pick up the rope and spear') |
 | E9 | Persistence round trip | 53-field character + quest/location/flags byte-identical | ✅ PASS | `exploration_full` | 2 checks: {1: 4, 2: 3, 3: 2} | ⚪ | not driven by Suite B — save/load is not a player turn |
 | E10 | 3-tier rules lookup (Cosmere → SRD → judge → gap) | Each tier reachable; unresolved logs a gap | ✅ PASS | `campaign_arc` | 3 checks: 10 datasets: ['ability_scores', 'conditions', 'damage_types... | ✅ | called live |
-| E11 | All 19 DM tools | Each invoked once via a scripted tool call (§7 gate) | ✅ PASS | `campaign_arc` | 1 check: 19 tools invoked | 🟡 | 17 of 20 DM tools reached across accumulated runs (85%); the 3 remaining are situational or served by the RAG path — see §8 |
+| E11 | All 19 DM tools | Each invoked once via a scripted tool call (§7 gate) | ✅ PASS | `campaign_arc` | 1 check: 19 tools invoked | 🟡 | 19 of 20 DM tools reached across accumulated runs (95%); only `search_lore` remains, and lore questions are served by the RAG pipeline instead — see §8 |
 
 ### 4.3 Cosmere / Roshar (from the two Cosmere audits)
 
@@ -477,7 +477,7 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 > | Worst turn latency | **28-41s** (was 665s before the timeout fix) |
 > | Tool reach, one 8-turn run | **30%** (6 of 20) |
 > | Tool reach, one 20-turn `--full-coverage` run | **70%** (14 of 20) |
-> | Tool reach, **union across accumulated runs** | **85%** (17 of 20) |
+> | Tool reach, **union across accumulated runs** | **95%** (19 of 20) |
 >
 > ### Reach: what a longer, targeted script buys
 >
@@ -487,12 +487,12 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 > 20-turn runs each reached 12 of 20, but not the same 12 — `--accumulate FILE` merges
 > runs and reports the union; that union is what the §4 tables' ✅ marks reflect.
 >
-> **Three tools were never reached in ANY run**, and the distinction matters:
+> **One tool remains unreached, and it is redundant rather than broken.** The three that were previously unreached were each checked INDIVIDUALLY rather than assumed, and two turned out to be reachable:
 >
 > | Tool | Why |
 > |---|---|
-> | `stabilize_dying` | **Situational.** Needs an ally actually at 0 HP; narrating a collapse does not create one, and Suite B must not fake state to make a tool fire. |
-> | `get_passive_perception` | **Situational.** Only meaningful when something may be hidden. |
+> | `stabilize_dying` | **Genuinely situational — verified, not assumed.** Needs an ally actually at 0 HP. With a character really at 0 HP the model called `roll_skill_check` (the Medicine check) and then `stabilize_dying`, and `is_stable` became True. The earlier miss was because nobody was dying, and Suite B must not fake state to make a tool fire. |
+> | `get_passive_perception` | **WAS a real prompt gap — now FIXED.** The scenario prompt never named the tool, and its description was purely definitional ("10 + Wisdom modifier"), so the model had no trigger. The visible symptom was a RULES ERROR: asked *"do I notice anything as we pass, without stopping to look?"* it called `roll_skill_check`, when 5e uses a passive score there precisely so a character who is merely walking is not given a fresh chance. Prompt now teaches passive-vs-active and the description says when to use it. Verified live 3/3: two passive phrasings → `get_passive_perception`, a deliberate search → `roll_skill_check`. |
 > | `search_lore` | **Redundant by architecture, not a gap.** A lore question sets `rag_needed: true` and routes to the RAG-enhanced scenario pipeline, which retrieves through `retrieve_documents` — verified live: a real Qdrant vector search with a `['lore','campaigns']` payload filter. `search_lore` is the same capability offered on the scenario path, so a model that already has retrieved context has no reason to call it again. |
 >
 > ### CORRECTION — two of these were mislabelled, and one hid a real bug

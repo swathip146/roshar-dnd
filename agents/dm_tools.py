@@ -275,11 +275,17 @@ def roll_skill_check(skill: str, dc: int, actor: str = "", required_tool: str = 
 @tool
 def get_passive_perception(actor: str = "") -> Dict[str, Any]:
     """
-    Get a character's Passive Perception score.
+    Get a character's Passive Perception — what they notice WITHOUT rolling.
 
-    This is used for noticing hidden threats, traps, or creatures without actively
-    searching. It's calculated as 10 + Wisdom modifier + proficiency (if proficient
-    in Perception).
+    USE THIS INSTEAD OF `roll_skill_check` whenever the character is not actively
+    searching: walking a corridor, travelling, talking, keeping half an eye out. 5e
+    uses a passive score there precisely so a distracted character is not given a
+    fresh chance to spot something. Compare the score to the hiding thing's DC.
+
+    Use `roll_skill_check(skill="perception")` only when they DELIBERATELY search,
+    examine or listen.
+
+    Calculated as 10 + Wisdom modifier + proficiency (if proficient in Perception).
 
     Args:
         actor: Character id; defaults to the acting party member

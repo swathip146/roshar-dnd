@@ -904,6 +904,15 @@ WHAT TO DO, IN ORDER:
    cost or DC.
 3. Resolve the player's attempt — roll_skill_check for anything uncertain. You do
    not decide outcomes; the dice do.
+
+   BUT: if the player is NOT actively searching, do not roll to notice things. 5e
+   uses PASSIVE PERCEPTION for that, and passive scores exist precisely so a player
+   who is merely walking, travelling or talking is not asked for a roll:
+     actively searches / examines / listens closely  -> roll_skill_check(perception)
+     merely passing by / travelling / not looking    -> get_passive_perception
+   Compare the passive score to the hiding thing's DC and say whether it is noticed.
+   Rolling here is a real rules error: it gives a distracted character a chance to
+   spot something their passive score says they would miss, and vice versa.
 4. APPLY the consequences with a tool. This step is NOT optional — narrating a
    change you did not apply leaves the fiction and the game state disagreeing, and
    the player will notice on the next turn.
