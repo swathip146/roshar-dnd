@@ -80,6 +80,35 @@ CLAIMED_MECHANICS = {
     # Adversarial guards for bugs that shipped
     "G1:offerability", "G5:cantrips_free", "G5:cantrip_free_at_ledger",
     "G6:illumination_gate",
+    # Tactical combat (C4, C8, C12-C20)
+    "C12:initiative_order", "C12:initiative_varies", "C13:difficult_terrain",
+    "C13:distance", "C13:terrain_built", "C13:walls", "C14:cover_ac",
+    "C14:cover_no_stack", "C14:cover_removed", "C14:flanking",
+    "C14:flanking_requires_opposite", "C15:no_provoke_in_reach", "C15:provoked",
+    "C15:reaction_economy", "C16:ranged_at_distance", "C16:reach",
+    "C17:attacks_per_turn", "C17:parse_prose", "C17:srd_prevalence",
+    "C18:activated_offerable", "C18:all_classes_covered", "C18:gaps_declared",
+    "C18:granted_at_creation", "C18:rage_effect", "C19:line_of_sight",
+    "C19:senses_present", "C20:cr_bands", "C20:cr_bands_permissive",
+    "C20:difficulty_scaling", "C20:xp_budget", "C4:temp_hp_absorbs",
+    "C4:temp_hp_overflow", "C4:temp_hp_sheet", "C8:grapple_contested",
+    "C8:registered", "C8:resolve",
+    # World, social, rules tiers, DM tools (E5, E6, E10, E11)
+    "E10:cosmere_tier", "E10:srd_datasets", "E10:srd_tier", "E11:dm_tools",
+    "E5:clock", "E5:highstorms", "E5:travel", "E6:social_dice",
+    "E6:three_social_skills",
+    # Progression + Roshar leftovers (P3, R8, R10)
+    "P3:extra_attack", "R10:ideal_advance", "R10:third_ideal",
+    "R8:cost_on_failure", "R8:polestone_outcome",
+    # Adversarial guards (G2, G4, G7-G10). G3 (advantage) is recorded as
+    # C5:advantage and R4 (Lashing Dice) as R6:lashing_* — the strategy's row
+    # numbering overlaps there; the mechanics themselves are covered.
+    "G4:proficiency_counted_once",
+    "G10:tls_verify", "G2:reachability", "G7:round_trip", "G8:clean_registries",
+    "G9:max_hp",
+    # A-1 the campaign arc, through the real pipelines
+    "A1:campaign_arc", "A1:no_network", "A1:rest_in_play", "A1:single_turn",
+    "A1:tools_invoked_in_a_turn",
 }
 
 
@@ -189,6 +218,20 @@ def gate_claimed_mechanics_match_observed() -> List[str]:
     return problems
 
 
+def gate_every_dm_tool_was_invoked() -> List[str]:
+    """E11: every DM tool must have been invoked by some scenario.
+
+    Specified in strategy §7. The exploration pipeline's tools are the LLM's only
+    means of changing game state, so a tool that is defined, registered in
+    `DM_TOOLS`, and never invoked is the same defect class as an unofferable combat
+    action: present, plausible, and unreachable in play.
+    """
+    gap = missing(expected_dm_tools(), _covered("tool"))
+    if not gap:
+        return []
+    return [f"{len(gap)} DM tool(s) never invoked by any scenario: {sorted(gap)}"]
+
+
 def gate_dm_tools_are_enumerable() -> List[str]:
     """E11: the 19 DM tools must stay discoverable, since the gate enumerates them."""
     tools = expected_dm_tools()
@@ -209,6 +252,7 @@ ALL_GATES = (
     ("every playable order exercised", gate_every_playable_order_was_exercised),
     ("every interpreter node asserted", gate_every_interpreter_node_type_is_present),
     ("claimed mechanics match observed", gate_claimed_mechanics_match_observed),
+    ("every DM tool invoked", gate_every_dm_tool_was_invoked),
     ("DM tools enumerable", gate_dm_tools_are_enumerable),
 )
 

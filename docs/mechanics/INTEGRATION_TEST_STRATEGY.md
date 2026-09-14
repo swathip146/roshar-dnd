@@ -1,7 +1,37 @@
 # Integration Test Strategy — full-gameplay coverage of every implemented mechanic
 
-**Written 2026-09-13.** Plan only; no test code written yet. Every number below was
-measured on branch `phase-0-fixes` during this session, not copied from prior docs.
+**Written 2026-09-13.** Every number below was measured on branch `phase-0-fixes`,
+not copied from prior docs.
+
+> **STATUS — Suite A is BUILT and passing (2026-09-13).**
+> ```
+> uv run pytest tests/integration/          # 146 passed, 19.6s, parallel (-n 8)
+> ```
+> **All 57 mechanic rows of §4 are covered**, enforced by the runtime gate in §7:
+> 28 offerable actions · 132 mechanics · 17 interpreter nodes · 9 orders · 10 surges ·
+> 19 DM tools. Zero network calls; zero mocks of game state.
+>
+> **Files:** `tests/integration/` — `fakes/` (scripted LLM at the one seam),
+> `harness/` (real-object builder, invariants, coverage ledger, gates),
+> `test_phase0_fake_llm_seam.py`, `test_combat_full.py`, `test_tactical_full.py`,
+> `test_exploration_full.py`, `test_cosmere_full.py`, `test_campaign_arc.py`.
+>
+> **Row-numbering note:** G3 (advantage) is recorded as `C5:advantage` and R4 (Lashing
+> Dice) as `R6:lashing_*` — this document numbers them twice; the mechanics are covered
+> once each.
+>
+> **Production bugs this suite found and fixed** (details in the git log):
+> 1. `PipelineOrchestrator.__init__` overwrote the global LLM config manager
+>    unconditionally, so `set_global_config_manager()` could not inject anything into a
+>    game that builds an orchestrator — a real testability defect, not a test problem.
+> 2. `execute_attack`: `Dice(num_dice=/die_value=)` when the fields are `count`/`value`
+>    (crashed on every hit); `target_ac = 10 + dex` ignored armour, cover and
+>    Shardplate; damage was hardcoded 1d6 bludgeoning; and `Dice.roll` is a
+>    `cached_property`, so `roll()` raised `TypeError` intermittently.
+> 3. `GameInitializationSystem` had six blocking `input()` calls, so it could not run
+>    outside an interactive terminal. Now takes an injectable `input_provider`.
+> 4. `long_rest` computes `exhaustion_reduced`, logs it, and never returns it — a dead
+>    local, so no caller can observe exhaustion relief. Documented, not faked green.
 
 This document specifies **two integration suites**:
 

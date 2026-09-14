@@ -205,22 +205,47 @@ class PipelineOrchestrator:
         """Initialize Haystack agents and LLM configuration with Gemini integration"""
         logger.debug("🔧 Starting pipeline infrastructure initialization...")
         try:
-            # Create Gemini configuration
-            debug_print("ORCHESTRATOR", "🤖 Creating Gemini configuration...")
-            logger.debug("🔧 Step 1: Creating Gemini configuration...")
-            gemini_config = create_gemini_config()
-            debug_print("ORCHESTRATOR", "✅ Gemini config created")
-            
-            debug_print("ORCHESTRATOR", "🔧 Creating LLM config manager...")
-            logger.debug("🔧 Step 2: Creating LLM config manager...")
-            global_manager = LLMConfigManager(gemini_config)
-            debug_print("ORCHESTRATOR", "✅ LLM config manager created")
-            
-            debug_print("ORCHESTRATOR", "🌐 Setting global config manager...")
-            logger.debug("🔧 Step 3: Setting global config manager...")
-            set_global_config_manager(global_manager)
-            debug_print("ORCHESTRATOR", "✅ Global config manager set")
-            
+            # RESPECT AN ALREADY-INSTALLED MANAGER.
+            #
+            # This used to build a fresh LLMConfigManager and call
+            # set_global_config_manager() unconditionally, which silently DISCARDED
+            # any manager a caller had installed — so `set_global_config_manager()`
+            # was unusable as an injection point for anything that constructs an
+            # orchestrator. A test (or a future UI, or an offline/replay mode) could
+            # install a manager, watch the orchestrator overwrite it, and then reach
+            # the real network anyway.
+            #
+            # Reuse takes precedence; the fresh manager is only a default for the
+            # normal case where nobody has configured one.
+            existing_manager = None
+            try:
+                existing_manager = get_global_config_manager()
+            except Exception:  # pragma: no cover - no provider installed yet
+                existing_manager = None
+
+            if existing_manager is not None:
+                logger.debug("🔧 Step 1-3: reusing the installed LLM config manager "
+                             f"({type(existing_manager).__name__})")
+                debug_print("ORCHESTRATOR",
+                            f"♻️  Reusing installed config manager "
+                            f"({type(existing_manager).__name__})")
+            else:
+                # Create Gemini configuration
+                debug_print("ORCHESTRATOR", "🤖 Creating Gemini configuration...")
+                logger.debug("🔧 Step 1: Creating Gemini configuration...")
+                gemini_config = create_gemini_config()
+                debug_print("ORCHESTRATOR", "✅ Gemini config created")
+
+                debug_print("ORCHESTRATOR", "🔧 Creating LLM config manager...")
+                logger.debug("🔧 Step 2: Creating LLM config manager...")
+                global_manager = LLMConfigManager(gemini_config)
+                debug_print("ORCHESTRATOR", "✅ LLM config manager created")
+
+                debug_print("ORCHESTRATOR", "🌐 Setting global config manager...")
+                logger.debug("🔧 Step 3: Setting global config manager...")
+                set_global_config_manager(global_manager)
+                debug_print("ORCHESTRATOR", "✅ Global config manager set")
+
             # Create routing context adapter for fixed system integration - ENHANCED: Add CampaignConfig authority
             if hasattr(self, 'game_engine') and self.game_engine:
                 # Get CampaignConfig from GameEngine if available
