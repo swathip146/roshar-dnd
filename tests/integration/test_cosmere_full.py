@@ -251,6 +251,100 @@ class TestR3InvestitureEconomy:
         ledger.mechanic("R5:ledger_spend_refuse",
                         f"4 -> 2 -> 0, then refused: {refused.reason}")
 
+    def test_casting_a_cantrip_through_the_resolver_costs_nothing(self, ledger):
+        """R4 END TO END: the path a PLAYER takes, not just the data or the ledger.
+
+        The sibling tests assert that `surgebinding.json` records cantrips at 0 and that
+        `InvestiturePointLedger.spend(art_level=0)` is free. Neither exercises the
+        RESOLVER, which is where the shipped bug lived: `roshar_actions.py` charged a
+        flat Stormlight sphere per cast while both the data and the ledger looked fine.
+
+        WHAT THIS CAN AND CANNOT PROVE — established by sabotaging the registry:
+        setting `illumination`'s `stormlight_cost` back to 1 does NOT fail this test,
+        because combat never DEDUCTS Stormlight at all. `stormlight_cost` is consumed
+        only by `unusable_reason()` as an affordability GATE (`action_registry.py:647`),
+        and the sole deduction in the codebase is `character_manager.py:2810`, reached
+        via the exploration `spend_stormlight` tool. So Stormlight-neutrality in combat
+        is true by construction, not by enforcement.
+
+        The INVESTITURE half is genuinely enforced, and that is what this test guards:
+        a cantrip must not touch the IP pool while a costed art must. The contrast at
+        the end is load-bearing — an assertion that only ever sees "unchanged" would
+        also pass against a resolver that charged nothing for anything.
+        """
+        from components.combat.investiture_ledger import InvestiturePointLedger
+
+        rules = cosmere_rules()
+        free = {"illumination": "Lightweaver", "lashing": "Windrunner",
+                "soulcast": "Lightweaver"}
+
+        observed = {}
+        for action, order in free.items():
+            engine, wrapper, resolver = build_battle(
+                characters=[radiant_template(order=order),
+                            monster_template("gob", "Goblin")], seed=7)
+            pool = InvestiturePointLedger(engine.character_manager, rules)
+            character = engine.character_manager.characters["shallan"]
+
+            ip_before = pool.current("shallan")
+            sl_before = getattr(character, "stormlight_current", None)
+            result = resolver.resolve_action(
+                {"actor": "shallan", "action_type": action, "target": "gob"})
+            ip_after = pool.current("shallan")
+            sl_after = getattr(character, "stormlight_current", None)
+
+            assert not result.get("error"), f"{action} failed: {result.get('error')}"
+            assert ip_after == ip_before, (
+                f"{action} is a free cantrip but charged "
+                f"{ip_before - ip_after} Investiture Points")
+            assert sl_after == sl_before, (
+                f"{action} changed Stormlight {sl_before} -> {sl_after}; combat is not "
+                f"supposed to deduct Stormlight at all")
+            observed[action] = f"IP {ip_before}->{ip_after} SL {sl_before}->{sl_after}"
+
+        # The contrast: a COSTED level-1 art must actually charge, or "unchanged"
+        # proves nothing.
+        engine, wrapper, resolver = build_battle(
+            characters=[radiant_template(order="Edgedancer"),
+                        monster_template("gob", "Goblin")], seed=7)
+        pool = InvestiturePointLedger(engine.character_manager, rules)
+        before = pool.current("shallan")
+        resolver.resolve_action({"actor": "shallan",
+                                 "action_type": "progression_healing",
+                                 "target": "shallan"})
+        after = pool.current("shallan")
+
+        assert after < before, (
+            f"progression_healing is a costed level-1 art but charged nothing "
+            f"({before} -> {after}); this test cannot distinguish free from costed")
+        ledger.mechanic("R4:cantrips_free_via_resolver",
+                        f"{observed} | costed art {before}->{after}")
+
+    def test_the_registry_records_every_cantrip_as_free(self, ledger):
+        """R4 belt-and-braces: the metadata itself, since the resolver cannot catch it.
+
+        Because combat never deducts Stormlight, a wrong `stormlight_cost` on a cantrip
+        is INVISIBLE at runtime — verified by sabotage. It would still be wrong: it
+        gates the action off the menu once a Radiant's spheres run low, which is exactly
+        the "charged for a free ability" regression in a quieter form. So assert the
+        metadata directly, which is the only place this can be caught.
+        """
+        from components.combat.action_registry import ACTION_REGISTRY
+
+        cantrips = ("illumination", "lashing", "soulcast")
+        charged = {name: ACTION_REGISTRY[name].get("stormlight_cost")
+                   for name in cantrips
+                   if ACTION_REGISTRY[name].get("stormlight_cost")}
+
+        assert not charged, (
+            f"these free cantrips carry a Stormlight cost, which would gate them off "
+            f"the menu for a low-sphere Radiant: {charged}")
+        assert not any(ACTION_REGISTRY[n].get("art_level") for n in cantrips), (
+            "a cantrip must not carry an art_level, or it would be billed in "
+            "Investiture Points")
+        ledger.mechanic("R4:cantrip_metadata_free",
+                        f"{len(cantrips)} cantrips: stormlight_cost 0, no art_level")
+
     def test_a_cantrip_costs_no_investiture(self, ledger):
         """G5 at the ledger: art_level 0 is free and always succeeds."""
         from components.combat.investiture_ledger import InvestiturePointLedger

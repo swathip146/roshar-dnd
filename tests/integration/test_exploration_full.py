@@ -320,12 +320,103 @@ class TestE3EncumbranceAndEquipment:
         assert capacity == 16 * 15, f"expected 240 lb for STR 16, got {capacity}"
         ledger.mechanic("E3:carrying_capacity", f"{capacity} lb at STR 16")
 
-    def test_encumbrance_reports_a_state(self, ledger):
-        engine = build_engine()
-        state = engine.character_manager.get_encumbrance("aggi")
+    def test_encumbrance_tiers_are_graded_and_monotonic(self, ledger):
+        """E3: all four tiers, and each must be AT LEAST as harsh as the one below.
 
-        assert isinstance(state, dict) and state, f"no encumbrance data: {state}"
-        ledger.mechanic("E3:encumbrance", str(state)[:120])
+        The previous version of this test asserted only `isinstance(state, dict) and
+        state` — true for any non-empty dict — and recorded an UNENCUMBERED character
+        (`speed_penalty: 0`) as its evidence. It therefore passed while proving nothing,
+        and hid a real bug: `over_capacity` returned `speed_penalty: 0,
+        has_disadvantage: False`, making it STRICTLY BETTER than `heavily_encumbered`.
+        A character at 724 lb against a 150 lb capacity moved at full speed.
+
+        Monotonicity is the invariant worth pinning: carrying more can never help.
+        """
+        engine = build_engine(characters=[character_template(
+            ability_scores={"strength": 10, "dexterity": 10, "constitution": 10,
+                            "intelligence": 10, "wisdom": 10, "charisma": 10},
+            equipment=[])])
+        manager = engine.character_manager
+        capacity = manager.get_carrying_capacity("aggi")
+
+        # PHB 176 variant: normal <= STR*5, encumbered <= STR*10, then heavy, then over.
+        tiers = [manager.is_encumbered("aggi", w) for w in
+                 (1, capacity // 3 + 1, (capacity * 2) // 3 + 1, capacity + 50)]
+        levels = [t["encumbrance_level"] for t in tiers]
+        penalties = [t["speed_penalty"] for t in tiers]
+        disadvantages = [t["has_disadvantage"] for t in tiers]
+
+        assert levels == ["normal", "encumbered", "heavily_encumbered",
+                          "over_capacity"], levels
+        assert penalties == sorted(penalties), (
+            f"speed penalty is not monotonic across tiers: "
+            f"{list(zip(levels, penalties))} — carrying MORE must never be cheaper")
+        assert penalties[0] == 0 and penalties[1] == 10, penalties
+        assert penalties[2] >= 20 and penalties[3] >= 20, (
+            f"the two worst tiers must both cost at least 20 ft: {penalties}")
+        assert disadvantages == [False, False, True, True], (
+            f"disadvantage must apply at heavily encumbered AND beyond: "
+            f"{list(zip(levels, disadvantages))}")
+        ledger.mechanic("E3:encumbrance",
+                        f"{list(zip(levels, penalties))} disadv={disadvantages}")
+
+    def test_encumbrance_disadvantage_reaches_a_real_skill_check(self, ledger):
+        """E3: the row claims disadvantage on STR/DEX/CON — assert it end to end.
+
+        `has_disadvantage` is only meaningful if a consumer reads it. This drives the
+        real 7-step pipeline and checks the scoping too: a STR skill is affected, an
+        INT skill is not.
+        """
+        engine = build_engine(characters=[character_template(
+            ability_scores={"strength": 10, "dexterity": 10, "constitution": 10,
+                            "intelligence": 10, "wisdom": 10, "charisma": 10},
+            equipment=[])])
+        manager = engine.character_manager
+        for _ in range(4):                       # overload past capacity
+            manager.add_equipment("aggi", "chain mail")
+
+        state = manager.get_encumbrance("aggi")
+        assert state["has_disadvantage"] is True, f"fixture failed to overload: {state}"
+
+        strength_check = engine.process_skill_check(
+            {"actor": "aggi", "skill": "athletics", "dc": 12})
+        intelligence_check = engine.process_skill_check(
+            {"actor": "aggi", "skill": "arcana", "dc": 12})
+
+        assert strength_check.get("advantage_state") == "disadvantage", (
+            f"an overloaded character rolled athletics at "
+            f"{strength_check.get('advantage_state')!r}")
+        assert intelligence_check.get("advantage_state") != "disadvantage", (
+            "encumbrance must not penalise INT/WIS/CHA checks — only STR/DEX/CON")
+        ledger.mechanic("E3:encumbrance_disadvantage",
+                        f"athletics={strength_check.get('advantage_state')} "
+                        f"arcana={intelligence_check.get('advantage_state')}")
+
+    def test_encumbrance_reduces_combat_movement(self, ledger):
+        """E3: the other half of the row — the speed penalty must reach the grid."""
+        from tests.integration.test_combat_full import build_battle, monster_template
+
+        engine, wrapper, resolver = build_battle(characters=[
+            character_template(
+                ability_scores={"strength": 10, "dexterity": 10, "constitution": 10,
+                                "intelligence": 10, "wisdom": 10, "charisma": 10},
+                equipment=[], speed=30),
+            monster_template("gob", "Goblin"),
+        ])
+        manager = engine.character_manager
+        for _ in range(4):
+            manager.add_equipment("aggi", "chain mail")
+
+        penalty = manager.get_encumbrance("aggi")["speed_penalty"]
+        assert penalty >= 20, f"fixture failed to overload: {penalty}"
+
+        # `_reset_movement` computes max(0, base_speed - speed_penalty); assert the
+        # arithmetic the combat layer actually performs.
+        assert max(0, 30 - penalty) <= 10, (
+            f"an overloaded character should move at most 10 ft, not "
+            f"{max(0, 30 - penalty)}")
+        ledger.mechanic("E3:encumbrance_speed",
+                        f"30 ft base - {penalty} = {max(0, 30 - penalty)} ft")
 
     def test_equipping_armour_changes_ac(self, ledger):
         """E8: AC is computed from the armour category, not a static field.

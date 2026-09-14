@@ -2486,8 +2486,23 @@ class CharacterManager:
         else:
             return {
                 "encumbrance_level": "over_capacity",
-                "speed_penalty": 0,
-                "has_disadvantage": False,
+                # MUST be at least as severe as heavily_encumbered.
+                #
+                # This returned `speed_penalty: 0, has_disadvantage: False`, which made
+                # exceeding your carrying capacity STRICTLY BETTER than approaching it:
+                # a character at 724 lb against a 150 lb capacity moved at full speed
+                # with no disadvantage, while one merely `encumbered` took -10 ft.
+                # Every consumer reads these two fields (combat movement at
+                # `combat_session_manager.py:1472-1474`, skill disadvantage at
+                # `game_engine.py:269-283`), so the `error` string alone changed
+                # nothing — the penalties silently vanished at the worst tier.
+                #
+                # 5e (PHB 176 variant) does not define a tier beyond heavily
+                # encumbered because you simply cannot lift it; the honest mechanical
+                # floor is therefore "at least as bad as the worst defined tier",
+                # which also keeps the monotonic invariant the tests now assert.
+                "speed_penalty": 20,
+                "has_disadvantage": True,
                 "capacity": capacity,
                 "weight": weight,
                 "error": "Weight exceeds carrying capacity"

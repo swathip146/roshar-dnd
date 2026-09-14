@@ -59,7 +59,8 @@ CLAIMED_MECHANICS = {
     # Character / exploration / progression
     "E1:skill_check", "E1:dice_vary", "E1:proficiency", "E1:policy_scaling",
     "E2:tool_gate", "E2:passive_perception",
-    "E3:carrying_capacity", "E3:encumbrance",
+    "E3:carrying_capacity", "E3:encumbrance", "E3:encumbrance_disadvantage",
+    "E3:encumbrance_speed",
     "E4:long_rest_hp", "E4:long_rest_slots", "E4:short_rest",
     "E4:long_rest_reports", "E4:stormlight_rest",
     "E7:quest_objective",
@@ -74,6 +75,7 @@ CLAIMED_MECHANICS = {
     "R5:cost_table", "R5:ledger_spend_refuse", "R5:ip_long_rest",
     "R6:lashing_dice", "R6:no_overspend", "R6:lashing_scaling", "R6:maneuvers",
     "R6:review_discipline",
+    "R4:cantrips_free_via_resolver", "R4:cantrip_metadata_free",
     "R7:intake_gate",
     "R9:shardblade_rolls_vs_ac", "R9:shardblade_scaling", "R9:ideal_gate",
     "R11:node_types", "R11:node_split", "R11:nodes_fail_loudly",
