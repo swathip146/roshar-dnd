@@ -181,29 +181,77 @@ def build_wrapper(engine):
 
 
 class HeadlessGame:
-    """A `HaystackDnDGame`-shaped object with no stdin, no network, no orchestrator.
+    """A `HaystackDnDGame`-shaped object with no stdin, no network, no real LLM.
 
     Built with `__new__` and populated field by field — the pattern
     `scripts/playtest.py:828-876` already uses for its `--no-llm` mode. The real
     `__init__` builds pipelines and reads the environment for API keys.
+
+    `with_orchestrator=True` additionally wires a REAL `PipelineOrchestrator`, which
+    is what makes `play_turn()` exercise the production path: intent classification ->
+    routing -> the scenario agent with real DM tools -> GameEngine state changes.
+    Without it `resolve_turn` has no `self.orchestrator` and the turn never reaches an
+    agent at all — the LLM record stays empty and the test proves nothing.
     """
 
-    def __init__(self, engine, save_dir: Optional[str] = None):
+    def __init__(self, engine, save_dir: Optional[str] = None,
+                 with_orchestrator: bool = True):
         from haystack_dnd_game import HaystackDnDGame
 
         game = HaystackDnDGame.__new__(HaystackDnDGame)
         game.game_engine = engine
         game.character_manager = engine.character_manager
+        game.policy_engine = getattr(engine, "policy_engine", None)
         game.dnd_engine_wrapper = None
+        game.npc_registry = None
         game.current_choices = []
         game.turn_counter = 0
+        # `thread_id` is a READ-ONLY property derived from
+        # session_manager.get_session_metadata()["session_id"]
+        # (haystack_dnd_game.py:526-532), so it must not be assigned —
+        # _InMemorySession already returns a stable id.
         game.session_manager = _InMemorySession(save_dir)
+        # Force the direct (non-LangGraph) turn path: the durable loop checkpoints to
+        # disk and adds nothing this suite is testing.
+        game._durable_loop = lambda: None
+
+        if with_orchestrator:
+            game.orchestrator = _build_orchestrator(engine)
+        else:
+            game.orchestrator = None
 
         self.game = game
         self.engine = engine
 
     def __getattr__(self, item):
         return getattr(self.game, item)
+
+
+def _build_orchestrator(engine):
+    """A real `PipelineOrchestrator` over real components, with retrieval disabled.
+
+    IMPORTANT ORDERING: the orchestrator builds its agents in `__init__` by calling
+    `get_global_config_manager().create_generator(...)`. So a scripted config manager
+    must ALREADY be installed when this runs — build the game inside the
+    `scripted_llm(...)` context, not before it. Otherwise the agents are constructed
+    against the real (or missing) provider and the turn never reaches the fake.
+    """
+    from components.policy import PolicyProfile
+    from orchestrator.pipeline_integration import PipelineOrchestrator
+
+    return PipelineOrchestrator(
+        policy_profile=PolicyProfile.RAW,
+        # MUST be True: the agents (interface, scenario, rag, npc) are constructed in
+        # __init__, and with pipelines disabled the orchestrator reports
+        # "Interface agent not available. Available agents: []" and the turn never
+        # reaches an agent at all. Retrieval still makes no network call because
+        # conftest blocks sockets and search_lore degrades gracefully.
+        enable_pipelines=True,
+        game_engine=engine,
+        character_manager=engine.character_manager,
+        session_manager=_InMemorySession(),
+        policy_engine=getattr(engine, "policy_engine", None),
+    )
 
 
 class _InMemorySession:
