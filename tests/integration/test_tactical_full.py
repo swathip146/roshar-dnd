@@ -365,11 +365,33 @@ class TestC13GridAndTerrain:
 # --------------------------------------------------------------------------- #
 
 class TestC14CoverAndFlanking:
-    """C14: cover raises AC by a real +2; flanking grants real advantage."""
+    """C14: cover raises AC by a real +2; flanking grants real advantage.
 
-    def test_cover_raises_ac_by_two(self, ledger):
+    NOTE ON THE LITERAL 2 BELOW. These tests used to assert
+    `after == before + HALF_COVER_AC`, importing the very constant under test — a
+    tautology: set `HALF_COVER_AC = 0` and the assertion becomes `after == before`,
+    which is exactly what the broken code produces. Mutation testing confirmed it,
+    surviving a mutant that removed cover's AC bonus entirely while C14 still read
+    ✅ PASS.
+
+    The 5e rule (PHB: half cover grants +2 AC) is now written as a LITERAL, and the
+    constant is checked separately. A test must state the expected value
+    independently of the code it is testing.
+    """
+
+    #: 5e PHB half cover. Deliberately duplicated rather than imported.
+    EXPECTED_HALF_COVER_AC = 2
+
+    def test_the_constant_matches_the_5e_rule(self, ledger):
+        """Guards the constant itself, since the behavioural tests now use a literal."""
         from components.combat.tactical_rules import HALF_COVER_AC
 
+        assert HALF_COVER_AC == self.EXPECTED_HALF_COVER_AC, (
+            f"5e half cover is +{self.EXPECTED_HALF_COVER_AC} AC, code says "
+            f"+{HALF_COVER_AC}")
+        ledger.mechanic("C14:cover_constant", f"HALF_COVER_AC == {HALF_COVER_AC}")
+
+    def test_cover_raises_ac_by_two(self, ledger):
         # 'H' is the cover symbol (battle_map.py:50); 'P' marks the required
         # party spawn. Standing on H should grant half cover.
         _, wrapper, grid, rules, _ = build_arena(
@@ -381,14 +403,13 @@ class TestC14CoverAndFlanking:
         rules.refresh_cover()
         after = ac_of(wrapper, "hero")
 
-        assert after == before + HALF_COVER_AC, (
-            f"half cover should add +{HALF_COVER_AC} AC: {before} -> {after}")
+        assert after == before + self.EXPECTED_HALF_COVER_AC, (
+            f"half cover must add +{self.EXPECTED_HALF_COVER_AC} AC: "
+            f"{before} -> {after}")
         ledger.mechanic("C14:cover_ac", f"AC {before} -> {after} in cover")
 
     def test_leaving_cover_removes_the_bonus(self, ledger):
         """The modifier must be removed, not accumulated."""
-        from components.combat.tactical_rules import HALF_COVER_AC
-
         _, wrapper, grid, rules, state = build_arena(
             ["H......P", "........", "........", ".......E"],
             {"hero": (0, 0), "foe": (5, 0)},
@@ -396,7 +417,7 @@ class TestC14CoverAndFlanking:
         base = ac_of(wrapper, "hero")
         rules.refresh_cover()
         covered = ac_of(wrapper, "hero")
-        assert covered == base + HALF_COVER_AC
+        assert covered == base + self.EXPECTED_HALF_COVER_AC
 
         wrapper.set_entity_position("hero", (1, 0))
         state["combatant_states"]["hero"]["position"] = (1, 0)
@@ -409,8 +430,6 @@ class TestC14CoverAndFlanking:
 
     def test_cover_does_not_stack_on_repeated_refresh(self, ledger):
         """Calling refresh twice must not add +4."""
-        from components.combat.tactical_rules import HALF_COVER_AC
-
         _, wrapper, grid, rules, _ = build_arena(
             ["H......P", "........", "........", ".......E"],
             {"hero": (0, 0), "foe": (5, 0)},
@@ -421,7 +440,7 @@ class TestC14CoverAndFlanking:
         rules.refresh_cover()
         twice = ac_of(wrapper, "hero")
 
-        assert once == twice == base + HALF_COVER_AC, (
+        assert once == twice == base + self.EXPECTED_HALF_COVER_AC, (
             f"cover stacked across refreshes: {base} -> {once} -> {twice}")
         ledger.mechanic("C14:cover_no_stack", f"stable at {twice}")
 

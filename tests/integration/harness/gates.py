@@ -84,7 +84,7 @@ CLAIMED_MECHANICS = {
     "G6:illumination_gate",
     # Tactical combat (C4, C8, C12-C20)
     "C12:initiative_order", "C12:initiative_varies", "C13:difficult_terrain",
-    "C13:distance", "C13:terrain_built", "C13:walls", "C14:cover_ac",
+    "C13:distance", "C13:terrain_built", "C13:walls", "C14:cover_constant", "C14:cover_ac",
     "C14:cover_no_stack", "C14:cover_removed", "C14:flanking",
     "C14:flanking_requires_opposite", "C15:no_provoke_in_reach", "C15:provoked",
     "C15:reaction_economy", "C16:ranged_at_distance", "C16:reach",
