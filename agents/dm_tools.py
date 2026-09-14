@@ -18,6 +18,26 @@ cannot mistake a mechanical result for narration it may freely rewrite.
 
 from __future__ import annotations
 
+import os
+
+# Load embedding models from the LOCAL CACHE without contacting the Hugging Face hub.
+#
+# MUST be set before `huggingface_hub` is imported: it reads HF_HUB_OFFLINE once, at
+# import time, into a module constant, so setting it later (e.g. inside `search_lore`)
+# has no effect — verified by tracing the failure into huggingface_hub's own frames.
+#
+# `BAAI/bge-large-en-v1.5` is already cached under ~/.cache/huggingface/hub, but
+# sentence-transformers still checks the hub for updates unless told not to, and on a
+# network that proxies egress that check fails with `ProxyError 403 Forbidden`. The
+# result: `search_lore` returned `{"passages": [], "error": "403 Forbidden"}` for EVERY
+# query, so a live Suite B run recorded it as reaching nothing.
+#
+# The scripts under `scripts/` all set this flag, which is why the tool looked healthy
+# there while any other caller silently got zero lore. Setting it in the module that
+# owns the tool makes it work however the process was started.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 from typing import Any, Dict, List, Optional
 
 from haystack.tools import tool
@@ -549,10 +569,16 @@ def query_rules(topic: str, kind: str = "auto") -> Dict[str, Any]:
 @tool
 def search_lore(query: str) -> Dict[str, Any]:
     """
-    Search Roshar narrative lore (novels, world history, Coppermind).
+    Look up Roshar world lore: people, places, history, culture, creatures.
 
-    For FLAVOUR ONLY. Never use this to decide a mechanic — lore prose has no
-    dice, costs or DCs. Use query_rules for anything mechanical.
+    USE THIS whenever the player asks about the world rather than about a rule —
+    "who is Dalinar", "what are highstorms", "tell me about the Knights Radiant",
+    "what do I know about chasmfiends". Ground the answer in what comes back instead
+    of recalling it yourself; the campaign's canon may differ from the novels.
+
+    Returns narrative prose, so it has no dice, costs or DCs — use `query_rules` for
+    anything mechanical. That boundary is about WHICH tool decides a mechanic, not a
+    reason to avoid this one.
 
     Args:
         query: What to look up, e.g. "who is Kaladin", "what are highstorms"
@@ -570,6 +596,8 @@ def search_lore(query: str) -> Dict[str, Any]:
         store = _CONTEXT.get("_lore_store")
         embedder = _CONTEXT.get("_lore_embedder")
         if store is None:
+            # Offline loading is forced at MODULE import (see the top of this file);
+            # setting it here would be too late for huggingface_hub.
             store = QdrantDocumentStore(path="qdrant_storage",
                                         index="dnd_documents", embedding_dim=1024)
             embedder = SentenceTransformersTextEmbedder(

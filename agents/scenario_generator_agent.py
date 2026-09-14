@@ -934,7 +934,10 @@ Hard rules:
   clock by ZERO hours, because the model narrated both instead of applying them.
 - spend_stormlight can REFUSE. If affordable is false, say the Surge failed for
   want of Stormlight.
-- search_lore is flavour only. Never derive a mechanic from lore prose.
+- search_lore answers "who/what/where" questions about the world. USE IT when the
+  player asks about Roshar rather than about a rule, and ground the answer in what it
+  returns. It has no dice or DCs, so never derive a mechanic from it — that is what
+  query_rules is for.
 - If a tool reports "unchanged": true, you have already called it. Stop gathering
   and write your summary.
 

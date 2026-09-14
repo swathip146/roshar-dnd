@@ -8,6 +8,24 @@ import json
 import os
 import re
 import time
+
+# Load embedding models from the LOCAL CACHE without contacting the Hugging Face hub.
+#
+# MUST precede the `haystack.components.embedders` import below: `huggingface_hub`
+# computes its offline flag once, at ITS import time, so setting the variable later has
+# no effect.
+#
+# Without this, initialisation logged "⚠️ Document system initialization failed: 403
+# Forbidden" on a network that proxies egress — even though
+# `BAAI/bge-large-en-v1.5` is already cached — and the orchestrator then reported
+# "No shared document store provided - RAG will use fallback responses". Every lore
+# question got `retrieve_documents` called (21 times in one 3-turn run) against no
+# store, so the player received invented lore rather than campaign canon. Traced from a
+# live Suite B run where `search_lore` appeared to be a prompt gap and was in fact a
+# broken document pipeline.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 from typing import Dict, Any, List, Optional, Tuple
 from config.logging_config import get_logger
 
