@@ -264,7 +264,7 @@ generated from the run rather than written by hand:
 
 Suite B is **nondeterministic**: the model picks different tools on different runs (two
 20-turn runs each reached 12 of 20, but not the same 12). The ✅ marks therefore reflect
-the **union across accumulated runs** — 16 of 20 DM tools, 80% — recorded in
+the **union across accumulated runs** — 17 of 20 DM tools, 85% — recorded in
 `tests/llm_playtest/reach_cache.json` via `--accumulate`. A single run understates reach,
 so "never reached in ANY run" is the honest measure of a genuinely unreachable tool.
 
@@ -312,16 +312,16 @@ Rows in §9 are **deliberately absent** from these tables — there is no code t
 | P3 | Extra Attack → multiattack | Fighter 5 gets 2 attacks in a real turn | ✅ PASS | `tactical_full` | 1 check: Fighter L4->L5: 1 -> 2 attacks/turn | ⚪ | not driven by Suite B — Extra Attack is granted at level-up |
 | P4 | Proficiency bonus by level | +2 → +6, counted once (guards the double-count regression) | ✅ PASS | `exploration_full` | 1 check: {1: 2, 4: 2, 5: 3, 8: 3, 9: 4, 12: 4, 13: 5, 16: 5, 17: 6,... | ⚪ | not driven by Suite B — proficiency is computed, never a tool call |
 | E1 | 18 skills, 7-step pipeline, DC scaling | RAW/HOUSE/EASY change outcome distribution | ✅ PASS | `exploration_full` | 4 checks: roll=2 success=False | ✅ | called live in most runs |
-| E2 | Expertise, tool gate, passive perception | Expertise doubles; missing tool blocks; passive used by Hide | ✅ PASS | `exploration_full` | 2 checks: gated=2 ungated=4 | ⚠️ | `get_passive_perception` never called in any run — live path exists (prompt gap) |
+| E2 | Expertise, tool gate, passive perception | Expertise doubles; missing tool blocks; passive used by Hide | ✅ PASS | `exploration_full` | 2 checks: gated=2 ungated=4 | ⚠️ | never called in any run — situational (only meaningful when something may be hidden); the tool itself works |
 | E3 | Encumbrance | Speed penalty in combat **and** disadvantage on STR/DEX/CON checks | ✅ PASS | `exploration_full` | 2 checks: {'encumbrance_level': 'normal', 'speed_penalty': 0, 'has_di... | 🟡 | reached indirectly: encumbrance is read by get_character_state, never driven on its own |
 | E4 | Rests | Short: hit dice; long: HP, slots, Stormlight, features, exhaustion −1 | ✅ PASS | `exploration_full` | 5 checks: hp=18 result={'healed': 8, 'hit_dice_spent': 1, 'hit_dice_r... | ✅ | called live ('make camp and take a long rest') |
 | E5 | Travel, clock, highstorms | Travel advances the clock; highstorms cycle | ✅ PASS | `campaign_arc` | 3 checks: after 2 days: {'day': 3, 'hour': 0, 'part_of_day': 'night',... | ✅ | called live ('set out and travel to Kholinar') |
-| E6 | Social checks as real dice | Persuasion rolls and shifts attitude | ✅ PASS | `campaign_arc` | 2 checks: {'error': 'game_engine not available', 'success': False} | ⚠️ | `roll_social_check` never called in any run — live path exists (prompt gap) |
+| E6 | Social checks as real dice | Persuasion rolls and shifts attitude | ✅ PASS | `campaign_arc` | 2 checks: {'error': 'game_engine not available', 'success': False} | ✅ | called live: 'try to persuade Nale to let us through' and 'intimidate the guard' both roll a real social check (a plain question correctly does not) |
 | E7 | Quests & endgame | Objective completes; endgame evaluated after an encounter | ✅ PASS | `exploration_full` | 1 check: completed: None | ✅ | called live ('that completes what we set out to do') |
 | E8 | Inventory, equip → AC/attack, mid-combat re-equip | Armor changes AC; weapon changes damage die | ✅ PASS | `exploration_full` | 2 checks: unarmoured=12 chain=16 +shield=18 | ✅ | called live ('pick up the rope and spear') |
 | E9 | Persistence round trip | 53-field character + quest/location/flags byte-identical | ✅ PASS | `exploration_full` | 2 checks: {1: 4, 2: 3, 3: 2} | ⚪ | not driven by Suite B — save/load is not a player turn |
 | E10 | 3-tier rules lookup (Cosmere → SRD → judge → gap) | Each tier reachable; unresolved logs a gap | ✅ PASS | `campaign_arc` | 3 checks: 10 datasets: ['ability_scores', 'conditions', 'damage_types... | ✅ | called live |
-| E11 | All 19 DM tools | Each invoked once via a scripted tool call (§7 gate) | ✅ PASS | `campaign_arc` | 1 check: 19 tools invoked | 🟡 | 16 of 20 DM tools reached across accumulated runs (80%); 4 never chosen — see §8 |
+| E11 | All 19 DM tools | Each invoked once via a scripted tool call (§7 gate) | ✅ PASS | `campaign_arc` | 1 check: 19 tools invoked | 🟡 | 17 of 20 DM tools reached across accumulated runs (85%); the 3 remaining are situational or served by the RAG path — see §8 |
 
 ### 4.3 Cosmere / Roshar (from the two Cosmere audits)
 
@@ -476,8 +476,8 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 > | Mechanics confirmed reached in live play | skills/7-step pipeline · rules tiers · rests · travel · inventory · Stormlight · spellcasting · combat |
 > | Worst turn latency | **28-41s** (was 665s before the timeout fix) |
 > | Tool reach, one 8-turn run | **30%** (6 of 20) |
-> | Tool reach, one 20-turn `--full-coverage` run | **60%** (12 of 20) |
-> | Tool reach, **union across accumulated runs** | **80%** (16 of 20) |
+> | Tool reach, one 20-turn `--full-coverage` run | **70%** (14 of 20) |
+> | Tool reach, **union across accumulated runs** | **85%** (17 of 20) |
 >
 > ### Reach: what a longer, targeted script buys
 >
@@ -487,14 +487,42 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 > 20-turn runs each reached 12 of 20, but not the same 12 — `--accumulate FILE` merges
 > runs and reports the union; that union is what the §4 tables' ✅ marks reflect.
 >
-> **Four tools were never reached in ANY run**, and the distinction matters:
+> **Three tools were never reached in ANY run**, and the distinction matters:
 >
 > | Tool | Why |
 > |---|---|
 > | `stabilize_dying` | **Situational.** Needs an ally actually at 0 HP; narrating a collapse does not create one, and Suite B must not fake state to make a tool fire. |
-> | `get_passive_perception` | **Situational.** Only meaningful when something is hidden. |
-> | `search_lore` | **A real prompt gap.** Never called even when the player asks a direct lore question — the prompt says *"search_lore is flavour only"* and the model obeys. |
-> | `roll_social_check` | **A real prompt gap.** The NPC pipeline has the tool; the model narrates the conversation instead of rolling for it. |
+> | `get_passive_perception` | **Situational.** Only meaningful when something may be hidden. |
+> | `search_lore` | **Redundant by architecture, not a gap.** A lore question sets `rag_needed: true` and routes to the RAG-enhanced scenario pipeline, which retrieves through `retrieve_documents` — verified live: a real Qdrant vector search with a `['lore','campaigns']` payload filter. `search_lore` is the same capability offered on the scenario path, so a model that already has retrieved context has no reason to call it again. |
+>
+> ### CORRECTION — two of these were mislabelled, and one hid a real bug
+>
+> An earlier version of this section called `search_lore` and `roll_social_check`
+> "prompt gaps". Both labels were derived from BEHAVIOUR without checking exposure, and
+> both were wrong:
+>
+> * **`roll_social_check` was never a gap.** It is exposed to the NPC agent, the prompt
+>   instructs it explicitly, and it fires correctly — verified live:
+>   `"ask Nale what happened"` → no check (it is a *question*), while
+>   `"try to persuade Nale to let us through"` and `"intimidate the guard"` both →
+>   `roll_social_check`. The Suite B probe had used a question. The system was right;
+>   the test input was wrong.
+> * **`search_lore` was a REAL BUG, and not in the prompt.** It returned
+>   `{"passages": [], "error": "403 Forbidden"}` for every query, because
+>   `huggingface_hub` reads its offline flag once at import time and the cached
+>   embedding model was therefore re-checked against a proxy that refuses egress. The
+>   same root cause killed the whole RAG path: *"Document system initialization failed"*
+>   → *"No shared document store provided"* → 21 `retrieve_documents` calls against no
+>   store in a 3-turn run. **Lore answers were coming from the model's memory rather
+>   than campaign canon, with nothing player-visible to show it.** Fixed in
+>   `agents/__init__.py` and `core/game_initialization.py`; a live turn now answers with
+>   indexed specifics ("forty feet high and eighty feet long, with nearly impenetrable
+>   carapaces").
+>
+> The lesson is the one this whole document is about: *"the model never calls X"* has at
+> least three causes — X is not exposed, X is described in a way that discourages it, or
+> **X is broken and returns nothing**. Only the middle one is a prompt gap, and it was
+> the least likely of the three here.
 >
 > ### Four production bugs Suite B found — none visible to Suite A
 >

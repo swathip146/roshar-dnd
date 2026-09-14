@@ -71,9 +71,9 @@
     },
     "rules lookup lashing": {
       "situation": "rules lookup: Lashing",
-      "uses": 2,
+      "uses": 3,
       "tiers": {
-        "judged": 2
+        "judged": 3
       },
       "first_seen": 1789357798.9657102,
       "rulings": [
@@ -92,10 +92,18 @@
             "Radiant's Handbook / Investiture Points",
             "Radiant's Handbook / Stormlight Replenishment"
           ]
+        },
+        {
+          "ruling": "The provided rules text mentions 'Lashing' in the context of 'Lashing Dice' and Windrunner abilities, but does not offer a direct definition or a general rule for what 'Lashing' *is* or *does* as a specific action or mechanic. It primarily describes a resource ('Lashing dice') related to it.",
+          "citations": [
+            "Radiant's Handbook / Lashing Dice",
+            "Radiant's Handbook / Investiture Points",
+            "Radiant's Handbook / Stormlight Replenishment"
+          ]
         }
       ],
       "promoted": false,
-      "last_seen": 1789362954.6486452
+      "last_seen": 1789405980.887402
     },
     "rules lookup regrowth": {
       "situation": "rules lookup: Regrowth",
@@ -171,15 +179,15 @@
     },
     "rules lookup stabilize dying": {
       "situation": "rules lookup: stabilize dying",
-      "uses": 2,
+      "uses": 4,
       "tiers": {
-        "narrative": 1,
-        "judged": 1
+        "narrative": 2,
+        "judged": 2
       },
       "first_seen": 1789362452.0550988,
       "rulings": [],
       "promoted": false,
-      "last_seen": 1789362452.056053
+      "last_seen": 1789405947.664574
     }
   }
 }

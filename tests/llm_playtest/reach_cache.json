@@ -13,9 +13,10 @@
     "remove_item_from_inventory",
     "roll_dice",
     "roll_skill_check",
+    "roll_social_check",
     "spend_stormlight",
     "take_rest",
     "travel_to_location"
   ],
-  "runs_merged": 5
+  "runs_merged": 6
 }

@@ -15,10 +15,10 @@
         "tier": 3,
         "followed_precedent": false
       },
-      "uses": 2,
+      "uses": 3,
       "first_ruled": 1789357798.9647841,
       "promoted": false,
-      "last_used": 1789362954.6480398
+      "last_used": 1789405980.88685
     },
     "rules lookup regrowth": {
       "situation": "rules lookup: Regrowth",
