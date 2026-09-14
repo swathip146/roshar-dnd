@@ -49,7 +49,7 @@ This document specifies **two integration suites**:
 
 | | Suite A — **Deterministic** | Suite B — **LLM playtest** |
 |---|---|---|
-| LLM calls | **none** — a scripted fake generator | real Gemini/gateway calls |
+| LLM calls | **none** — a scripted fake generator | real Gemini/the gateway calls |
 | Question answered | *Do the mechanics work end-to-end?* | *Does the agent layer actually reach them?* |
 | Determinism | seeded; identical every run | non-deterministic prose, invariant assertions |
 | Where it runs | every commit / CI | on demand, before a release |
@@ -466,7 +466,7 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 > `tests/llm_playtest/instrumentation.py` (`ToolCallRecorder` + the Suite A↔B diff),
 > `tests/llm_playtest/live_checks.py` (L1-L10).
 >
-> ### Verified with a real model (Gemini 2.5 Flash via gateway)
+> ### Verified with a real model (Gemini 2.5 Flash via the gateway)
 >
 > | Check | Result |
 > |---|---|
@@ -587,7 +587,7 @@ Additions:
 | L5 | Dice-bearing claims are backed by a real roll (narration says "you hit" only when an `AttackOutcome` exists) |
 | L6 | Combat reaches an outcome and is not left running |
 | L7 | Tool *results* reach the model (already covered by `test_tool_results_reach_the_model.py`) |
-| L8 | A degraded-LLM run (forced HTTP 500) still produces legal turns — the failure that motivated gateway |
+| L8 | A degraded-LLM run (forced HTTP 500) still produces legal turns — the failure that motivated the gateway |
 | L9 | Coverage report lists which §4 mechanics real play reached; the delta vs Suite A is the review artifact |
 | L10 | Cost and token use within budget (~4400 tokens/turn) |
 

@@ -376,15 +376,26 @@ class LLMConfigManager:
         if not UTILS_AVAILABLE:
             raise ImportError("config.llm_utils not available for Gemini generator")
 
-        # PROVIDER SWITCH (config/gateway.py). gateway is an
-        # OpenAI-compatible proxy that fronts the same Gemini models, so this is
-        # a transport choice: identical prompts, schemas and tools either way.
-        # It exists because the direct API returned HTTP 500 on every
-        # npc_combat_ai call in a live run, which hollowed out the tactical AI.
-        # Default remains the direct API; set LLM_PROVIDER=gateway or auto.
-        from config.gateway import resolve_provider
+        # OPTIONAL LOCAL GATEWAY.
+        #
+        # `config/gateway.py` is an untracked, machine-local module that can route the
+        # same Gemini models through a corporate proxy. It is deliberately NOT in the
+        # repository: it encodes one organisation's internal endpoints and credential
+        # flow, which is useless (and inappropriate) elsewhere.
+        #
+        # Absent, this falls back to the direct Gemini API — the default — so a fresh
+        # clone works with nothing but GEMINI_API_KEY. The import is guarded because an
+        # unguarded one made generator creation raise ImportError on any machine without
+        # the module, which would stop the game from starting at all.
+        provider = "gemini"
+        try:
+            from config.gateway import resolve_provider
 
-        if resolve_provider() == "gateway":
+            provider = resolve_provider()
+        except ImportError:
+            logger.debug("🔌 No local gateway module; using the direct Gemini API")
+
+        if provider == "gateway":
             from config.llm_utils import GatewayChatGenerator
 
             generator = GatewayChatGenerator(
@@ -392,7 +403,7 @@ class LLMConfigManager:
                 generation_config=generation_config,
                 response_schema=response_schema,
             )
-            logger.info(f"🔀 Using gateway transport for {config.model}")
+            logger.info(f"🔀 Using the local gateway transport for {config.model}")
             return generator
 
         from config.llm_utils import GeminiChatGenerator

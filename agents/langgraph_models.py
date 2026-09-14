@@ -14,12 +14,12 @@ so a fresh install floats to 3.x and the agents break.
 This module is the seam. It produces `langchain_google_genai.ChatGoogleGenerativeAI`
 instances configured exactly like `LLMConfigManager.create_generator()` — same
 per-agent temperature, token cap and thinking budget — and, critically, **over
-the same transport**, including the organisation gateway with its corporate CA bundle.
+the same transport**, including an optional corporate gateway with its own CA bundle.
 
 Verified against the live gateway: `langchain-google-genai` builds on
 `from google import genai` (the same current SDK the project ported to in Phase 4)
 and accepts `base_url`, so gateway works unchanged. A real call through
-`the-optional-gateway` returned 200 OK.
+the gateway returned 200 OK.
 
 Nothing here decides game rules. The LLM narrates; code adjudicates.
 """
@@ -101,7 +101,11 @@ def create_chat_model(agent_name: str = "scenario_generator",
     """
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    from config.gateway import resolve_provider
+    # Optional machine-local gateway; absent, use the direct Gemini API.
+    try:
+        from config.gateway import resolve_provider
+    except ImportError:
+        resolve_provider = lambda: "gemini"
 
     settings = _agent_settings(agent_name)
     kwargs: Dict[str, Any] = {
@@ -163,11 +167,14 @@ def _gateway_kwargs() -> Dict[str, Any]:
 
     The network terminates TLS with an internal root that is in the macOS
     keychain but not in certifi's bundle, so a default client fails with
-    CERTIFICATE_VERIFY_FAILED. `config.gateway.ssl_context()` assembles a
-    bundle from the system keychains. Verification is NEVER disabled.
+    CERTIFICATE_VERIFY_FAILED. `config.gateway.ssl_context()` assembles a bundle
+    from the system keychains. Verification is NEVER disabled.
+
+    `config/gateway.py` is machine-local and untracked, so this path only exists on
+    a host that provides it.
     """
     from config.gateway import (GATEWAY_BASE_URL, get_gateway_token,
-                                  ssl_context)
+                                ssl_context)
 
     token = get_gateway_token()
     if not token:

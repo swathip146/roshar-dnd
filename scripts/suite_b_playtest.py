@@ -145,13 +145,17 @@ def build_live_game(report: live_checks.LiveTurnReport):
     except ImportError:
         pass
 
-    from config.gateway import resolve_provider
+    # Optional machine-local gateway; absent, the direct Gemini API is used.
+    try:
+        from config.gateway import resolve_provider
 
-    provider = resolve_provider()
+        provider = resolve_provider()
+    except ImportError:
+        provider = "gemini"
     if provider != "gateway" and not (os.getenv("GEMINI_API_KEY")
                                         or os.getenv("GOOGLE_API_KEY")):
         report.check("Credentials", False,
-                     "no GEMINI_API_KEY and provider is not gateway")
+                     "no GEMINI_API_KEY and provider is not the local gateway")
         return None
     print(f"   transport: {provider}")
 

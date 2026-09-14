@@ -390,11 +390,17 @@ class GeminiChatGenerator:
             api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             # Optional corporate TLS trust. Off unless GEMINI_CA_BUNDLE is set:
             # the public API normally verifies fine, but on a network that
-            # terminates TLS with an internal root it would otherwise fail the
-            # same way gateway did. Verification is never disabled.
+            # terminates TLS with an internal root it would otherwise fail.
+            # Verification is never disabled.
+            #
+            # The bundle comes from the optional, machine-local `config/gateway`
+            # module; without it this simply uses the default trust store.
             client_args = {}
             if os.getenv("GEMINI_CA_BUNDLE"):
-                from config.gateway import ssl_context
+                try:
+                    from config.gateway import ssl_context
+                except ImportError:
+                    ssl_context = lambda: None
 
                 context = ssl_context()
                 if context is not None:
@@ -504,7 +510,7 @@ class GeminiChatGenerator:
                             if str(_role_of(m)).lower() != "system"]
             prompt = self._convert_messages_to_prompt(conversation or messages)
 
-            # Never send an empty prompt. gateway rejects it outright ("Model
+            # Never send an empty prompt. The gateway rejects it outright ("Model
             # input cannot be empty"), and the direct API accepts it and returns
             # unparseable output — a silent failure that is harder to diagnose
             # than the 400. Fail here, where the message names the real cause.
@@ -1000,10 +1006,15 @@ if __name__ == "__main__":
 @component
 class GatewayChatGenerator(GeminiChatGenerator):
     """
-    Gemini via the organisation's gateway gateway — see config/gateway.py.
+    Gemini through an optional corporate gateway — see `config/gateway.py`.
 
-    SUBCLASSES GeminiChatGenerator on purpose. gateway at
-    the-optional-gateway/api/gemini speaks the NATIVE Gemini API, so everything
+    `config/gateway.py` is machine-local and untracked: it encodes one
+    organisation's internal endpoint and credential flow, which is useless
+    elsewhere. Without it this class is simply never selected, and
+    `LLMConfigManager.create_generator` falls back to the direct Gemini API.
+
+    SUBCLASSES GeminiChatGenerator on purpose. The gateway speaks the NATIVE
+    Gemini API, so everything
     the parent already gets right applies unchanged: tool conversion and schema
     sanitising, the tools-vs-JSON-mode rule, AFC disabling, empty-response
     diagnosis, and transient-fault retry. Only the transport differs.
@@ -1018,13 +1029,13 @@ class GatewayChatGenerator(GeminiChatGenerator):
 
         from config.gateway import (GATEWAY_BASE_URL,
                                       GATEWAY_PROJECT_TOKEN_ENV,
-                                      get_gateway_token)
+                                    get_gateway_token)
 
         if not GEMINI_AVAILABLE:
             raise ImportError(
                 "google-genai package not available (pip install google-genai)")
 
-        # gateway takes a bare model name on this path; the "gcp:" prefix
+        # The gateway takes a bare model name on this path; the "gcp:" prefix
         # belongs to the OpenAI-compatible gateway, not this one.
         self.model_name = model_name
         self.generation_config = dict(generation_config or {})
@@ -1037,13 +1048,14 @@ class GatewayChatGenerator(GeminiChatGenerator):
         headers = {"Authorization": f"Bearer {get_gateway_token()}"}
         project_token = (os.getenv(GATEWAY_PROJECT_TOKEN_ENV) or "").strip()
         if project_token:
-            headers["X-gateway-Project-Token"] = project_token
+            headers["X-Gateway-Project-Token"] = project_token
 
         # TLS: the corporate network terminates with an internal root that is in
         # the macOS keychain but NOT in certifi's bundle, so the first request to
         # the correct host failed with "CERTIFICATE_VERIFY_FAILED ... self-signed
         # certificate in certificate chain". ca_bundle() assembles the trust from
-        # the system keychains (or a-vendor-certifi-package, if installed). Verification
+        # the system keychains (or a vendor certifi package, if installed).
+        # Verification
         # stays ON — we add the missing root rather than skipping the check.
         from config.gateway import ssl_context
 

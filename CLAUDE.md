@@ -331,65 +331,48 @@ downtime, multiclassing, tactical depth, full spellcasting, Phase 5 web UI).
 
 ---
 
-## LLM provider switch (Gemini direct vs gateway)
+## LLM provider
 
-Two transports reach the same Gemini models. gateway exists because the direct
-API returned HTTP 500 on every combat-AI call during a live playtest, which
-silently reduced every NPC to "attack the nearest player".
-
-```bash
-# Direct Gemini API (default) — needs GEMINI_API_KEY
-export LLM_PROVIDER=gemini
-
-# Via the organisation gateway (native Gemini API at the-optional-gateway)
-export LLM_PROVIDER=gateway
-
-# Prefer gateway when a token resolves, else fall back to the direct API
-export LLM_PROVIDER=auto
-```
-
-Credential resolution (`config/gateway.py`), all **outside** the repo:
-
-1. `GATEWAY_TOKEN` or `GATEWAY_API_KEY`
-2. **`the-sso-helper getToken`** — the path that works here; mints a fresh
-   OAuth **ID** token (not the access token) via PKCE, cached 25 minutes
-3. `gateway-lib.perform_login()` (SSO, if installed)
-4. `~/.gateway-cli` — may be stale; an expired token is detected and reported
-
-Verify the whole route in seconds (token, TLS, one real call):
+The game talks to Gemini through `config/llm_config.py`, which is the single factory
+every agent uses (`LLMConfigManager.create_generator`). One environment variable is
+required:
 
 ```bash
-./scripts/check_gateway.py
+export GEMINI_API_KEY=your_key_here     # or put it in .env
 ```
 
-**Corporate TLS**: the network terminates TLS with an internal root that is in
-the macOS keychain but not in `certifi`'s bundle, so requests fail with
-`CERTIFICATE_VERIFY_FAILED ... self-signed certificate in certificate chain`.
-`config/gateway.py` assembles a bundle from the system keychains (cached at
-`~/.cache/roshar-dnd/gateway-ca.pem`) and passes a real `SSLContext`.
-Verification is never disabled. Override with `GATEWAY_CA_BUNDLE=/path.pem`,
-or install the organisation's bundle from the internal index and it will be preferred:
-`pip install --index-url https://your-internal-index/simple a-vendor-certifi-package` (not on public PyPI). Set `GEMINI_CA_BUNDLE=1`
-to apply the same trust to the direct API.
+### Optional: routing through a corporate gateway
 
-`gateway-cli` is **not** a command on this machine — don't run `gateway-cli login`.
-The the-sso-helper mechanism is borrowed from `pkg-wiki-cli`
-(`src/pkgwiki/core/auth.py`), which reaches the same gateway. gateway rejects
-the access token, so the ID token is required.
+Some networks cannot reach the public Gemini endpoint directly. `create_generator`
+therefore looks for an **optional, untracked** module at `config/gateway.py`:
 
-`.env`, `.gateway-cli*`, `gateway_token*` and `secrets/` are gitignored. Check the
-active transport without printing any secret:
+```python
+# config/gateway.py — provide this yourself if you need a proxy.
+GATEWAY_BASE_URL = "https://your-gateway.example/api/gemini"
+GATEWAY_PROJECT_TOKEN_ENV = "GATEWAY_PROJECT_TOKEN"
 
-```bash
-python -c "from config.gateway import describe; print(describe())"
+def resolve_provider() -> str:
+    """Return "gateway" to use the proxy, or "gemini" for the direct API."""
+
+def get_gateway_token(required: bool = True) -> str | None:
+    """A bearer token for the gateway."""
+
+def ssl_context():
+    """An ssl.SSLContext trusting your internal CA, or None. Never disable
+    verification — add the missing root instead."""
 ```
 
-`GatewayChatGenerator` mirrors `GeminiChatGenerator`'s constructor, `run()`
-contract and `GeminiAPIError` failures, so switching transports needs no changes
-to agents, schemas or the retry path. Both retry 408/429/5xx with backoff and
+Then `export LLM_PROVIDER=gateway`. If the module is absent — the normal case — every
+one of those import sites is guarded and the direct Gemini API is used, so a fresh
+clone needs nothing but `GEMINI_API_KEY`.
+
+`GatewayChatGenerator` (`config/llm_utils.py`) subclasses `GeminiChatGenerator` and
+mirrors its `run()` contract and error types, so switching transports requires no
+changes to agents, schemas or the retry path. Both retry 408/429/5xx with backoff and
 deliberately do NOT retry 400/403.
 
----
+`.env`, `config/gateway.py`, `*_token*` and `secrets/` are gitignored: credentials and
+site-specific endpoints stay on the machine that owns them.
 
 ## Models & Dependencies
 

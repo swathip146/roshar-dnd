@@ -1621,9 +1621,9 @@ framework preference.
 
 One assumption of mine was **wrong and worth recording**: I expected
 `langchain-google-genai` to drag in the deprecated `google.generativeai` and break
-the gateway CA route. It does not — it uses `from google import genai`, the same
+the the gateway CA route. It does not — it uses `from google import genai`, the same
 SDK Phase 4 ported to, and accepts `base_url`. Three real calls through
-`the-optional-gateway` returned 200 OK (plain text, structured output, tool
+`the optional gateway` returned 200 OK (plain text, structured output, tool
 calling) with the tuned per-agent settings visibly applied.
 
 Interface and NPC agents are migrated behind `LLM_AGENT_BACKEND` (default
@@ -1776,7 +1776,7 @@ defects invisible to 1,200 unit tests, so this run is not a formality.
 | `tests/test_rules_judge_wiring.py` | 17 tests. D5 Tier 3 — asserting the WIRING, since four passing suites failed to establish exactly that |
 | `tests/test_langgraph_agents.py` | 40 tests. The agent-layer seam, the backend switch, and the drop-in contract |
 | `components/campaign_bible.py` | 0.19. Derived from the campaign schema + live state, not hand-authored |
-| `agents/langgraph_models.py` | LangChain chat models over the same transport, gateway included |
+| `agents/langgraph_models.py` | LangChain chat models over the same transport, the gateway included |
 | `agents/langgraph_dm_agents.py` | Drop-in LangGraph agents; `LLM_AGENT_BACKEND` selects |
 | `scripts/derive_cr_bands.py` | Regenerates the CR HP/AC bands from the vendored SRD monsters |
 
@@ -1788,7 +1788,7 @@ de804a9  Fix the all-misses combat: entities were never really on the grid
 3b1908d  Wire death saves into combat; persist HP; stop the playtest self-corrupting
 f5ca08a  Persist defeat as an ending; hold generated monsters to their CR budget
 23e3eda  Add a deterministic no-LLM game-flow suite
-ff6fca4  Add the LangGraph agent-layer seam, proven over gateway
+ff6fca4  Add the LangGraph agent-layer seam, proven over the gateway
 a3550ee  Migrate the interface and NPC agents to LangGraph behind an env switch
 639daa8  Fix 0.15: make Qdrant payload filters real instead of a no-op
 422bf0b  Wire the D5 Tier-3 rules judge — the last unwired subsystem
@@ -1812,7 +1812,7 @@ lesson: **claims about a codebase are hypotheses until executed.**
 |---|---|
 | CR 1/4 caps at AC 13 | The MM goblin is **AC 15** (leather + shield). An existing test caught it. Bands are now derived from the 334 vendored SRD monsters, not from memory |
 | 18 HP is out of band for CR 1/4 | **It is not** — a Dretch has exactly 18, a Zombie 22. They pay with AC 11 and AC 8. CR is a budget across BOTH numbers, hence the HP×AC term |
-| `langchain-google-genai` uses the deprecated SDK and will break gateway | It uses `from google import genai` — the same SDK Phase 4 ported to — and accepts `base_url`. Three real 200 OKs through the gateway |
+| `langchain-google-genai` uses the deprecated SDK and will break the gateway | It uses `from google import genai` — the same SDK Phase 4 ported to — and accepts `base_url`. Three real 200 OKs through the gateway |
 | `[fire]` damage-type annotations are unsupported | They work. Exploding and reroll notation are the actual gap |
 | `dnd_engine` is "~12% used", so absorbing it is cheap | `Entity` transitively pulls in every block plus `values.py` (2,359 lines) + `modifiers.py` (997) + `conditions.py` (734). **No clean subset exists** — it is ~11,273 lines |
 | `test_full_combat_session` is test-harness wiring | It was reporting a **real 496-round stalemate**. Recorded as environmental here for two audits |
@@ -1857,7 +1857,7 @@ asked again, every step, until `max_agent_steps` ran out with no scene written a
 the player received a canned fallback. `_convert_messages_to_gemini` carried the
 identical `if not content: continue`.
 
-Proven live over gateway after the fix: the model calls `get_world_state` **once**,
+Proven live over the gateway after the fix: the model calls `get_world_state` **once**,
 receives the result, and answers *"The current location is Kholinar and the day is
 3."*
 

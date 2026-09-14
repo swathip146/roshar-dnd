@@ -8,7 +8,7 @@ so a fresh install floats to 3.x and the agents break — the build is not
 reproducible today.
 
 These tests cover the seam WITHOUT calling the network. The live route is proven
-separately (a real call through the-optional-gateway returned 200 OK for plain
+separately (a real call through the optional gateway returned 200 OK for plain
 text, structured output and tool calling); what matters here is that the
 configuration handed to the model is correct, because that is where the
 previously-dead tuned settings hid.
@@ -36,7 +36,7 @@ class TestTheDependenciesArePresent:
     def test_langchain_uses_the_current_google_sdk(self):
         """
         Phase 4 ported off the deprecated `google.generativeai`. If LangChain
-        pulled the old SDK back in, gateway's transport and CA bundle would not
+        pulled the old SDK back in, the gateway's transport and CA bundle would not
         apply — so pin the expectation.
         """
         import inspect
@@ -48,7 +48,7 @@ class TestTheDependenciesArePresent:
             "langchain-google-genai no longer uses the current google-genai SDK")
 
     def test_the_model_accepts_a_custom_base_url(self):
-        """gateway is reachable only if base_url is supported."""
+        """The gateway is reachable only if base_url is supported."""
         import inspect
 
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -188,7 +188,9 @@ class TestTheTransportIsPreserved:
 
         kwargs = module._gateway_kwargs()
         assert kwargs["additional_headers"]["Authorization"] == "Bearer test-token"
-        assert "gateway" in kwargs["base_url"]
+        # Assert the SHAPE, not a hostname: the endpoint lives in the untracked,
+        # machine-local `config/gateway.py`, so a tracked test must not encode it.
+        assert kwargs["base_url"].startswith("https://"), kwargs["base_url"]
 
     def test_a_missing_token_fails_loudly(self, monkeypatch):
         """Never silently fall back to the direct API — that hides an outage."""

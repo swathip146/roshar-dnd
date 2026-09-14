@@ -571,7 +571,7 @@ class TestPlainDictMessagesAreSupported:
     npc_combat_ai calls llm.run(messages=[{"role": "user", "content": prompt}]).
 
     A dict has no .text/.content ATTRIBUTES, so _convert_messages_to_prompt
-    produced an EMPTY string and the request carried no prompt at all. gateway
+    produced an EMPTY string and the request carried no prompt at all. the gateway
     rejected it outright:
 
         400 INVALID_ARGUMENT ... Model input cannot be empty
@@ -625,7 +625,7 @@ class TestPlainDictMessagesAreSupported:
 
 class TestEmptyPromptsAreRefused:
     """
-    Never send an empty prompt. gateway 400s on it; the direct API accepts it
+    Never send an empty prompt. The gateway 400s on it; the direct API accepts it
     and returns garbage, which is the harder failure to diagnose. Failing here
     names the real cause.
     """

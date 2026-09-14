@@ -196,17 +196,20 @@ external/
 #data/rules/rulings.json
 game_saves/turns.sqlite*
 
-# gateway / gateway-cli credentials — treated exactly like GEMINI_API_KEY.
-# The real token normally lives in ~/.gateway-cli (mode 600, OUTSIDE this repo),
+# Local LLM gateway: site-specific endpoints and credentials.
+# Treated exactly like GEMINI_API_KEY — these describe ONE
+# organisation's internal network and must never be published.
+# `config.llm_config.create_generator` guards every import of this
+# module, so a clone WITHOUT it works normally on the direct API.
+config/gateway.py
+scripts/check_gateway.py
+tests/test_gateway_provider.py
+*_token
+*_token.*
+*_token_*
+secrets/
 # but these patterns make sure a local copy or an export script can never be
 # committed by accident.
-.gateway-cli
-.gateway-cli*
-*.gateway-cli
-gateway-cli_token*
-gateway_token*
-.gateway
-.gateway*
 secrets/
 
 # Source rulebooks/campaign PDFs and images (149M, 191 files) — shared via Drive

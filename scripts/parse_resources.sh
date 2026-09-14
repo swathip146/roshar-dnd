@@ -18,7 +18,7 @@
 # Usage:
 #   ./scripts/parse_resources.sh                 # parse everything (skips done)
 #   ./scripts/parse_resources.sh --force         # re-parse even if output exists
-#   ./scripts/parse_resources.sh --captioning    # enable VLM captioning (needs gateway)
+#   ./scripts/parse_resources.sh --captioning    # enable VLM captioning (needs an LLM endpoint)
 #   ./scripts/parse_resources.sh --only rules    # only resources/rules/**
 #   ./scripts/parse_resources.sh --dry-run       # list what would be parsed
 #   ./scripts/parse_resources.sh -j 4            # 4 parallel workers
