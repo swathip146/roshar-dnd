@@ -74,19 +74,39 @@ class TestE1SkillChecks:
                         f"unprof={unproficient.get('character_modifier')}")
 
     def test_easy_profile_is_kinder_than_raw(self, ledger):
-        """E1: the PolicyEngine profile must actually move outcomes."""
+        """E1: the PolicyEngine profile must actually move outcomes.
+
+        SEEDED IMMEDIATELY BEFORE EACH ARM, not just at engine construction. The
+        vendored engine rolls through the module-level `random`, so passing
+        `build_engine(seed=...)` only fixes the stream at BUILD time — by the first
+        roll the position depends on whatever ran earlier on that xdist worker. The two
+        arms therefore sampled different streams and EASY could measure below RAW.
+        Observed as a real intermittent failure in a full parallel run while passing
+        alone, which is this file's second instance of the same defect (see
+        `tests/test_tool_proficiency.py`, fixed the same way).
+
+        Re-seeding with the SAME value before each arm makes the comparison paired: both
+        profiles see an identical d20 sequence, so any difference is the profile.
+        """
+        import random as _random
+
         from components.game_engine import PolicyProfile
 
+        TRIALS = 200
+
         def success_rate(profile) -> float:
+            _random.seed(555)                      # identical stream for both arms
             engine = build_engine(policy_profile=profile, seed=555)
             wins = sum(bool(skill_check(engine, "aggi", "athletics", dc=18)
-                            .get("success")) for _ in range(200))
-            return wins / 200
+                            .get("success")) for _ in range(TRIALS))
+            return wins / TRIALS
 
         raw = success_rate(PolicyProfile.RAW)
         easy = success_rate(PolicyProfile.EASY)
 
-        assert easy >= raw, f"EASY ({easy:.0%}) was harder than RAW ({raw:.0%})"
+        assert easy >= raw, (
+            f"EASY ({easy:.0%}) was harder than RAW ({raw:.0%}) over {TRIALS} paired "
+            f"trials at seed 555 — the policy profile is not scaling the DC")
         ledger.mechanic("E1:policy_scaling", f"RAW={raw:.0%} EASY={easy:.0%}")
 
     def test_a_missing_tool_removes_the_proficiency_bonus(self, ledger):
