@@ -250,6 +250,23 @@ generated from the run rather than written by hand:
 | **Suite A result** | `✅ PASS` = a test exercised this mechanic and asserted an observable effect in the last full run (`146 passed`, exit 0). No row is marked from a docstring or an intention. |
 | **Test file** | Which file in `tests/integration/` holds the assertions, so a failure is one `pytest` away. |
 | **Evidence recorded at runtime** | The number of distinct checks, plus a real value the run observed (an HP delta, a hit count, a resource total). Taken verbatim from the coverage ledger. |
+| **Suite B (real LLM)** | Whether a REAL model drove this mechanic in a live run — see the key below. |
+| **Suite B evidence** | The player phrasing that provoked it, or why it was not reached. |
+
+**The Suite B column key:**
+
+| | Meaning |
+|---|---|
+| ✅ | A real model drove this mechanic in a live run, measured by `ToolCallRecorder`. |
+| 🟡 | Reached indirectly, or only via a related tool — stated per row. |
+| ⚪ | **Not covered by Suite B by design.** Suite B drives the exploration/scenario pipeline through `play_turn()`; combat internals, level-up maths and data assertions are Suite A's scope. A ⚪ is *not* a gap — the mechanic is `✅ PASS` in Suite A. |
+| ⚠️ | **A real gap.** The mechanic has a live path and the model still never chose it. Prompt work, listed in §8. |
+
+Suite B is **nondeterministic**: the model picks different tools on different runs (two
+20-turn runs each reached 12 of 20, but not the same 12). The ✅ marks therefore reflect
+the **union across accumulated runs** — 16 of 20 DM tools, 80% — recorded in
+`tests/llm_playtest/reach_cache.json` via `--accumulate`. A single run understates reach,
+so "never reached in ANY run" is the honest measure of a genuinely unreachable tool.
 
 **`✅ PASS` means integration-tested, not unit-tested.** Each row runs against real
 `GameEngine` / `CharacterManager` / vendored-engine objects with only the LLM faked, and
@@ -263,82 +280,82 @@ Rows in §9 are **deliberately absent** from these tables — there is no code t
 
 ### 4.1 Combat (from `AUDIT_COMBAT.md`)
 
-| # | Mechanic | Suite A assertion | Suite A result | Test file | Evidence recorded at runtime |
-|---|---|---|---|---|---|
-| C1 | Attack rolls, hit/miss/crit, AC | Over N seeded attacks: hits and misses both occur; crit on natural 20 | ✅ PASS | `combat_full` | 2 checks: 26/60 hit vs AC 17 |
-| C2 | Damage rolls & all 13 damage types | Damage lands in `[min,max]` per type | ✅ PASS | `combat_full` | 1 check: 26 hits in 4..11 |
-| C3 | Resistance / vulnerability / immunity | Zombie poison immunity → 0; resistance halves; vulnerability doubles | ✅ PASS | `combat_full` | 4 checks: slashing stayed 10 |
-| C4 | Temp HP | Absorbs first, then real HP | ✅ PASS | `tactical_full` | 3 checks: 7 temp HP soaked 5 -> 2 left, real damage still 8 |
-| C5 | Advantage / disadvantage | Seeded hit-rate delta ≥ +15pp vs base (measured +25.2pp) — guards the patched no-op | ✅ PASS | `combat_full` | 1 check: base=63.5% adv=85.8% delta=+22.3% |
-| C6 | Action economy (action/bonus/reaction/move) | 2nd attack refused; reset restores | ✅ PASS | `combat_full` | 1 check: 2nd attack refused; reset restored it |
-| C7 | All 28 offerable registry actions | Each executes once and consumes its stated cost (§7 gate) | ✅ PASS | `combat_full` | 1 check: 28 actions |
-| C8 | Grapple / Shove / Help / Disengage / Hide / Search / Ready / Two-weapon | Contested checks resolve; Help grants advantage; Disengage suppresses an OA | ✅ PASS | `tactical_full` | 3 checks: 7/30 succeeded vs an ogre |
-| C9 | Spellcasting: slots, upcast, cantrips, save DC, attack bonus, concentration, ritual, AoE | Slot decrements; upcast scales; concentration breaks on damage; AoE hits all in radius, each saving | ✅ PASS | `combat_full` | 5 checks: {1: 4, 2: 3, 3: 2} -> {1: 3, 2: 3, 3: 2} |
-| C10 | All 15 SRD conditions | Each applies and produces its mechanical effect | ✅ PASS | `combat_full` | 2 checks: Petrified + Exhaustion applied |
-| C11 | Death saves, stabilizing, unconscious-at-0 | 3 fails → dead; nat 20 → 1 HP; player at 0 ≠ dead | ✅ PASS | `combat_full` | 5 checks: dead after failures: {'roll': 2, 'dead': True, 'stable': Fa... |
-| C12 | Initiative & turn order | Descending order; wraps to a new round | ✅ PASS | `tactical_full` | 2 checks: [('aggi', 16), ('gob1', 9), ('gob2', 4)] |
-| C13 | Grid, distance, movement cost, difficult terrain | Difficult terrain halves reachable distance | ✅ PASS | `tactical_full` | 4 checks: ~ squares cost extra movement |
-| C14 | Cover (+2/+5 AC), flanking | Cover raises effective AC; flanking grants advantage | ✅ PASS | `tactical_full` | 5 checks: ally off-axis grants no flank |
-| C15 | Opportunity attacks | Leaving reach triggers one; consumes the reaction; only once/round | ✅ PASS | `tactical_full` | 3 checks: provoke -> spend -> refused -> reset -> provoke |
-| C16 | Reach & ranged weapons | Reach attacks at 10 ft; ranged not blocked at distance | ✅ PASS | `tactical_full` | 2 checks: 30 ft longbow -> AttackOutcome.HIT |
-| C17 | Multiattack (148/334 monsters) | A 2-attack monster rolls exactly twice per turn | ✅ PASS | `tactical_full` | 3 checks: {'sequence': [{'name': 'Attack', 'count': 2, 'type': 'melee... |
-| C18 | Class features — 24 across 12 classes | Rage/Second Wind/Action Surge selectable; Sneak Attack & Divine Smite fire on hit; passives auto-apply | ✅ PASS | `tactical_full` | 5 checks: Fighter L5: ['Second Wind', 'Action Surge', 'Fighting Style... |
-| C19 | Monster senses (darkvision/blindsight/truesight) | Sense range gates visibility | ✅ PASS | `tactical_full` | 2 checks: senses block present for a darkvision monster |
-| C20 | CR / XP budget / encounter trim | Over-budget encounter is trimmed by dropping heads | ✅ PASS | `tactical_full` | 4 checks: legal CR 0.25 block (AC 16, HP 13) passed through untouched |
+| # | Mechanic | Suite A assertion | Suite A result | Test file | Evidence recorded at runtime | Suite B (real LLM) | Suite B evidence |
+|---|---|---|---|---|---|---|---|
+| C1 | Attack rolls, hit/miss/crit, AC | Over N seeded attacks: hits and misses both occur; crit on natural 20 | ✅ PASS | `combat_full` | 2 checks: 26/60 hit vs AC 17 | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C2 | Damage rolls & all 13 damage types | Damage lands in `[min,max]` per type | ✅ PASS | `combat_full` | 1 check: 26 hits in 4..11 | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C3 | Resistance / vulnerability / immunity | Zombie poison immunity → 0; resistance halves; vulnerability doubles | ✅ PASS | `combat_full` | 4 checks: slashing stayed 10 | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C4 | Temp HP | Absorbs first, then real HP | ✅ PASS | `tactical_full` | 3 checks: 7 temp HP soaked 5 -> 2 left, real damage still 8 | ⚪ | not driven by Suite B — temp HP is applied inside combat |
+| C5 | Advantage / disadvantage | Seeded hit-rate delta ≥ +15pp vs base (measured +25.2pp) — guards the patched no-op | ✅ PASS | `combat_full` | 1 check: base=63.5% adv=85.8% delta=+22.3% | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C6 | Action economy (action/bonus/reaction/move) | 2nd attack refused; reset restores | ✅ PASS | `combat_full` | 1 check: 2nd attack refused; reset restored it | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C7 | All 28 offerable registry actions | Each executes once and consumes its stated cost (§7 gate) | ✅ PASS | `combat_full` | 1 check: 28 actions | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C8 | Grapple / Shove / Help / Disengage / Hide / Search / Ready / Two-weapon | Contested checks resolve; Help grants advantage; Disengage suppresses an OA | ✅ PASS | `tactical_full` | 3 checks: 7/30 succeeded vs an ogre | ⚪ | not driven by Suite B — standard actions are chosen inside a combat turn |
+| C9 | Spellcasting: slots, upcast, cantrips, save DC, attack bonus, concentration, ritual, AoE | Slot decrements; upcast scales; concentration breaks on damage; AoE hits all in radius, each saving | ✅ PASS | `combat_full` | 5 checks: {1: 4, 2: 3, 3: 2} -> {1: 3, 2: 3, 3: 2} | ✅ | called live ('heal my wounds with Regrowth') |
+| C10 | All 15 SRD conditions | Each applies and produces its mechanical effect | ✅ PASS | `combat_full` | 2 checks: Petrified + Exhaustion applied | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C11 | Death saves, stabilizing, unconscious-at-0 | 3 fails → dead; nat 20 → 1 HP; player at 0 ≠ dead | ✅ PASS | `combat_full` | 5 checks: dead after failures: {'roll': 2, 'dead': True, 'stable': Fa... | ⚠️ | `stabilize_dying` never called in any run — live path exists (prompt gap) |
+| C12 | Initiative & turn order | Descending order; wraps to a new round | ✅ PASS | `tactical_full` | 2 checks: [('aggi', 16), ('gob1', 9), ('gob2', 4)] | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C13 | Grid, distance, movement cost, difficult terrain | Difficult terrain halves reachable distance | ✅ PASS | `tactical_full` | 4 checks: ~ squares cost extra movement | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C14 | Cover (+2/+5 AC), flanking | Cover raises effective AC; flanking grants advantage | ✅ PASS | `tactical_full` | 5 checks: ally off-axis grants no flank | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C15 | Opportunity attacks | Leaving reach triggers one; consumes the reaction; only once/round | ✅ PASS | `tactical_full` | 3 checks: provoke -> spend -> refused -> reset -> provoke | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C16 | Reach & ranged weapons | Reach attacks at 10 ft; ranged not blocked at distance | ✅ PASS | `tactical_full` | 2 checks: 30 ft longbow -> AttackOutcome.HIT | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C17 | Multiattack (148/334 monsters) | A 2-attack monster rolls exactly twice per turn | ✅ PASS | `tactical_full` | 3 checks: {'sequence': [{'name': 'Attack', 'count': 2, 'type': 'melee... | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C18 | Class features — 24 across 12 classes | Rage/Second Wind/Action Surge selectable; Sneak Attack & Divine Smite fire on hit; passives auto-apply | ✅ PASS | `tactical_full` | 5 checks: Fighter L5: ['Second Wind', 'Action Surge', 'Fighting Style... | ⚪ | not driven by Suite B — class features are selected inside combat |
+| C19 | Monster senses (darkvision/blindsight/truesight) | Sense range gates visibility | ✅ PASS | `tactical_full` | 2 checks: senses block present for a darkvision monster | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
+| C20 | CR / XP budget / encounter trim | Over-budget encounter is trimmed by dropping heads | ✅ PASS | `tactical_full` | 4 checks: legal CR 0.25 block (AC 16, HP 13) passed through untouched | ⚪ | not driven by Suite B — combat internals are Suite A's scope; Suite B verifies a fight RESOLVES and reports (see A-1 row) |
 
 ### 4.2 Character, progression, non-combat (from `AUDIT_CHARACTER_AND_NONCOMBAT.md`)
 
-| # | Mechanic | Suite A assertion | Suite A result | Test file | Evidence recorded at runtime |
-|---|---|---|---|---|---|
-| P1 | XP award & level 1→20 | HP, proficiency, hit dice, features update at each level | ✅ PASS | `exploration_full` | 2 checks: L20 hp=162 prof=+6 |
-| P2 | ASI at 4/8/12/16/19 | Ability total rises exactly at those levels | ✅ PASS | `exploration_full` | 2 checks: ability total held at 76 |
-| P3 | Extra Attack → multiattack | Fighter 5 gets 2 attacks in a real turn | ✅ PASS | `tactical_full` | 1 check: Fighter L4->L5: 1 -> 2 attacks/turn |
-| P4 | Proficiency bonus by level | +2 → +6, counted once (guards the double-count regression) | ✅ PASS | `exploration_full` | 1 check: {1: 2, 4: 2, 5: 3, 8: 3, 9: 4, 12: 4, 13: 5, 16: 5, 17: 6,... |
-| E1 | 18 skills, 7-step pipeline, DC scaling | RAW/HOUSE/EASY change outcome distribution | ✅ PASS | `exploration_full` | 4 checks: roll=2 success=False |
-| E2 | Expertise, tool gate, passive perception | Expertise doubles; missing tool blocks; passive used by Hide | ✅ PASS | `exploration_full` | 2 checks: gated=2 ungated=4 |
-| E3 | Encumbrance | Speed penalty in combat **and** disadvantage on STR/DEX/CON checks | ✅ PASS | `exploration_full` | 2 checks: {'encumbrance_level': 'normal', 'speed_penalty': 0, 'has_di... |
-| E4 | Rests | Short: hit dice; long: HP, slots, Stormlight, features, exhaustion −1 | ✅ PASS | `exploration_full` | 5 checks: hp=18 result={'healed': 8, 'hit_dice_spent': 1, 'hit_dice_r... |
-| E5 | Travel, clock, highstorms | Travel advances the clock; highstorms cycle | ✅ PASS | `campaign_arc` | 3 checks: after 2 days: {'day': 3, 'hour': 0, 'part_of_day': 'night',... |
-| E6 | Social checks as real dice | Persuasion rolls and shifts attitude | ✅ PASS | `campaign_arc` | 2 checks: {'error': 'game_engine not available', 'success': False} |
-| E7 | Quests & endgame | Objective completes; endgame evaluated after an encounter | ✅ PASS | `exploration_full` | 1 check: completed: None |
-| E8 | Inventory, equip → AC/attack, mid-combat re-equip | Armor changes AC; weapon changes damage die | ✅ PASS | `exploration_full` | 2 checks: unarmoured=12 chain=16 +shield=18 |
-| E9 | Persistence round trip | 53-field character + quest/location/flags byte-identical | ✅ PASS | `exploration_full` | 2 checks: {1: 4, 2: 3, 3: 2} |
-| E10 | 3-tier rules lookup (Cosmere → SRD → judge → gap) | Each tier reachable; unresolved logs a gap | ✅ PASS | `campaign_arc` | 3 checks: 10 datasets: ['ability_scores', 'conditions', 'damage_types... |
-| E11 | All 19 DM tools | Each invoked once via a scripted tool call (§7 gate) | ✅ PASS | `campaign_arc` | 1 check: 19 tools invoked |
+| # | Mechanic | Suite A assertion | Suite A result | Test file | Evidence recorded at runtime | Suite B (real LLM) | Suite B evidence |
+|---|---|---|---|---|---|---|---|
+| P1 | XP award & level 1→20 | HP, proficiency, hit dice, features update at each level | ✅ PASS | `exploration_full` | 2 checks: L20 hp=162 prof=+6 | ✅ | called live ('the party has earned it') |
+| P2 | ASI at 4/8/12/16/19 | Ability total rises exactly at those levels | ✅ PASS | `exploration_full` | 2 checks: ability total held at 76 | ⚪ | not driven by Suite B — ASI fires inside level-up, not a tool call |
+| P3 | Extra Attack → multiattack | Fighter 5 gets 2 attacks in a real turn | ✅ PASS | `tactical_full` | 1 check: Fighter L4->L5: 1 -> 2 attacks/turn | ⚪ | not driven by Suite B — Extra Attack is granted at level-up |
+| P4 | Proficiency bonus by level | +2 → +6, counted once (guards the double-count regression) | ✅ PASS | `exploration_full` | 1 check: {1: 2, 4: 2, 5: 3, 8: 3, 9: 4, 12: 4, 13: 5, 16: 5, 17: 6,... | ⚪ | not driven by Suite B — proficiency is computed, never a tool call |
+| E1 | 18 skills, 7-step pipeline, DC scaling | RAW/HOUSE/EASY change outcome distribution | ✅ PASS | `exploration_full` | 4 checks: roll=2 success=False | ✅ | called live in most runs |
+| E2 | Expertise, tool gate, passive perception | Expertise doubles; missing tool blocks; passive used by Hide | ✅ PASS | `exploration_full` | 2 checks: gated=2 ungated=4 | ⚠️ | `get_passive_perception` never called in any run — live path exists (prompt gap) |
+| E3 | Encumbrance | Speed penalty in combat **and** disadvantage on STR/DEX/CON checks | ✅ PASS | `exploration_full` | 2 checks: {'encumbrance_level': 'normal', 'speed_penalty': 0, 'has_di... | 🟡 | reached indirectly: encumbrance is read by get_character_state, never driven on its own |
+| E4 | Rests | Short: hit dice; long: HP, slots, Stormlight, features, exhaustion −1 | ✅ PASS | `exploration_full` | 5 checks: hp=18 result={'healed': 8, 'hit_dice_spent': 1, 'hit_dice_r... | ✅ | called live ('make camp and take a long rest') |
+| E5 | Travel, clock, highstorms | Travel advances the clock; highstorms cycle | ✅ PASS | `campaign_arc` | 3 checks: after 2 days: {'day': 3, 'hour': 0, 'part_of_day': 'night',... | ✅ | called live ('set out and travel to Kholinar') |
+| E6 | Social checks as real dice | Persuasion rolls and shifts attitude | ✅ PASS | `campaign_arc` | 2 checks: {'error': 'game_engine not available', 'success': False} | ⚠️ | `roll_social_check` never called in any run — live path exists (prompt gap) |
+| E7 | Quests & endgame | Objective completes; endgame evaluated after an encounter | ✅ PASS | `exploration_full` | 1 check: completed: None | ✅ | called live ('that completes what we set out to do') |
+| E8 | Inventory, equip → AC/attack, mid-combat re-equip | Armor changes AC; weapon changes damage die | ✅ PASS | `exploration_full` | 2 checks: unarmoured=12 chain=16 +shield=18 | ✅ | called live ('pick up the rope and spear') |
+| E9 | Persistence round trip | 53-field character + quest/location/flags byte-identical | ✅ PASS | `exploration_full` | 2 checks: {1: 4, 2: 3, 3: 2} | ⚪ | not driven by Suite B — save/load is not a player turn |
+| E10 | 3-tier rules lookup (Cosmere → SRD → judge → gap) | Each tier reachable; unresolved logs a gap | ✅ PASS | `campaign_arc` | 3 checks: 10 datasets: ['ability_scores', 'conditions', 'damage_types... | ✅ | called live |
+| E11 | All 19 DM tools | Each invoked once via a scripted tool call (§7 gate) | ✅ PASS | `campaign_arc` | 1 check: 19 tools invoked | 🟡 | 16 of 20 DM tools reached across accumulated runs (80%); 4 never chosen — see §8 |
 
 ### 4.3 Cosmere / Roshar (from the two Cosmere audits)
 
-| # | Mechanic | Suite A assertion | Suite A result | Test file | Evidence recorded at runtime |
-|---|---|---|---|---|---|
-| R1 | All 10 surges via `cast_surge` | Each surge resolves for each order that holds it | ✅ PASS | `cosmere_full` | 2 checks: 10/10 surges dispatched |
-| R2 | 9 playable orders × 2 surges | Every order can invoke both; **Illumination gate = Lightweaver + Truthwatcher, not Elsecaller** | ✅ PASS | `cosmere_full` | 1 check: 9 orders verified |
-| R3 | `cast_art` over 305 arts | A sample per order compiles and resolves; IP charged; refund on no-effect | ✅ PASS | `cosmere_full` | 4 checks: shallan uses Art: Absorb Essence (Absorb Essence) |
-| R4 | Cantrips are free | IP unchanged after a cantrip — guards the "charged for a free ability" regression | ✅ PASS | `cosmere_full` | via `G5:cantrips_free` + `G5:cantrip_free_at_ledger`: 10 surges all cost 0; cantrip free with an empty pool |
-| R5 | Investiture Points ledger | Spend → refuse when short → long-rest refresh | ✅ PASS | `cosmere_full` | 3 checks: 4 -> 2 -> 0, then refused: insufficient IP: need 2, have 0 |
-| R6 | Lashing Dice (Windrunner) + 26 maneuvers | Dice spent and restored; maneuvers resolve | ✅ PASS | `cosmere_full` | 5 checks: 3 spent, further spend refused |
-| R7 | Long-rest Stormlight intake gate | Below level×5 sapphire marks → no refill | ✅ PASS | `cosmere_full` | 1 check: L1=5 L5=25 |
-| R8 | Polestone crack/drain | Cost paid even when the art fails | ✅ PASS | `campaign_arc` | 2 checks: failed art still consumed the stone: untouched |
-| R9 | Shardblade | Real attack roll vs AC (can miss); level-scaled die; Third-Ideal gate | ✅ PASS | `cosmere_full` | 3 checks: ideal 1 -> success=False error=None |
-| R10 | Ideals / oaths | Advancing an Ideal ungates its abilities | ✅ PASS | `campaign_arc` | 2 checks: reached ideal 3 |
-| R11 | 12 interpreter node types | Each node type executed at least once | ✅ PASS | `cosmere_full` | 3 checks: ['teleport', 'summon', 'create_object', 'reaction'] each ra... |
+| # | Mechanic | Suite A assertion | Suite A result | Test file | Evidence recorded at runtime | Suite B (real LLM) | Suite B evidence |
+|---|---|---|---|---|---|---|---|
+| R1 | All 10 surges via `cast_surge` | Each surge resolves for each order that holds it | ✅ PASS | `cosmere_full` | 2 checks: 10/10 surges dispatched | ⚪ | not driven by Suite B — cast_surge is a combat action |
+| R2 | 9 playable orders × 2 surges | Every order can invoke both; **Illumination gate = Lightweaver + Truthwatcher, not Elsecaller** | ✅ PASS | `cosmere_full` | 1 check: 9 orders verified | ⚪ | not driven by Suite B — order gating is checked in Suite A |
+| R3 | `cast_art` over 305 arts | A sample per order compiles and resolves; IP charged; refund on no-effect | ✅ PASS | `cosmere_full` | 4 checks: shallan uses Art: Absorb Essence (Absorb Essence) | ⚪ | not driven by Suite B — cast_art is a combat action |
+| R4 | Cantrips are free | IP unchanged after a cantrip — guards the "charged for a free ability" regression | ✅ PASS | `cosmere_full` | via `G5:cantrips_free` + `G5:cantrip_free_at_ledger`: 10 surges all cost 0; cantrip free with an empty pool | 🟡 | cantrip cost not exercised live; the IP economy was reached via spend_stormlight |
+| R5 | Investiture Points ledger | Spend → refuse when short → long-rest refresh | ✅ PASS | `cosmere_full` | 3 checks: 4 -> 2 -> 0, then refused: insufficient IP: need 2, have 0 | ✅ | called live ('draw in Stormlight and lash upward') |
+| R6 | Lashing Dice (Windrunner) + 26 maneuvers | Dice spent and restored; maneuvers resolve | ✅ PASS | `cosmere_full` | 5 checks: 3 spent, further spend refused | ⚪ | not driven by Suite B — Lashing Dice are spent inside combat |
+| R7 | Long-rest Stormlight intake gate | Below level×5 sapphire marks → no refill | ✅ PASS | `cosmere_full` | 1 check: L1=5 L5=25 | ✅ | called live ('make camp and take a long rest') |
+| R8 | Polestone crack/drain | Cost paid even when the art fails | ✅ PASS | `campaign_arc` | 2 checks: failed art still consumed the stone: untouched | ⚪ | not driven by Suite B — polestones are consumed by an art |
+| R9 | Shardblade | Real attack roll vs AC (can miss); level-scaled die; Third-Ideal gate | ✅ PASS | `cosmere_full` | 3 checks: ideal 1 -> success=False error=None | ⚪ | not driven by Suite B — Shardblade swings are a combat action |
+| R10 | Ideals / oaths | Advancing an Ideal ungates its abilities | ✅ PASS | `campaign_arc` | 2 checks: reached ideal 3 | ⚪ | not driven by Suite B — Ideals advance through a DM decision |
+| R11 | 12 interpreter node types | Each node type executed at least once | ✅ PASS | `cosmere_full` | 3 checks: ['teleport', 'summon', 'create_object', 'reaction'] each ra... | ⚪ | not driven by Suite B — interpreter nodes execute inside an art |
 
 ### 4.4 Adversarial regression guards
 
 These encode bugs the audits record as *fixed*. Each would have been caught by one
 assertion, and each is cheap to re-break:
 
-| # | Guard | Suite A result | Test file | Evidence recorded at runtime |
-|---|---|---|---|---|
-| G1 | Every `ACTION_REGISTRY` entry is offerable to *some* legal actor (the `cast_spell`/`spell_name` class of bug) | ✅ PASS | `combat_full` | 1 check: 28 offerable |
-| G2 | No module in `components/`, `agents/`, `core/`, `orchestrator/` defines a public callable with zero non-test callers (the reachability test, automated) | ✅ PASS | `campaign_arc` | 1 check: 5 previously-unreachable symbols all wired |
-| G3 | Advantage delta ≥ +15pp (the no-op patch) | ✅ PASS | `combat_full` | via `C5:advantage`: seeded 600-trial delta, threshold +10pp |
-| G4 | Proficiency counted exactly once on an attack | ✅ PASS | `tactical_full` | 1 check: STR +3 + prof +3 = +6 |
-| G5 | Cantrip costs 0; no surge charges a flat sphere | ✅ PASS | `cosmere_full` | 2 checks: cantrip cost 0 with an empty pool |
-| G6 | Illumination's order gate excludes Elsecaller | ✅ PASS | `cosmere_full` | 1 check: holders=['Lightweaver', 'Truthwatcher'] |
-| G7 | Save/load loses nothing via the real path; `export_game_state`'s character branch is lossless too | ✅ PASS | `campaign_arc` | 1 check: HP {'current': 11, 'maximum': 28, 'temporary': 0} AC 16 |
-| G8 | Class-level entity/tile registries are empty after teardown | ✅ PASS | `campaign_arc` | 1 check: entity/tile registries empty |
-| G9 | Max HP never under-reported (a documented past bug) | ✅ PASS | `campaign_arc` | 1 check: authored 25, engine reports 25 |
-| G10 | No `verify=False` anywhere (existing security invariant, kept) | ✅ PASS | `campaign_arc` | 1 check: no verify=False anywhere |
+| # | Guard | Suite A result | Test file | Evidence recorded at runtime | Suite B (real LLM) | Suite B evidence |
+|---|---|---|---|---|---|---|
+| G1 | Every `ACTION_REGISTRY` entry is offerable to *some* legal actor (the `cast_spell`/`spell_name` class of bug) | ✅ PASS | `combat_full` | 1 check: 28 offerable | ⚪ | not driven by Suite B — offerability is a registry property |
+| G2 | No module in `components/`, `agents/`, `core/`, `orchestrator/` defines a public callable with zero non-test callers (the reachability test, automated) | ✅ PASS | `campaign_arc` | 1 check: 5 previously-unreachable symbols all wired | ⚪ | not driven by Suite B — reachability is a static scan |
+| G3 | Advantage delta ≥ +15pp (the no-op patch) | ✅ PASS | `combat_full` | via `C5:advantage`: seeded 600-trial delta, threshold +10pp | ⚪ | not driven by Suite B — measured statistically in Suite A |
+| G4 | Proficiency counted exactly once on an attack | ✅ PASS | `tactical_full` | 1 check: STR +3 + prof +3 = +6 | ⚪ | not driven by Suite B — computed, never a tool call |
+| G5 | Cantrip costs 0; no surge charges a flat sphere | ✅ PASS | `cosmere_full` | 2 checks: cantrip cost 0 with an empty pool | ⚪ | not driven by Suite B — cantrip cost is a data assertion |
+| G6 | Illumination's order gate excludes Elsecaller | ✅ PASS | `cosmere_full` | 1 check: holders=['Lightweaver', 'Truthwatcher'] | ⚪ | not driven by Suite B — order gate is a data assertion |
+| G7 | Save/load loses nothing via the real path; `export_game_state`'s character branch is lossless too | ✅ PASS | `campaign_arc` | 1 check: HP {'current': 11, 'maximum': 28, 'temporary': 0} AC 16 | ⚪ | not driven by Suite B — save/load is not a player turn |
+| G8 | Class-level entity/tile registries are empty after teardown | ✅ PASS | `campaign_arc` | 1 check: entity/tile registries empty | ✅ | asserted after EVERY live turn (Suite A's invariants, reused) |
+| G9 | Max HP never under-reported (a documented past bug) | ✅ PASS | `campaign_arc` | 1 check: authored 25, engine reports 25 | ✅ | asserted after EVERY live turn (HP bounds invariant) |
+| G10 | No `verify=False` anywhere (existing security invariant, kept) | ✅ PASS | `campaign_arc` | 1 check: no verify=False anywhere | ✅ | TLS verification never disabled; live runs use the real gateway |
 
 ---
 
@@ -347,7 +364,7 @@ assertion, and each is cheap to re-break:
 Each is a **full game session**, driven through `play_turn()` with the fake generator.
 
 | ID | Scenario | Mechanics exercised | Built? | Where it lives |
-|---|---|---|---|---|
+|---|---|---|---|---|---|---|
 | **C-1** | *Skirmish, 5 rounds, seeded* — 2 PCs vs 3 monsters on a grid with cover and difficult terrain | C1-C6, C10-C16 | ✅ | `test_combat_full.py::TestC1Skirmish` + the grid half in `test_tactical_full.py` |
 | **C-2** | *Every action* — one contrived encounter that walks all 28 offerable actions | C7, C8, G1 | ✅ | `test_combat_full.py::TestC2ActionRegistry` — all 28 offerable actions dispatched |
 | **C-3** | *Caster's turn* — cantrip, leveled spell, upcast, concentration broken by damage, AoE on 3 targets | C9 | 🟡 | `test_combat_full.py::TestC9Spellcasting` — slots/cantrip/upcast/save DC. Concentration-break and AoE are covered by the existing `tests/test_concentration_damage.py` and `tests/combat/test_aoe_spells.py` (13 passing), not duplicated here |
@@ -458,7 +475,26 @@ hardcoded list is deliberate: new content is opted *in* to coverage automaticall
 > | §6 state invariants after every live turn | **held on every turn** |
 > | Mechanics confirmed reached in live play | skills/7-step pipeline · rules tiers · rests · travel · inventory · Stormlight · spellcasting · combat |
 > | Worst turn latency | **28-41s** (was 665s before the timeout fix) |
-> | Tool reach | **30-40%** (6-8 of 20), varies by run |
+> | Tool reach, one 8-turn run | **30%** (6 of 20) |
+> | Tool reach, one 20-turn `--full-coverage` run | **60%** (12 of 20) |
+> | Tool reach, **union across accumulated runs** | **80%** (16 of 20) |
+>
+> ### Reach: what a longer, targeted script buys
+>
+> `--full-coverage` plays one turn per DM tool, each phrased as a player would (never
+> "call award_experience"), and reports per-turn hit/miss. Reach roughly doubled against
+> the 8-turn script. Because the model picks different tools on different runs — two
+> 20-turn runs each reached 12 of 20, but not the same 12 — `--accumulate FILE` merges
+> runs and reports the union; that union is what the §4 tables' ✅ marks reflect.
+>
+> **Four tools were never reached in ANY run**, and the distinction matters:
+>
+> | Tool | Why |
+> |---|---|
+> | `stabilize_dying` | **Situational.** Needs an ally actually at 0 HP; narrating a collapse does not create one, and Suite B must not fake state to make a tool fire. |
+> | `get_passive_perception` | **Situational.** Only meaningful when something is hidden. |
+> | `search_lore` | **A real prompt gap.** Never called even when the player asks a direct lore question — the prompt says *"search_lore is flavour only"* and the model obeys. |
+> | `roll_social_check` | **A real prompt gap.** The NPC pipeline has the tool; the model narrates the conversation instead of rolling for it. |
 >
 > ### Four production bugs Suite B found — none visible to Suite A
 >

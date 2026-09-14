@@ -5,6 +5,7 @@
     "apply_damage",
     "apply_healing",
     "award_experience",
+    "cast_spell",
     "get_character_state",
     "get_party_state",
     "get_world_state",
@@ -16,5 +17,5 @@
     "take_rest",
     "travel_to_location"
   ],
-  "runs_merged": 4
+  "runs_merged": 5
 }

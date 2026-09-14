@@ -93,36 +93,48 @@ class TestE6SocialChecks:
     """
 
     def test_a_social_check_rolls_real_dice(self, ledger):
-        from agents.dm_tools import set_dm_tool_context
-        from agents.npc_controller_agent import roll_social_check
+        """E6: a social check must produce a REAL roll, not an error dict.
+
+        `roll_social_check` reads its own `_NPC_CONTEXT`, wired by
+        `set_npc_tool_context` — NOT the `dm_tools` context. Without it the tool
+        returns `{"error": "game_engine not available", "success": False}`.
+
+        An earlier version of this test asserted only `"success" in result`, which is
+        TRUE for that error dict — so it passed while proving nothing, and the coverage
+        ledger duly recorded the error as its evidence. Caught by reading that evidence
+        string while annotating the strategy tables. Now it asserts a real die.
+        """
+        from agents.npc_controller_agent import roll_social_check, set_npc_tool_context
 
         engine = build_engine()
-        set_dm_tool_context(game_engine=engine,
-                            character_manager=engine.character_manager)
+        set_npc_tool_context(game_engine=engine)
 
-        # `roll_social_check` is a Haystack `Tool`, not a plain function.
-        result = roll_social_check.invoke(skill="persuasion", dc=13,
-                                          actor="aggi")
+        result = roll_social_check.invoke(skill="persuasion", dc=13, actor="aggi")
 
-        assert isinstance(result, dict), f"returned {type(result)}"
-        assert "success" in result or "roll_total" in result, (
-            f"no dice verdict in a social check: {sorted(result)}")
-        ledger.mechanic("E6:social_dice", str(result)[:120])
+        assert not result.get("error"), (
+            f"the social check failed instead of rolling: {result}")
+        roll = result.get("roll_total") or result.get("selected_roll")
+        assert roll is not None, f"no die was rolled: {result}"
+        assert 1 <= int(roll) <= 40, f"implausible d20-based total: {roll}"
+        assert isinstance(result.get("success"), bool), (
+            f"no pass/fail verdict: {result}")
+        ledger.mechanic("E6:social_dice",
+                        f"roll={roll} success={result.get('success')}")
 
     def test_all_three_social_skills_resolve(self, ledger):
-        from agents.dm_tools import set_dm_tool_context
-        from agents.npc_controller_agent import roll_social_check
+        from agents.npc_controller_agent import roll_social_check, set_npc_tool_context
 
         engine = build_engine()
-        set_dm_tool_context(game_engine=engine,
-                            character_manager=engine.character_manager)
+        set_npc_tool_context(game_engine=engine)
 
+        rolled = {}
         for skill in ("persuasion", "deception", "intimidation"):
-            result = roll_social_check.invoke(skill=skill, dc=12,
-                                              actor="aggi")
-            assert isinstance(result, dict) and result, f"{skill} produced nothing"
-        ledger.mechanic("E6:three_social_skills",
-                        "persuasion, deception, intimidation all rolled")
+            result = roll_social_check.invoke(skill=skill, dc=12, actor="aggi")
+            assert not result.get("error"), f"{skill} failed: {result}"
+            roll = result.get("roll_total") or result.get("selected_roll")
+            assert roll is not None, f"{skill} rolled no die: {result}"
+            rolled[skill] = roll
+        ledger.mechanic("E6:three_social_skills", str(rolled))
 
 
 # --------------------------------------------------------------------------- #
